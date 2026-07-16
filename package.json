@@ -2,15 +2,16 @@
   "name": "lms-plugin-big-rag",
   "version": "1.0.0",
   "description": "Large-scale RAG plugin for indexing gigabytes/terabytes of documents",
-  "homepage": "https://github.com/ari99/lm_studio_big_rag_plugin",
+  "homepage": "https://github.com/Tedyang2003/big-rag",
   "repository": {
     "type": "git",
-    "url": "https://github.com/ari99/lm_studio_big_rag_plugin.git"
+    "url": "https://github.com/Tedyang2003/big-rag.git"
   },
   "main": "index.js",
   "scripts": {
     "dev": "lms dev",
     "push": "lms push",
+    "install-plugin": "lms dev --install -y && node scripts/fix-install-assets.js",
     "bundle:dev": "esbuild .lmstudio/entry.ts --bundle --platform=node --format=cjs --packages=external --outfile=.lmstudio/dev.js",
     "build": "tsc && npm run bundle:dev",
     "test": "npm run build && node --test dist/tests/parseDocument.test.js dist/tests/fileExcludePatterns.test.js",
@@ -22,28 +23,27 @@
   "dependencies": {
     "@lancedb/lancedb": "^0.24.1",
     "@lmstudio/sdk": "^1.5.0",
-    "@napi-rs/canvas": "file:stubs/napi-rs-canvas",
     "cheerio": "^1.0.0-rc.12",
     "epub2": "^3.0.2",
     "mime-types": "^2.1.35",
     "minimatch": "^10.0.1",
+    "mupdf": "^1.27.0",
     "p-queue": "^6.6.2",
     "pdf-parse": "^1.1.1",
-    "pdfjs-dist": "^4.0.379",
     "pngjs": "^7.0.0",
     "tesseract.js": "^5.0.4",
     "vectra": "^0.12.3",
     "zod": "3.24.1"
   },
-    "optionalDependencies": {
+  "optionalDependencies": {
     "@lancedb/lancedb-darwin-arm64": "^0.24.1"
   },
   "devDependencies": {
-    "esbuild": "^0.25.0",
     "@types/mime-types": "^2.1.4",
     "@types/node": "^20.14.8",
     "@types/pdf-parse": "^1.1.5",
     "@types/pngjs": "^6.0.5",
+    "esbuild": "^0.25.0",
     "typescript": "^5.9.3"
   },
   "overrides": {

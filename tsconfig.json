@@ -1,7 +1,7 @@
 {
   "compilerOptions": {
     "strict": true,
-    "module": "CommonJS",
+    "module": "nodenext",
     "target": "ES2021",
     "declaration": true,
     "noImplicitOverride": true,
@@ -12,7 +12,7 @@
     "rootDir": "src",
     "outDir": "dist",
     "resolveJsonModule": true,
-    "moduleResolution": "node"
+    "moduleResolution": "nodenext"
   }
 }
 

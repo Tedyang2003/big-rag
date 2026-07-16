@@ -2,23 +2,22 @@ import { type LMStudioClient } from "@lmstudio/sdk";
 import * as fs from "fs";
 import pdfParse from "pdf-parse";
 import { createWorker } from "tesseract.js";
-import { PNG } from "pngjs";
+
+// mupdf is an ESM module with top-level await — it cannot be require()'d.
+// We load it lazily via dynamic import() so the CJS host doesn't choke on it.
+let cachedMupdf: typeof import("mupdf") | null = null;
+async function getMupdf() {
+  if (!cachedMupdf) {
+    cachedMupdf = await import("mupdf");
+  }
+  return cachedMupdf;
+}
 
 const MIN_TEXT_LENGTH = 50;
 const OCR_MAX_PAGES = 50;
-const OCR_MAX_IMAGES_PER_PAGE = 3;
-const OCR_MIN_IMAGE_AREA = 10_000;
-const OCR_MAX_IMAGE_PIXELS = 50_000_000; // ~7000x7000; prevents leptonica pixdata_malloc crashes
-const OCR_IMAGE_TIMEOUT_MS = 30_000;
-
-type PdfJsModule = typeof import("pdfjs-dist/legacy/build/pdf.mjs");
-
-interface ExtractedOcrImage {
-  buffer: Buffer;
-  width: number;
-  height: number;
-  area: number;
-}
+const OCR_DEFAULT_SCALE = 2; // 144 dpi, good balance of OCR accuracy vs memory
+const OCR_MIN_SCALE = 0.75; // floor before we give up on a page instead of risking a native crash
+const OCR_MAX_PIXMAP_PIXELS = 50_000_000; // ~7000x7000; prevents leptonica pixdata_malloc crashes
 
 export type PdfFailureReason =
   | "pdf.lmstudio-error"
@@ -31,12 +30,6 @@ export type PdfFailureReason =
   | "pdf.ocr-empty";
 
 type PdfParseStage = "lmstudio" | "pdf-parse" | "ocr";
-class ImageDataTimeoutError extends Error {
-  constructor(objId: string) {
-    super(`Timed out fetching image data for ${objId}`);
-    this.name = "ImageDataTimeoutError";
-  }
-}
 
 interface PdfParserSuccess {
   success: true;
@@ -61,15 +54,6 @@ function cleanText(text: string): string {
 
 type StageResult = PdfParserSuccess | PdfParserFailure;
 
-let cachedPdfjsLib: PdfJsModule | null = null;
-
-async function getPdfjsLib() {
-  if (!cachedPdfjsLib) {
-    cachedPdfjsLib = await import("pdfjs-dist/legacy/build/pdf.mjs");
-  }
-  return cachedPdfjsLib;
-}
-
 async function tryLmStudioParser(filePath: string, client: LMStudioClient): Promise<StageResult> {
   const maxRetries = 2;
   const fileName = filePath.split("/").pop() || filePath;
@@ -89,11 +73,7 @@ async function tryLmStudioParser(filePath: string, client: LMStudioClient): Prom
 
       const cleaned = cleanText(result.content);
       if (cleaned.length >= MIN_TEXT_LENGTH) {
-        return {
-          success: true,
-          text: cleaned,
-          stage: "lmstudio",
-        };
+        return { success: true, text: cleaned, stage: "lmstudio" };
       }
 
       console.log(
@@ -142,11 +122,7 @@ async function tryPdfParse(filePath: string): Promise<StageResult> {
 
     if (cleaned.length >= MIN_TEXT_LENGTH) {
       console.log(`[PDF Parser] (pdf-parse) Successfully extracted text from ${fileName}`);
-      return {
-        success: true,
-        text: cleaned,
-        stage: "pdf-parse",
-      };
+      return { success: true, text: cleaned, stage: "pdf-parse" };
     }
 
     console.log(
@@ -167,134 +143,148 @@ async function tryPdfParse(filePath: string): Promise<StageResult> {
   }
 }
 
-async function tryOcrWithPdfJs(filePath: string): Promise<StageResult> {
+/**
+ * Pick the largest scale (<= desiredScale, >= OCR_MIN_SCALE, in steps of 0.25) whose
+ * resulting pixmap stays within OCR_MAX_PIXMAP_PIXELS. Returns null if even the minimum
+ * scale would exceed the budget (page is too large to render safely).
+ */
+function computeSafeOcrScale(bounds: number[], desiredScale: number): number | null {
+  const width = bounds[2] - bounds[0];
+  const height = bounds[3] - bounds[1];
+  if (!(width > 0) || !(height > 0)) {
+    return null;
+  }
+
+  for (let scale = desiredScale; scale >= OCR_MIN_SCALE; scale -= 0.25) {
+    const pixels = width * scale * (height * scale);
+    if (pixels <= OCR_MAX_PIXMAP_PIXELS) {
+      return scale;
+    }
+  }
+
+  return null;
+}
+
+async function tryOcrWithMuPdf(filePath: string): Promise<StageResult> {
+  console.log("[PDF Parser] (OCR) Starting OCR fallback for", filePath);
   const fileName = filePath.split("/").pop() || filePath;
 
   let worker: Awaited<ReturnType<typeof createWorker>> | null = null;
+  let docHandle: { destroy(): void } | null = null;
   try {
-    const pdfjsLib = await getPdfjsLib();
-    const data = new Uint8Array(await fs.promises.readFile(filePath));
-    const pdfDocument = await pdfjsLib
-      .getDocument({ data, verbosity: pdfjsLib.VerbosityLevel.ERRORS })
-      .promise;
+    const mupdf = await getMupdf();
+    const fileBuffer = await fs.promises.readFile(filePath);
 
-    const numPages = pdfDocument.numPages;
+    const doc = mupdf.Document.openDocument(fileBuffer, "application/pdf");
+    docHandle = doc;
+
+    const numPages = doc.countPages();
     const maxPages = Math.min(numPages, OCR_MAX_PAGES);
 
     console.log(
-      `[PDF Parser] (OCR) Starting OCR for ${fileName} - pages 1 to ${maxPages} (of ${numPages})`,
+      `[PDF Parser] (OCR) Starting MuPDF OCR for ${fileName} - pages 1 to ${maxPages}`,
     );
 
     worker = await createWorker("eng");
     const textParts: string[] = [];
     let renderErrors = 0;
-    let processedImages = 0;
+    type MupdfPage = ReturnType<typeof doc.loadPage>;
+    type MupdfPixmap = ReturnType<MupdfPage["toPixmap"]>;
 
-    for (let pageNum = 1; pageNum <= maxPages; pageNum++) {
-      let page;
+    for (let pageNum = 0; pageNum < maxPages; pageNum++) {
+      let page: MupdfPage | null = null;
+      let pixmap: MupdfPixmap | null = null;
       try {
-        page = await pdfDocument.getPage(pageNum);
-        const images = await extractImagesForPage(pdfjsLib, page);
-        if (images.length === 0) {
-          console.log(
-            `[PDF Parser] (OCR) ${fileName} - page ${pageNum} contains no extractable images, skipping`,
+        page = doc.loadPage(pageNum);
+        const bounds = page.getBounds();
+        const scale = computeSafeOcrScale(bounds, OCR_DEFAULT_SCALE);
+
+        if (scale === null) {
+          renderErrors++;
+          console.warn(
+            `[PDF Parser] (OCR) Skipping oversized page ${pageNum + 1} of ${fileName} ` +
+              `(bounds=${bounds.join(",")}) to avoid a native allocation failure`,
           );
           continue;
         }
 
-        const selectedImages = images.slice(0, OCR_MAX_IMAGES_PER_PAGE);
-        for (const image of selectedImages) {
+        const matrix = mupdf.Matrix.scale(scale, scale);
+        pixmap = page.toPixmap(matrix, mupdf.ColorSpace.DeviceRGB, false, true);
+        const pngBuffer = pixmap.asPNG();
+
+        try {
+          const { data: { text } } = await worker.recognize(Buffer.from(pngBuffer));
+          const cleaned = cleanText(text || "");
+          if (cleaned.length > 0) {
+            textParts.push(cleaned);
+          }
+        } catch (recognizeError) {
+          renderErrors++;
+          console.warn(
+            `[PDF Parser] (OCR) Failed to recognize page ${pageNum + 1} of ${fileName}, recreating worker:`,
+            recognizeError instanceof Error ? recognizeError.message : recognizeError,
+          );
+          // The worker may have crashed; try to recreate it for remaining pages
           try {
-            const {
-              data: { text },
-            } = await worker.recognize(image.buffer);
-            processedImages++;
-            const cleaned = cleanText(text || "");
-            if (cleaned.length > 0) {
-              textParts.push(cleaned);
-            }
-          } catch (recognizeError) {
-            console.warn(
-              `[PDF Parser] (OCR) Failed to recognize image (${image.width}x${image.height}) on page ${pageNum} of ${fileName}:`,
-              recognizeError instanceof Error ? recognizeError.message : recognizeError,
+            await worker.terminate();
+          } catch {
+            // worker already dead, ignore
+          }
+          try {
+            worker = await createWorker("eng");
+          } catch (recreateError) {
+            console.error(
+              `[PDF Parser] (OCR) Failed to recreate OCR worker, aborting OCR for ${fileName}`,
             );
-            // The worker may have crashed; try to recreate it for remaining images
-            try {
-              await worker.terminate();
-            } catch {
-              // worker already dead, ignore
-            }
-            try {
-              worker = await createWorker("eng");
-            } catch (recreateError) {
-              console.error(
-                `[PDF Parser] (OCR) Failed to recreate OCR worker, aborting OCR for ${fileName}`,
-              );
-              worker = null;
-              return {
-                success: false,
-                reason: "pdf.ocr-error",
-                details: `Worker crashed and could not be recreated: ${
-                  recreateError instanceof Error ? recreateError.message : String(recreateError)
-                }`,
-              };
-            }
+            worker = null;
+            return {
+              success: false,
+              reason: "pdf.ocr-error",
+              details: `Worker crashed and could not be recreated: ${
+                recreateError instanceof Error ? recreateError.message : String(recreateError)
+              }`,
+            };
           }
         }
 
-        if (pageNum === 1 || pageNum % 10 === 0 || pageNum === maxPages) {
+        if (pageNum === 0 || (pageNum + 1) % 10 === 0 || pageNum + 1 === maxPages) {
           console.log(
-            `[PDF Parser] (OCR) ${fileName} - processed page ${pageNum}/${maxPages} (images=${processedImages}, chars=${textParts.join(
-              "\n\n",
-            ).length})`,
+            `[PDF Parser] (OCR) ${fileName} - processed page ${pageNum + 1}/${maxPages} (chars=${textParts.join("\n\n").length})`,
           );
         }
       } catch (pageError) {
-        if (pageError instanceof ImageDataTimeoutError) {
-          console.error(
-            `[PDF Parser] (OCR) Aborting OCR for ${fileName}: ${pageError.message}`,
-          );
-          await worker.terminate();
-          worker = null;
-          return {
-            success: false,
-            reason: "pdf.ocr-error",
-            details: pageError.message,
-          };
-        }
         renderErrors++;
         console.error(
-          `[PDF Parser] (OCR) Error processing page ${pageNum} of ${fileName}:`,
+          `[PDF Parser] (OCR) Error rendering page ${pageNum + 1} of ${fileName}:`,
           pageError,
         );
       } finally {
-        await page?.cleanup();
+        pixmap?.destroy();
+        page?.destroy();
       }
     }
 
     if (worker) {
       await worker.terminate();
+      worker = null;
     }
-    worker = null;
+
+    if (renderErrors > 0) {
+      console.warn(
+        `[PDF Parser] (OCR) ${fileName} had ${renderErrors}/${maxPages} page render errors`,
+      );
+    }
 
     const fullText = cleanText(textParts.join("\n\n"));
-    console.log(
-      `[PDF Parser] (OCR) Completed OCR for ${fileName}, extracted ${fullText.length} characters`,
-    );
-
     if (fullText.length >= MIN_TEXT_LENGTH) {
-      return {
-        success: true,
-        text: fullText,
-        stage: "ocr",
-      };
+      return { success: true, text: fullText, stage: "ocr" };
     }
 
     if (renderErrors > 0) {
       return {
         success: false,
         reason: "pdf.ocr-render-error",
-        details: `${renderErrors} page render errors`,
+        details: `${renderErrors}/${maxPages} page render errors`,
       };
     }
 
@@ -304,7 +294,7 @@ async function tryOcrWithPdfJs(filePath: string): Promise<StageResult> {
       details: "OCR produced insufficient text",
     };
   } catch (error) {
-    console.error(`[PDF Parser] (OCR) Error during OCR for ${fileName}:`, error);
+    console.error(`[PDF Parser] (OCR) Error during OCR:`, error);
     return {
       success: false,
       reason: "pdf.ocr-error",
@@ -314,162 +304,10 @@ async function tryOcrWithPdfJs(filePath: string): Promise<StageResult> {
     if (worker) {
       await worker.terminate();
     }
+    docHandle?.destroy();
   }
 }
 
-async function extractImagesForPage(pdfjsLib: PdfJsModule, page: any): Promise<ExtractedOcrImage[]> {
-  const operatorList = await page.getOperatorList();
-  const images: ExtractedOcrImage[] = [];
-  const imageDataCache = new Map<string, Promise<any | null>>();
-
-  for (let i = 0; i < operatorList.fnArray.length; i++) {
-    const fn = operatorList.fnArray[i];
-    const args = operatorList.argsArray[i];
-
-    try {
-      if (fn === pdfjsLib.OPS.paintImageXObject || fn === pdfjsLib.OPS.paintImageXObjectRepeat) {
-        const objId = args?.[0];
-        if (typeof objId !== "string") {
-          continue;
-        }
-        let imgData;
-        try {
-          imgData = await resolveImageData(page, objId, imageDataCache);
-        } catch (error) {
-          if (error instanceof ImageDataTimeoutError) {
-            throw error;
-          }
-          console.warn("[PDF Parser] (OCR) Failed to resolve image data:", error);
-          continue;
-        }
-        if (!imgData) {
-          continue;
-        }
-        const converted = convertImageDataToPng(pdfjsLib, imgData);
-        if (converted) {
-          images.push(converted);
-        }
-      } else if (fn === pdfjsLib.OPS.paintInlineImageXObject && args?.[0]) {
-        const converted = convertImageDataToPng(pdfjsLib, args[0]);
-        if (converted) {
-          images.push(converted);
-        }
-      }
-    } catch (error) {
-      if (error instanceof ImageDataTimeoutError) {
-        throw error;
-      }
-      console.warn("[PDF Parser] (OCR) Failed to extract inline image:", error);
-    }
-  }
-
-  return images
-    .filter((image) => {
-      if (image.area < OCR_MIN_IMAGE_AREA) return false;
-      if (image.area > OCR_MAX_IMAGE_PIXELS) {
-        console.warn(
-          `[PDF Parser] (OCR) Skipping oversized image (${image.width}x${image.height} = ${image.area.toLocaleString()} pixels) to avoid memory allocation failure`,
-        );
-        return false;
-      }
-      return true;
-    })
-    .sort((a, b) => b.area - a.area);
-}
-
-async function resolveImageData(
-  page: any,
-  objId: string,
-  cache: Map<string, Promise<any | null>>,
-): Promise<any | null> {
-  if (cache.has(objId)) {
-    return cache.get(objId)!;
-  }
-
-  // Avoid PDF.js PDFObjects.get(id, callback): it does obj.promise.then(() => cb(...))
-  // without .catch(), so a rejected or throwing callback becomes an unhandled rejection
-  // (e.g. FormatError from malformed PDF streams).
-  const promise = (async () => {
-    const deadline = Date.now() + OCR_IMAGE_TIMEOUT_MS;
-    const pollMs = 25;
-
-    while (Date.now() < deadline) {
-      try {
-        if (typeof page.objs.has === "function" && page.objs.has(objId)) {
-          return page.objs.get(objId);
-        }
-      } catch {
-        // Transient; keep polling until timeout.
-      }
-      await new Promise((r) => setTimeout(r, pollMs));
-    }
-
-    throw new ImageDataTimeoutError(objId);
-  })();
-
-  cache.set(objId, promise);
-  return promise;
-}
-
-function convertImageDataToPng(
-  pdfjsLib: PdfJsModule,
-  imgData: any,
-): ExtractedOcrImage | null {
-  if (!imgData || typeof imgData.width !== "number" || typeof imgData.height !== "number") {
-    return null;
-  }
-
-  const { width, height, kind, data } = imgData;
-  if (!data) {
-    return null;
-  }
-
-  const png = new PNG({ width, height });
-  const dest = png.data;
-
-  if (kind === pdfjsLib.ImageKind.RGBA_32BPP && data.length === width * height * 4) {
-    dest.set(Buffer.from(data));
-  } else if (kind === pdfjsLib.ImageKind.RGB_24BPP && data.length === width * height * 3) {
-    const src = data as Uint8Array;
-    for (let i = 0, j = 0; i < src.length; i += 3, j += 4) {
-      dest[j] = src[i];
-      dest[j + 1] = src[i + 1];
-      dest[j + 2] = src[i + 2];
-      dest[j + 3] = 255;
-    }
-  } else if (kind === pdfjsLib.ImageKind.GRAYSCALE_1BPP) {
-    let pixelIndex = 0;
-    const totalPixels = width * height;
-    for (let byteIndex = 0; byteIndex < data.length && pixelIndex < totalPixels; byteIndex++) {
-      const byte = data[byteIndex];
-      for (let bit = 7; bit >= 0 && pixelIndex < totalPixels; bit--) {
-        const value = (byte >> bit) & 1 ? 255 : 0;
-        const destIndex = pixelIndex * 4;
-        dest[destIndex] = value;
-        dest[destIndex + 1] = value;
-        dest[destIndex + 2] = value;
-        dest[destIndex + 3] = 255;
-        pixelIndex++;
-      }
-    }
-  } else {
-    return null;
-  }
-
-  return {
-    buffer: PNG.sync.write(png),
-    width,
-    height,
-    area: width * height,
-  };
-}
-
-/**
- * Parse PDF files with a multi-stage strategy:
- * 1. Use LM Studio's built-in document parser (fast, server-side, may include OCR)
- * 2. Fallback to local pdf-parse for text-based PDFs
- * 3. If still no text and OCR is enabled, fallback to PDF.js + Tesseract OCR
- */
 export async function parsePDF(
   filePath: string,
   client: LMStudioClient,
@@ -507,11 +345,5 @@ export async function parsePDF(
     `[PDF Parser] (OCR) No text extracted from ${fileName} with LM Studio or pdf-parse, attempting OCR...`,
   );
 
-  const ocrResult = await tryOcrWithPdfJs(filePath);
-  if (ocrResult.success) {
-    return ocrResult;
-  }
-
-  return ocrResult;
+  return tryOcrWithMuPdf(filePath);
 }
-

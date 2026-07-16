@@ -1,9 +1,9 @@
 {
   "type": "plugin",
   "runner": "node",
-  "owner": "mindstudio",
+  "owner": "saic",
   "name": "big-rag",
   "revision": 1,
-  "description": "Hosted at https://github.com/ari99/lm_studio_big_rag_plugin"
+  "description": "Hosted at https://github.com/Tedyang2003/big-rag"
 }
 
