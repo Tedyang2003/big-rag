@@ -1,6 +1,6 @@
 {
   "name": "lms-plugin-big-rag",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "description": "Large-scale RAG plugin for indexing gigabytes/terabytes of documents",
   "homepage": "https://github.com/Tedyang2003/big-rag",
   "repository": {
