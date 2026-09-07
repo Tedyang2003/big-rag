@@ -356,8 +356,10 @@ export class IndexManager {
       }
       const parsed = parsedResult.document;
 
-      // Chunk text
-      const chunks = chunkText(parsed.text, chunkSize, chunkOverlap);
+      // Chunk text (sized against real embedding-model tokens, not words)
+      const chunks = await chunkText(parsed.text, chunkSize, chunkOverlap, (t) =>
+        embeddingModel.countTokens(t),
+      );
       if (chunks.length === 0) {
         console.log(`No chunks created from ${file.name}`);
         this.recordFailure("index.chunk-empty", "chunkText produced 0 chunks", file);
