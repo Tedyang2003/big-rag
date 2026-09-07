@@ -5,19 +5,7 @@ import { parseDocument } from "../parsers/documentParser";
 
 const FIXTURE_DIR = path.resolve(__dirname, "../../test-fixtures");
 
-test("parseDocument extracts clean text from HTML files", async () => {
-  const htmlPath = path.join(FIXTURE_DIR, "sample.html");
-  const result = await parseDocument(htmlPath);
-
-  assert.equal(result.success, true, `Expected success but got ${result.success ? "success" : result.reason}`);
-  if (!result.success) {
-    return;
-  }
-
-  assert.ok(result.document.text.includes("Hello There"));
-  assert.ok(!result.document.text.includes("console.log"));
-});
-
+// Test to see if Markdown Parsing can extract text
 test("parseDocument flattens Markdown formatting", async () => {
   const mdPath = path.join(FIXTURE_DIR, "sample.md");
   const result = await parseDocument(mdPath);
@@ -33,6 +21,7 @@ test("parseDocument flattens Markdown formatting", async () => {
   assert.ok(!text.includes("https://example.com"), "Markdown links should drop raw URLs");
 });
 
+// Test to see if plain text Parsing can extract text
 test("parseDocument preserves paragraph spacing for plain text", async () => {
   const txtPath = path.join(FIXTURE_DIR, "sample.txt");
   const result = await parseDocument(txtPath);
@@ -46,4 +35,3 @@ test("parseDocument preserves paragraph spacing for plain text", async () => {
   assert.ok(text.includes("\n\n"), "Plain text should preserve blank lines between paragraphs");
   assert.ok(text.startsWith("This is a plain text document."));
 });
-

@@ -19,7 +19,7 @@ Before larger end-to-end runs, ensure the core parsers succeed:
 npm run test
 ```
 
-This builds the project and executes the HTML/Markdown/Text regression tests located in `src/tests/parseDocument.test.ts`.
+This builds the project and executes the per-format parser regression tests in `src/tests/` (one file per format: `htmlParser.test.ts`, `textParser.test.ts`, `pptxParser.test.ts`, `docxParser.test.ts`, `epubParser.test.ts`, `pdfParser.test.ts`, `imageParser.test.ts`, plus `documentParser.test.ts` for format-agnostic dispatch behavior).
 
 ### 1. Install Dependencies
 

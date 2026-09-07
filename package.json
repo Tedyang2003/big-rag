@@ -14,7 +14,7 @@
     "install-plugin": "lms dev --install -y && node scripts/fix-install-assets.js",
     "bundle:dev": "esbuild .lmstudio/entry.ts --bundle --platform=node --format=cjs --packages=external --outfile=.lmstudio/dev.js",
     "build": "tsc && npm run bundle:dev",
-    "test": "npm run build && node --test dist/tests/parseDocument.test.js dist/tests/fileExcludePatterns.test.js",
+    "test": "npm run build && node --test dist/tests/*.test.js",
     "index:cli": "node dist/cliIndex.js",
     "index": "npm run build && node dist/cliIndex.js /Users/user/dev/new_cursor_projects/lmstudio_big_rag/data/original_data/gunsmithing_all /Users/user/dev/new_cursor_projects/lmstudio_big_rag/data/vectorstore"
   },
