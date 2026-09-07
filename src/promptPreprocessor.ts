@@ -1,9 +1,13 @@
 import {
   type ChatMessage,
+  type EmbeddingDynamicHandle,
+  type FileHandle,
+  type LMStudioClient,
   type PromptPreprocessorController,
+  type RetrievalResultEntry,
 } from "@lmstudio/sdk";
 import { configSchematics, DEFAULT_PROMPT_TEMPLATE, resolveEmbeddingModelId } from "./config";
-import { VectorStore } from "./vectorstore/vectorStore";
+import { VectorStore, type SearchResult } from "./vectorstore/vectorStore";
 import { performSanityChecks } from "./utils/sanityChecks";
 import { tryStartIndexing, finishIndexing } from "./utils/indexingLock";
 import {
@@ -13,6 +17,8 @@ import {
 import * as path from "path";
 import { runIndexingJob } from "./ingestion/runIndexing";
 import { parseExcludePatternsBlock } from "./utils/fileExcludePatterns";
+import { trimOverlappingChunks } from "./utils/trimOverlappingChunks";
+import { compactPassageText } from "./utils/compactPassages";
 
 /**
  * Check the abort signal and throw if the request has been cancelled.
@@ -48,10 +54,70 @@ function summarizeText(text: string, maxLines: number = 3, maxChars: number = 40
   return needsEllipsis ? `${clipped.trimEnd()}…` : clipped;
 }
 
+/** How many candidate passages to pull per one requested by retrievalLimit when compaction is on. */
+const CONTEXT_COMPACTION_POOL_MULTIPLIER = 3;
+
+/**
+ * Compacts each candidate passage's text (extractive, sentence-level - see
+ * compactPassages.ts) and greedily fills the same total token budget
+ * retrievalLimit full-size chunks would have used, in score order. Since
+ * compaction shrinks passages, this generally ends up including more
+ * distinct passages than retrievalLimit for the same context cost, rather
+ * than just using less context for its own sake.
+ */
+async function compactResultsToBudget(
+  results: SearchResult[],
+  queryEmbedding: number[],
+  embeddingModel: EmbeddingDynamicHandle,
+  targetTokenBudget: number,
+): Promise<SearchResult[]> {
+  const compacted: SearchResult[] = [];
+  let usedTokens = 0;
+
+  for (const result of results) {
+    const compactedText = await compactPassageText(result.text, queryEmbedding, (sentences) =>
+      embeddingModel.embed(sentences),
+    );
+    const tokenCount = await embeddingModel.countTokens(compactedText);
+
+    // Always keep at least one passage even if it alone exceeds the budget;
+    // otherwise skip (not break) so a smaller candidate further down the
+    // ranked list still gets a chance to fit.
+    if (compacted.length > 0 && usedTokens + tokenCount > targetTokenBudget) {
+      continue;
+    }
+
+    compacted.push({ ...result, text: compactedText });
+    usedTokens += tokenCount;
+  }
+
+  return compacted;
+}
+
 // Global state for vector store (persists across requests)
 let vectorStore: VectorStore | null = null;
 let lastIndexedDir = "";
 let sanityChecksPassed = false;
+
+// Cache of FileHandles prepared for citations, keyed by file path (persists
+// across requests like the state above). Keyed by fileHash too so a
+// reindexed file gets a fresh handle instead of citing stale content under
+// a stale registration.
+const citationFileHandleCache = new Map<string, { fileHash: string; fileHandle: FileHandle }>();
+
+async function getCitationFileHandle(
+  client: LMStudioClient,
+  filePath: string,
+  fileHash: string,
+): Promise<FileHandle> {
+  const cached = citationFileHandleCache.get(filePath);
+  if (cached && cached.fileHash === fileHash) {
+    return cached.fileHandle;
+  }
+  const fileHandle = await client.files.prepareFile(filePath);
+  citationFileHandleCache.set(filePath, { fileHash, fileHandle });
+  return fileHandle;
+}
 
 const RAG_CONTEXT_MACRO = "{{rag_context}}";
 const USER_QUERY_MACRO = "{{user_query}}";
@@ -156,6 +222,7 @@ export async function preprocess(
   const chunkOverlap = pluginConfig.get("chunkOverlap");
   const maxConcurrent = pluginConfig.get("maxConcurrentFiles");
   const enableOCR = pluginConfig.get("enableOCR");
+  const enableContextCompaction = pluginConfig.get("enableContextCompaction");
   const skipPreviouslyIndexed = pluginConfig.get("manualReindex.skipPreviouslyIndexed");
   const parseDelayMs = pluginConfig.get("parseDelayMs") ?? 0;
   const reindexRequested = pluginConfig.get("manualReindex.trigger");
@@ -174,67 +241,74 @@ export async function preprocess(
   }
 
   try {
-    // Perform sanity checks on first run
-    if (!sanityChecksPassed) {
-      const checkStatus = ctl.createStatus({
+    // Sanity checks and vector store init are one-time setup (guarded below)
+    // - merged into a single status so a fresh session shows one "Using Big
+    // RAG" line instead of two separate ones, and steady-state turns (once
+    // both are already done) show nothing extra at all.
+    const needsSanityCheck = !sanityChecksPassed;
+    const needsVectorStoreInit = !vectorStore || lastIndexedDir !== vectorStoreDir;
+
+    if (needsSanityCheck || needsVectorStoreInit) {
+      const usingBigRagStatus = ctl.createStatus({
         status: "loading",
-        text: "Performing sanity checks...",
+        text: "Using Big RAG...",
       });
 
-      const sanityResult = await performSanityChecks(documentsDir, vectorStoreDir);
+      if (needsSanityCheck) {
+        // Check if the documents and vector store directories exist and are accessible, and check disk space and memory
+        const sanityResult = await performSanityChecks(documentsDir, vectorStoreDir);
 
-      // Log warnings
-      for (const warning of sanityResult.warnings) {
-        console.warn("[BigRAG]", warning);
-      }
-
-      // Log errors and abort if critical
-      if (!sanityResult.passed) {
-        for (const error of sanityResult.errors) {
-          console.error("[BigRAG]", error);
+        // Log warnings
+        for (const warning of sanityResult.warnings) {
+          console.warn("[BigRAG]", warning);
         }
-        const failureReason =
-          sanityResult.errors[0] ??
-          sanityResult.warnings[0] ??
-          "Unknown reason. Please review plugin settings.";
-        checkStatus.setState({
-          status: "canceled",
-          text: `Sanity checks failed: ${failureReason}`,
-        });
-        return userMessage;
+
+        // Log errors and abort if critical
+        if (!sanityResult.passed) {
+          for (const error of sanityResult.errors) {
+            console.error("[BigRAG]", error);
+          }
+          const failureReason =
+            sanityResult.errors[0] ??
+            sanityResult.warnings[0] ??
+            "Unknown reason. Please review plugin settings.";
+          usingBigRagStatus.setState({
+            status: "canceled",
+            text: `Big RAG unavailable: ${failureReason}`,
+          });
+          return userMessage;
+        }
+
+        sanityChecksPassed = true;
       }
 
-      checkStatus.setState({
+      checkAbort(ctl.abortSignal);
+
+      if (needsVectorStoreInit) {
+        // Create Vector Store if it does not exist yet, or open existing one
+        vectorStore = new VectorStore(vectorStoreDir);
+        await vectorStore.initialize();
+        const statsAfterInit = await vectorStore.getStats();
+        if (statsAfterInit.totalChunks === 0) {
+          await deleteEmbeddingIndexManifest(vectorStoreDir);
+        }
+        console.info(
+          `[BigRAG] Vector store ready (path=${vectorStoreDir}). Waiting for queries...`,
+        );
+        lastIndexedDir = vectorStoreDir;
+      }
+
+      usingBigRagStatus.setState({
         status: "done",
-        text: "Sanity checks passed",
+        text: "Using Big RAG",
       });
-      sanityChecksPassed = true;
     }
 
-    checkAbort(ctl.abortSignal);
-
-    // Initialize vector store if needed
-    if (!vectorStore || lastIndexedDir !== vectorStoreDir) {
-      const status = ctl.createStatus({
-        status: "loading",
-        text: "Initializing vector store...",
-      });
-
-      vectorStore = new VectorStore(vectorStoreDir);
-      await vectorStore.initialize();
-      const statsAfterInit = await vectorStore.getStats();
-      if (statsAfterInit.totalChunks === 0) {
-        await deleteEmbeddingIndexManifest(vectorStoreDir);
-      }
-      console.info(
-        `[BigRAG] Vector store ready (path=${vectorStoreDir}). Waiting for queries...`,
-      );
-      lastIndexedDir = vectorStoreDir;
-
-      status.setState({
-        status: "done",
-        text: "Vector store initialized",
-      });
+    if (!vectorStore) {
+      // Unreachable given the setup block above always initializes it before
+      // this point is reached; guards TypeScript's narrowing and acts as a
+      // safety net against a future refactor breaking that invariant.
+      throw new Error("Vector store was not initialized");
     }
 
     checkAbort(ctl.abortSignal);
@@ -291,10 +365,13 @@ export async function preprocess(
                   status: "loading",
                   text: `Scanning: ${progress.currentFile} (embedding model: ${resolvedEmbeddingModelId})`,
                 });
+
               } else if (progress.status === "indexing") {
+                
                 const success = progress.successfulFiles ?? 0;
                 const failed = progress.failedFiles ?? 0;
                 const skipped = progress.skippedFiles ?? 0;
+                
                 indexStatus.setState({
                   status: "loading",
                   text: `Indexing: ${progress.processedFiles}/${progress.totalFiles} files ` +
@@ -302,11 +379,13 @@ export async function preprocess(
                     `(embedding model: ${resolvedEmbeddingModelId}) ` +
                     `(${progress.currentFile})`,
                 });
+              
               } else if (progress.status === "complete") {
                 indexStatus.setState({
                   status: "done",
                   text: `Indexing complete: ${progress.processedFiles} files processed (embedding model: ${resolvedEmbeddingModelId})`,
                 });
+              
               } else if (progress.status === "error") {
                 indexStatus.setState({
                   status: "canceled",
@@ -393,17 +472,28 @@ export async function preprocess(
     checkAbort(ctl.abortSignal);
     const queryEmbedding = queryEmbeddingResult.embedding;
 
-    // Search vector store
+    // Search vector store. With compaction on, pull a larger candidate pool
+    // than retrievalLimit - compaction shrinks passages, so more candidates
+    // than the final count are needed to pick a good compacted set from.
+    const searchLimit = enableContextCompaction
+      ? retrievalLimit * CONTEXT_COMPACTION_POOL_MULTIPLIER
+      : retrievalLimit;
     const queryPreview =
       userPrompt.length > 160 ? `${userPrompt.slice(0, 160)}...` : userPrompt;
     console.info(
-      `[BigRAG] Executing vector search for "${queryPreview}" (limit=${retrievalLimit}, threshold=${retrievalThreshold})`,
+      `[BigRAG] Executing vector search for "${queryPreview}" (limit=${searchLimit}, threshold=${retrievalThreshold})`,
     );
-    const results = await vectorStore.search(
-      queryEmbedding,
-      retrievalLimit,
-      retrievalThreshold
+    let results = trimOverlappingChunks(
+      await vectorStore.search(queryEmbedding, searchLimit, retrievalThreshold),
     );
+
+    if (enableContextCompaction && results.length > 0) {
+      const targetTokenBudget = retrievalLimit * chunkSize;
+      results = await compactResultsToBudget(results, queryEmbedding, embeddingModel, targetTokenBudget);
+      console.info(
+        `[BigRAG] Context compaction: ${results.length} passages selected within a ~${targetTokenBudget}-token budget`,
+      );
+    }
     checkAbort(ctl.abortSignal);
     if (results.length > 0) {
       const topHit = results[0];
@@ -439,7 +529,9 @@ export async function preprocess(
     // Format results
     retrievalStatus.setState({
       status: "done",
-      text: `Retrieved ${results.length} relevant passages`,
+      text: enableContextCompaction
+        ? `Retrieved ${results.length} relevant passages (context compaction on)`
+        : `Retrieved ${results.length} relevant passages`,
     });
 
     ctl.debug("Retrieval results:", results);
@@ -478,22 +570,31 @@ export async function preprocess(
     const passagesLog = passagesLogEntries.join("\n\n");
 
     console.info(`[BigRAG] RAG passages (${results.length}) preview:\n${passagesLog}`);
-    ctl.createStatus({
-      status: "done",
-      text: `RAG passages (${results.length}):`,
-    });
-    for (const entry of passagesLogEntries) {
-      ctl.createStatus({
-        status: "done",
-        text: entry,
-      });
-    }
-
     console.info(`[BigRAG] Final prompt sent to model (preview):\n${finalPromptPreview}`);
-    ctl.createStatus({
-      status: "done",
-      text: `Final prompt sent to model (preview):\n${finalPromptPreview}`,
-    });
+
+    // Native citation UI: ctl.createCitationBlock() has no effect from a
+    // promptPreprocessor (it needs a content block to attach to, which only a
+    // predictionLoopHandler/generator can create). ctl.addCitations() works
+    // here instead, but each entry needs a real FileHandle rather than a bare
+    // path - client.files.prepareFile() gets one for an arbitrary file on
+    // disk (same call pdfParser.ts already uses, not limited to chat-attached
+    // files). getCitationFileHandle() caches these across requests so the
+    // same frequently-cited file doesn't get re-registered on every message.
+    // Guard each call individually so one missing/moved file doesn't drop
+    // citations for the rest of the results.
+    const citationEntries: RetrievalResultEntry[] = [];
+    for (const result of results) {
+      try {
+        const fileHash = typeof result.metadata.fileHash === "string" ? result.metadata.fileHash : "";
+        const fileHandle = await getCitationFileHandle(ctl.client, result.filePath, fileHash);
+        citationEntries.push({ content: `${result.text} \n\n Score: [${result.score.toFixed(3)}]`, score: result.score, source: fileHandle });
+      } catch (error) {
+        console.warn(`[BigRAG] Could not prepare citation for ${result.filePath}:`, error);
+      }
+    }
+    if (citationEntries.length > 0) {
+      await ctl.addCitations({ entries: citationEntries });
+    }
 
     await warnIfContextOverflow(ctl, finalPrompt);
 
@@ -546,6 +647,7 @@ async function maybeHandleConfigTriggeredReindex({
     `Manual Reindex Trigger is ON. Skip Previously Indexed Files is currently ${skipPreviouslyIndexed ? "ON" : "OFF"}. ` +
     "The index will be rebuilt each chat when 'Skip Previously Indexed Files' is OFF. If 'Skip Previously Indexed Files' is ON, the index will only be rebuilt for new or changed files. " +
     `Embedding model for this run: ${embeddingModelId}.`;
+  
   console.info(`[BigRAG] ${reminderText}`);
   ctl.createStatus({
     status: "done",
@@ -625,19 +727,13 @@ async function maybeHandleConfigTriggeredReindex({
       `Updated existing files: ${indexingResult.updatedFiles}`,
       `New files added: ${indexingResult.newFiles}`,
     ];
-    for (const line of summaryLines) {
-      ctl.createStatus({
-        status: "done",
-        text: line,
-      });
-    }
-
     if (indexingResult.totalFiles > 0 && indexingResult.skippedFiles === indexingResult.totalFiles) {
-      ctl.createStatus({
-        status: "done",
-        text: "All files were already up to date (skipped).",
-      });
+      summaryLines.push("All files were already up to date (skipped).");
     }
+    ctl.createStatus({
+      status: "done",
+      text: summaryLines.join("\n"),
+    });
 
     console.log(
       `[BigRAG] Manual reindex summary:\n  ${summaryLines.join("\n  ")}`,

@@ -135,6 +135,16 @@ export const configSchematics = createConfigSchematics()
     true,
   )
   .field(
+    "enableContextCompaction",
+    "boolean",
+    {
+      displayName: "Enable Context Compaction",
+      subtitle:
+        "Retrieve a larger pool of candidate passages, then trim each one down to only the sentences relevant to the query (never rewritten - only selected) before filling the same overall token budget. Result: more, smaller, distinct passages instead of fewer full-size chunks. Adds embedding calls per query.",
+    },
+    false,
+  )
+  .field(
     "excludeFilenamePatterns",
     "string",
     {
