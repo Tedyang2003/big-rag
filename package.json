@@ -25,6 +25,8 @@
     "@lmstudio/sdk": "^1.5.0",
     "cheerio": "^1.0.0-rc.12",
     "epub2": "^3.0.2",
+    "jszip": "^3.10.1",
+    "mammoth": "^1.12.2",
     "mime-types": "^2.1.35",
     "minimatch": "^10.0.1",
     "mupdf": "^1.27.0",

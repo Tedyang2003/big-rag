@@ -4,12 +4,16 @@ import { parsePDF, type PdfFailureReason } from "./pdfParser";
 import { parseEPUB } from "./epubParser";
 import { parseImage } from "./imageParser";
 import { parseText } from "./textParser";
+import { parsePPTX } from "./pptxParser";
+import { parseDOCX } from "./docxParser";
 import { type LMStudioClient } from "@lmstudio/sdk";
 import {
   IMAGE_EXTENSION_SET,
+  isDocxExtension,
   isHtmlExtension,
   isMarkdownExtension,
   isPlainTextExtension,
+  isPptxExtension,
   isTextualExtension,
 } from "../utils/supportedExtensions";
 
@@ -32,6 +36,10 @@ export type ParseFailureReason =
   | "html.error"
   | "text.empty"
   | "text.error"
+  | "pptx.empty"
+  | "pptx.error"
+  | "docx.empty"
+  | "docx.error"
   | "image.ocr-disabled"
   | "image.empty"
   | "image.error"
@@ -40,6 +48,51 @@ export type ParseFailureReason =
 export type DocumentParseResult =
   | { success: true; document: ParsedDocument }
   | { success: false; reason: ParseFailureReason; details?: string };
+
+type CleanResult =
+  | { success: true; value: string }
+  | { success: false; reason: ParseFailureReason; details?: string };
+
+/**
+ * Runs a parser that returns raw text, then trims/validates it. Centralizes
+ * the try/catch + empty-check shape shared by every format below so each
+ * branch in parseDocument reads as a one-liner instead of repeating it.
+ */
+async function runParser(
+  filePath: string,
+  label: string,
+  detailsContext: string,
+  emptyReason: ParseFailureReason,
+  errorReason: ParseFailureReason,
+  parse: () => Promise<string>,
+): Promise<CleanResult> {
+  try {
+    return cleanAndValidate(await parse(), emptyReason, detailsContext);
+  } catch (error) {
+    console.error(`[Parser][${label}] Error parsing ${filePath}:`, error);
+    return {
+      success: false,
+      reason: errorReason,
+      details: error instanceof Error ? error.message : String(error),
+    };
+  }
+}
+
+function cleanAndValidate(
+  text: string,
+  emptyReason: ParseFailureReason,
+  detailsContext?: string,
+): CleanResult {
+  const cleaned = text?.trim() ?? "";
+  if (cleaned.length === 0) {
+    return {
+      success: false,
+      reason: emptyReason,
+      details: detailsContext ? `${detailsContext} trimmed to zero length` : undefined,
+    };
+  }
+  return { success: true, value: cleaned };
+}
 
 /**
  * Parse a document file based on its extension
@@ -65,23 +118,16 @@ export async function parseDocument(
     },
   });
 
+  const finish = (result: CleanResult): DocumentParseResult =>
+    result.success ? buildSuccess(result.value) : result;
+
   try {
     if (isHtmlExtension(ext)) {
-      try {
-        const text = cleanAndValidate(
-          await parseHTML(filePath),
-          "html.empty",
-          `${fileName} html`,
-        );
-        return text.success ? buildSuccess(text.value) : text;
-      } catch (error) {
-        console.error(`[Parser][HTML] Error parsing ${filePath}:`, error);
-        return {
-          success: false,
-          reason: "html.error",
-          details: error instanceof Error ? error.message : String(error),
-        };
-      }
+      return finish(
+        await runParser(filePath, "HTML", `${fileName} html`, "html.empty", "html.error", () =>
+          parseHTML(filePath),
+        ),
+      );
     }
 
     if (ext === ".pdf") {
@@ -90,34 +136,45 @@ export async function parseDocument(
         return { success: false, reason: "pdf.missing-client" };
       }
       const pdfResult = await parsePDF(filePath, client, enableOCR);
-      if (pdfResult.success) {
-        return buildSuccess(pdfResult.text);
-      }
-      return pdfResult;
+      return pdfResult.success ? buildSuccess(pdfResult.text) : pdfResult;
     }
 
     if (ext === ".epub") {
-      const text = await parseEPUB(filePath);
-      const cleaned = cleanAndValidate(text, "epub.empty", fileName);
-      return cleaned.success ? buildSuccess(cleaned.value) : cleaned;
+      // parseEPUB never throws (it resolves "" on internal errors), so
+      // "parser.unexpected-error" here is unreachable in practice - kept only
+      // to match what the outer catch below would have produced anyway.
+      return finish(
+        await runParser(filePath, "EPUB", fileName, "epub.empty", "parser.unexpected-error", () =>
+          parseEPUB(filePath),
+        ),
+      );
+    }
+
+    if (isDocxExtension(ext)) {
+      return finish(
+        await runParser(filePath, "DOCX", fileName, "docx.empty", "docx.error", () =>
+          parseDOCX(filePath),
+        ),
+      );
+    }
+
+    if (isPptxExtension(ext)) {
+      return finish(
+        await runParser(filePath, "PPTX", fileName, "pptx.empty", "pptx.error", () =>
+          parsePPTX(filePath),
+        ),
+      );
     }
 
     if (isTextualExtension(ext)) {
-      try {
-        const text = await parseText(filePath, {
-          stripMarkdown: isMarkdownExtension(ext),
-          preserveLineBreaks: isPlainTextExtension(ext),
-        });
-        const cleaned = cleanAndValidate(text, "text.empty", fileName);
-        return cleaned.success ? buildSuccess(cleaned.value) : cleaned;
-      } catch (error) {
-        console.error(`[Parser][Text] Error parsing ${filePath}:`, error);
-        return {
-          success: false,
-          reason: "text.error",
-          details: error instanceof Error ? error.message : String(error),
-        };
-      }
+      return finish(
+        await runParser(filePath, "Text", fileName, "text.empty", "text.error", () =>
+          parseText(filePath, {
+            stripMarkdown: isMarkdownExtension(ext),
+            preserveLineBreaks: isPlainTextExtension(ext),
+          }),
+        ),
+      );
     }
 
     if (IMAGE_EXTENSION_SET.has(ext)) {
@@ -125,18 +182,11 @@ export async function parseDocument(
         console.log(`Skipping image file ${filePath} (OCR disabled)`);
         return { success: false, reason: "image.ocr-disabled" };
       }
-      try {
-        const text = await parseImage(filePath);
-        const cleaned = cleanAndValidate(text, "image.empty", fileName);
-        return cleaned.success ? buildSuccess(cleaned.value) : cleaned;
-      } catch (error) {
-        console.error(`[Parser][Image] Error parsing ${filePath}:`, error);
-        return {
-          success: false,
-          reason: "image.error",
-          details: error instanceof Error ? error.message : String(error),
-        };
-      }
+      return finish(
+        await runParser(filePath, "Image", fileName, "image.empty", "image.error", () =>
+          parseImage(filePath),
+        ),
+      );
     }
 
     if (ext === ".rar") {
@@ -155,24 +205,3 @@ export async function parseDocument(
     };
   }
 }
-
-type CleanResult =
-  | { success: true; value: string }
-  | { success: false; reason: ParseFailureReason; details?: string };
-
-function cleanAndValidate(
-  text: string,
-  emptyReason: ParseFailureReason,
-  detailsContext?: string,
-): CleanResult {
-  const cleaned = text?.trim() ?? "";
-  if (cleaned.length === 0) {
-    return {
-      success: false,
-      reason: emptyReason,
-      details: detailsContext ? `${detailsContext} trimmed to zero length` : undefined,
-    };
-  }
-  return { success: true, value: cleaned };
-}
-

@@ -6,7 +6,8 @@ A powerful RAG (Retrieval-Augmented Generation) plugin for LM Studio that can in
 
 - **Massive Scale**: Designed to handle large document collections (GB to TB scale)
 - **Deep Directory Scanning**: Recursively scans all subdirectories
-- **Multiple File Formats**: Supports HTM, HTML, XHTML, PDF, EPUB, TXT, TEXT, Markdown variants (MD/MDX/MKDN), BMP, JPEG, PNG
+- **Multiple File Formats**: Supports HTM, HTML, XHTML, PDF, EPUB, DOCX, PPTX, TXT, TEXT, Markdown variants (MD/MDX/MKDN), BMP, JPEG, PNG
+- **Table-Aware DOCX/PPTX Parsing**: Table row/column structure is preserved (one line per row, cells joined with `|`) instead of flattening cells into indistinguishable paragraphs; PPTX slide order and speaker notes follow the presentation's actual relationship graph, not filename numbering
 - **Resilient PDF Parsing**: Three-stage fallback pipeline per PDF — LM Studio's built-in document parser, then `pdf-parse`, then MuPDF-rendered page images run through Tesseract OCR — so scanned/blueprint-style PDFs still get indexed
 - **OCR Support**: Optional OCR for image files and image-based PDFs using Tesseract
 - **Configurable File Exclusion**: Skip files by glob pattern (e.g. `*.png`, `archive/**`) without touching your document tree
@@ -21,11 +22,13 @@ A powerful RAG (Retrieval-Augmented Generation) plugin for LM Studio that can in
 
 ## Supported File Types
 
-- **Documents**: PDF, EPUB, TXT, TEXT
+- **Documents**: PDF, EPUB, DOCX, PPTX, TXT, TEXT
 - **Markdown**: MD, MDX, Markdown, MDown, MKD, MKDN
 - **Web Content**: HTM, HTML, XHTML
 - **Images** (with OCR): BMP, JPEG, JPG, PNG
 - **Archives**: RAR (planned - currently not implemented)
+
+Note: embedded images inside DOCX/PPTX files are extracted (bytes only) but not yet captioned or OCR'd — that pipeline is scaffolded (`src/parsers/embeddedImages.ts`) but not wired up to a vision model yet.
 
 ## Installation
 
@@ -125,6 +128,9 @@ The plugin provides the following configuration options in LM Studio:
    - `htmlParser.ts`: Extracts text from HTML/HTM files
    - `pdfParser.ts`: Extracts text from PDF files via a three-stage fallback: LM Studio's built-in `parseDocument` API, then `pdf-parse`, then MuPDF-rendered page images OCR'd with Tesseract (capped at 50 pages); each stage records a specific failure reason if it produces too little text
    - `epubParser.ts`: Extracts text from EPUB files
+   - `docxParser.ts`: Extracts text from DOCX files via `mammoth`'s HTML conversion (not raw-text extraction), so `<table>` structure survives and renders as one row per line
+   - `pptxParser.ts`: Extracts slide/table/speaker-notes text by reading the OOXML directly; slide display order and slide-to-notes mapping come from the presentation's relationship graph (`presentation.xml`'s `sldIdLst` + each slide's own `.rels`), not filename numbering
+   - `embeddedImages.ts`: Extracts embedded images from DOCX/PPTX (bytes + slide/location tagging) - holding code for a future VLM captioning step; captioning itself is not implemented yet
    - `textParser.ts`: Reads plain text & Markdown files with optional Markdown stripping
    - `imageParser.ts`: OCR for image files
    - `documentParser.ts`: Routes to appropriate parser
@@ -259,6 +265,9 @@ big-rag-plugin/
 │   │   ├── htmlParser.ts       # HTML parsing
 │   │   ├── pdfParser.ts        # PDF parsing (LM Studio -> pdf-parse -> MuPDF/OCR fallback)
 │   │   ├── epubParser.ts       # EPUB parsing
+│   │   ├── docxParser.ts       # DOCX parsing (mammoth -> HTML -> cheerio, table-aware)
+│   │   ├── pptxParser.ts       # PPTX parsing (relationship-graph slide order + notes)
+│   │   ├── embeddedImages.ts   # DOCX/PPTX embedded image extraction (holding code, no captioning yet)
 │   │   ├── textParser.ts       # Text parsing
 │   │   └── imageParser.ts      # OCR parsing
 │   ├── vectorstore/
@@ -280,7 +289,7 @@ big-rag-plugin/
 
 ### Testing
 
-Automated tests cover HTML/Markdown/plain-text parsing and exclude-pattern matching (`src/tests/parseDocument.test.ts`, `src/tests/fileExcludePatterns.test.ts`):
+Automated tests cover per-format document parsing and exclude-pattern matching (`src/tests/*Parser.test.ts` per format, plus `src/tests/documentParser.test.ts`, `src/tests/embeddedImages.test.ts`, and `src/tests/fileExcludePatterns.test.ts`):
 
 ```bash
 npm run test
@@ -313,4 +322,6 @@ ISC
 - PDF parsing via pdf-parse, with MuPDF used to rasterize pages for the OCR fallback
 - EPUB parsing via epub2
 - HTML parsing via cheerio
+- DOCX parsing via mammoth
+- PPTX/DOCX archive handling via jszip
 
