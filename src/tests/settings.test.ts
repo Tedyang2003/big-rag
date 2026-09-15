@@ -44,8 +44,19 @@ test("readRetrievalSettings rejects an out-of-range chunk size", () => {
   assert.throws(() => readRetrievalSettings({ BIG_RAG_CHUNK_SIZE: "128.5" }), /BIG_RAG_CHUNK_SIZE/);
 });
 
-test("readGenerationSettings defaults to 30 questions and seed 42", () => {
-  assert.deepEqual(readGenerationSettings({}), { count: 30, seed: 42 });
+test("readGenerationSettings defaults to 30 questions, seed 42, and leak limit 0.7", () => {
+  assert.deepEqual(readGenerationSettings({}), { count: 30, seed: 42, leakLimit: 0.7 });
+});
+
+test("readGenerationSettings reads a leak limit override", () => {
+  assert.equal(readGenerationSettings({ BIG_RAG_EVAL_LEAK_LIMIT: "0.8" }).leakLimit, 0.8);
+  assert.equal(readGenerationSettings({ BIG_RAG_EVAL_LEAK_LIMIT: "1" }).leakLimit, 1);
+});
+
+test("readGenerationSettings rejects a leak limit outside 0 to 1", () => {
+  assert.throws(() => readGenerationSettings({ BIG_RAG_EVAL_LEAK_LIMIT: "abc" }), /BIG_RAG_EVAL_LEAK_LIMIT/);
+  assert.throws(() => readGenerationSettings({ BIG_RAG_EVAL_LEAK_LIMIT: "1.5" }), /BIG_RAG_EVAL_LEAK_LIMIT/);
+  assert.throws(() => readGenerationSettings({ BIG_RAG_EVAL_LEAK_LIMIT: "-0.1" }), /BIG_RAG_EVAL_LEAK_LIMIT/);
 });
 
 test("readGenerationSettings rejects invalid count and seed values", () => {

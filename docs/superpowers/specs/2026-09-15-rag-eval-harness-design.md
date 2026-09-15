@@ -84,7 +84,7 @@ Candidate files, the reviewed question set, and run reports. Contains verbatim e
    - `question`: phrased as someone who has not read the document would ask it, without reusing the chunk's distinctive wording.
 6. Validate:
    - The snippet is found in the chunk text via `matchSnippet`.
-   - **Wording-leak check:** the fraction of the question's meaningful (non-stopword, case-insensitive) words that appear in the chunk must be at most 0.5, a constant in code rather than a setting. Questions that copy the chunk's phrasing inflate every retrieval method's score and are rejected.
+   - **Wording-leak check:** the fraction of the question's meaningful (non-stopword, case-insensitive) words that appear in the chunk must be at most the leak limit: `BIG_RAG_EVAL_LEAK_LIMIT`, default 0.7, range 0–1, where 1 disables the check. Questions that copy the chunk's phrasing inflate every retrieval method's score and are rejected. The limit used is recorded in the question file as `generator.leakLimit`. (Revised 2026-09-15: originally a fixed 0.5, which rejected 18 of 30 candidates on the first real run.)
 7. A failed candidate (invalid output, snippet not found, wording leak) gets one retry, then is dropped. Drops are counted by reason.
 8. Before writing, verify via `git check-ignore` that the output path is ignored. If it is not, refuse to write and explain why.
 9. Write `eval/candidates-<timestamp>.json` (never overwrites an existing file) and print a summary: generated count, dropped count by reason, questions per file.

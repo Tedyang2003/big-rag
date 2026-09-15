@@ -1,7 +1,7 @@
 import * as path from "path";
 import { type IndexedChunk } from "../vectorstore/vectorStore";
 import { containsSnippet } from "./matchSnippet";
-import { isWordingLeak } from "./wordingLeak";
+import { DEFAULT_WORDING_LEAK_LIMIT, isWordingLeak } from "./wordingLeak";
 import { isInsideDocumentsDir, toRelativeSourcePath, type EvalQuestion, type QuestionSet } from "./questionSet";
 import { sampleChunksAcrossFiles } from "./sampleChunks";
 
@@ -52,9 +52,13 @@ export function parseGeneratedQA(raw: string): GeneratedQA | null {
   }
 }
 
-export function validateCandidate(qa: GeneratedQA, chunkText: string): DropReason | null {
+export function validateCandidate(
+  qa: GeneratedQA,
+  chunkText: string,
+  leakLimit: number = DEFAULT_WORDING_LEAK_LIMIT,
+): DropReason | null {
   if (!containsSnippet(chunkText, qa.answerSnippet)) return "snippet-not-found";
-  if (isWordingLeak(qa.question, chunkText)) return "wording-leak";
+  if (isWordingLeak(qa.question, chunkText, leakLimit)) return "wording-leak";
   return null;
 }
 
@@ -72,6 +76,7 @@ export interface GenerateOptions {
   count: number;
   seed: number;
   modelName: string;
+  leakLimit: number;
 }
 
 export interface GenerateSummary {
@@ -119,7 +124,7 @@ export async function generateQuestions(deps: GenerateDeps, options: GenerateOpt
 
     for (let attempt = 0; attempt < MAX_ATTEMPTS && !accepted; attempt++) {
       const qa = parseGeneratedQA(await deps.askForQuestion(sampled.text, attempt));
-      const reason = qa ? validateCandidate(qa, sampled.text) : "invalid-output";
+      const reason = qa ? validateCandidate(qa, sampled.text, options.leakLimit) : "invalid-output";
       if (qa && reason === null) {
         accepted = qa;
       } else {
@@ -145,7 +150,7 @@ export async function generateQuestions(deps: GenerateDeps, options: GenerateOpt
   const set: QuestionSet = {
     version: 1,
     generatedAt,
-    generator: { model: options.modelName, seed: options.seed },
+    generator: { model: options.modelName, seed: options.seed, leakLimit: options.leakLimit },
     questions,
   };
   await deps.writeNewFile(outputPath, `${JSON.stringify(set, null, 2)}\n`);

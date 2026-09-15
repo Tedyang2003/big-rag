@@ -22,7 +22,7 @@ const EVAL_DIR = path.resolve(process.cwd(), "eval");
 const MIN_DIAGNOSTIC_POOL_SIZE = 50;
 
 async function runGenerate(client: LMStudioClient, vectorStore: VectorStore, documentsDir: string) {
-  const { count, seed } = readGenerationSettings(process.env);
+  const { count, seed, leakLimit } = readGenerationSettings(process.env);
 
   const modelKey = process.env.BIG_RAG_EVAL_LLM;
   const llm = await (modelKey ? client.llm.model(modelKey) : client.llm.model()).catch((error: unknown) => {
@@ -33,7 +33,9 @@ async function runGenerate(client: LMStudioClient, vectorStore: VectorStore, doc
   });
   const modelName = (await llm.getModelInfo()).identifier;
 
-  console.log(`[BigRAG Eval] Generating up to ${count} questions with ${modelName} (seed ${seed})...`);
+  console.log(
+    `[BigRAG Eval] Generating up to ${count} questions with ${modelName} (seed ${seed}, leak limit ${leakLimit})...`,
+  );
 
   const summary = await generateQuestions(
     {
@@ -48,7 +50,7 @@ async function runGenerate(client: LMStudioClient, vectorStore: VectorStore, doc
       writeNewFile,
       now: () => new Date(),
     },
-    { documentsDir, outputDir: EVAL_DIR, count, seed, modelName },
+    { documentsDir, outputDir: EVAL_DIR, count, seed, modelName, leakLimit },
   );
 
   console.log(`[BigRAG Eval] Wrote ${summary.generated} candidate questions to ${summary.outputPath}`);

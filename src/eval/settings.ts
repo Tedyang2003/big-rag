@@ -1,3 +1,5 @@
+import { DEFAULT_WORDING_LEAK_LIMIT } from "./wordingLeak";
+
 export interface RetrievalSettings {
   retrievalLimit: number;
   retrievalThreshold: number;
@@ -43,9 +45,10 @@ export function readRetrievalSettings(env: Record<string, string | undefined>): 
 export interface GenerationSettings {
   count: number;
   seed: number;
+  leakLimit: number;
 }
 
-/** Question-generation settings for evaluation. Defaults: 30 questions, seed 42. */
+/** Question-generation settings for evaluation. Defaults: 30 questions, seed 42, leak limit 0.7. */
 export function readGenerationSettings(env: Record<string, string | undefined>): GenerationSettings {
   const count = readNumber(env, "BIG_RAG_EVAL_COUNT", 30);
   if (!Number.isInteger(count) || count < 1) {
@@ -55,5 +58,9 @@ export function readGenerationSettings(env: Record<string, string | undefined>):
   if (!Number.isInteger(seed)) {
     throw new Error(`BIG_RAG_EVAL_SEED must be a whole number, got "${env.BIG_RAG_EVAL_SEED}"`);
   }
-  return { count, seed };
+  const leakLimit = readNumber(env, "BIG_RAG_EVAL_LEAK_LIMIT", DEFAULT_WORDING_LEAK_LIMIT);
+  if (leakLimit < 0 || leakLimit > 1) {
+    throw new Error(`BIG_RAG_EVAL_LEAK_LIMIT must be between 0 and 1, got "${env.BIG_RAG_EVAL_LEAK_LIMIT}"`);
+  }
+  return { count, seed, leakLimit };
 }

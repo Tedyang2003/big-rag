@@ -11,7 +11,8 @@ export interface EvalQuestion {
 export interface QuestionSet {
   version: 1;
   generatedAt: string;
-  generator: { model: string; seed: number };
+  /** leakLimit is absent in sets generated before it became configurable (built with 0.5). */
+  generator: { model: string; seed: number; leakLimit?: number };
   questions: EvalQuestion[];
 }
 

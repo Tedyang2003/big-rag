@@ -39,7 +39,14 @@ function makeDeps(overrides: Partial<GenerateDeps> = {}) {
   return { deps, writes, askCalls };
 }
 
-const OPTIONS = { documentsDir: DOCS, outputDir: path.resolve("/repo/eval"), count: 30, seed: 42, modelName: "test-model" };
+const OPTIONS = {
+  documentsDir: DOCS,
+  outputDir: path.resolve("/repo/eval"),
+  count: 30,
+  seed: 42,
+  modelName: "test-model",
+  leakLimit: 0.7,
+};
 
 test("parseGeneratedQA returns null for malformed output", () => {
   assert.equal(parseGeneratedQA("not json"), null);
@@ -56,6 +63,13 @@ test("validateCandidate reports why a candidate is rejected", () => {
   assert.equal(validateCandidate(JSON.parse(GOOD), CHUNK_TEXT), null);
 });
 
+test("validateCandidate applies the given leak limit", () => {
+  // Meaningful words: total, members, grow, sharply. "total" and "members" are in the chunk: 2 of 4 = 0.5.
+  const halfCopied = { question: "Did total members grow sharply?", answerSnippet: "Total members reached 15.8M this quarter." };
+  assert.equal(validateCandidate(halfCopied, CHUNK_TEXT, 0.4), "wording-leak");
+  assert.equal(validateCandidate(halfCopied, CHUNK_TEXT, 0.5), null);
+});
+
 test("generateQuestions writes a timestamped candidates file with relative source paths", async () => {
   const { deps, writes } = makeDeps();
   const summary = await generateQuestions(deps, OPTIONS);
@@ -63,7 +77,7 @@ test("generateQuestions writes a timestamped candidates file with relative sourc
   assert.equal(writes.length, 1);
   assert.equal(writes[0].filePath, path.join(OPTIONS.outputDir, "candidates-2026-09-15T10-00-00-000Z.json"));
   const set = parseQuestionSet(writes[0].content);
-  assert.deepEqual(set.generator, { model: "test-model", seed: 42 });
+  assert.deepEqual(set.generator, { model: "test-model", seed: 42, leakLimit: 0.7 });
   assert.deepEqual(set.questions, [
     {
       id: "q-001",

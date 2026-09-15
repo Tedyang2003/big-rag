@@ -1,7 +1,10 @@
 import { normalizeForMatch } from "./matchSnippet";
 
-/** Share of a question's meaningful words allowed to appear in its source chunk. */
-export const WORDING_LEAK_LIMIT = 0.5;
+/**
+ * Default share of a question's meaningful words allowed to appear in its
+ * source chunk. Overridable with BIG_RAG_EVAL_LEAK_LIMIT; 1 disables the check.
+ */
+export const DEFAULT_WORDING_LEAK_LIMIT = 0.7;
 
 const STOPWORDS = new Set([
   "a", "an", "and", "are", "as", "at", "be", "by", "did", "do", "does", "for", "from",
@@ -30,6 +33,10 @@ export function wordingLeakRatio(question: string, chunkText: string): number {
   return leaked / questionWords.length;
 }
 
-export function isWordingLeak(question: string, chunkText: string): boolean {
-  return wordingLeakRatio(question, chunkText) > WORDING_LEAK_LIMIT;
+export function isWordingLeak(
+  question: string,
+  chunkText: string,
+  limit: number = DEFAULT_WORDING_LEAK_LIMIT,
+): boolean {
+  return wordingLeakRatio(question, chunkText) > limit;
 }

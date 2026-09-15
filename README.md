@@ -336,6 +336,7 @@ Other environment variables:
 
 - `BIG_RAG_EVAL_COUNT` — number of questions to generate (default `30`).
 - `BIG_RAG_EVAL_SEED` — seed for deterministic sampling of chunks (default `42`).
+- `BIG_RAG_EVAL_LEAK_LIMIT` — reject a generated question when more than this share (0–1) of its meaningful words are copied from its source chunk (default `0.7`; `1` disables the check). Lower is stricter. Copied wording makes retrieval look better than it is, so only compare runs whose question sets were built with the same limit — it is recorded as `generator.leakLimit` in the question file.
 - `BIG_RAG_EVAL_FILE` — path to the question set to run (default `eval/questions.json`).
 - `BIG_RAG_EVAL_LLM` — model key to use for question generation (default: the model already loaded in LM Studio).
 - `BIG_RAG_EMBEDDING_MODEL` — embedding model id to use for `eval:run`; required if the plugin's Embedding Model setting isn't the default.
