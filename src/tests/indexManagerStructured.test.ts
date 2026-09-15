@@ -135,3 +135,76 @@ test("a failed format rebuild does not strand the file's old-format chunks", asy
     await fs.rm(dbDir, { recursive: true, force: true });
   }
 });
+
+test("a failed format rebuild's dropped legacy chunks are not resurrected by a later file", async () => {
+  const docsDir = await fs.mkdtemp(path.join(os.tmpdir(), "big-rag-docs-"));
+  const dbDir = await fs.mkdtemp(path.join(os.tmpdir(), "big-rag-db-"));
+  try {
+    await fs.writeFile(path.join(docsDir, "a_failing.txt"), ROUNDUP_TEXT);
+    await fs.writeFile(path.join(docsDir, "b_working.txt"), ROUNDUP_TEXT.replace("Incident", "Accident"));
+    const store = new VectorStore(dbDir);
+    await store.initialize();
+
+    const base = {
+      documentsDir: docsDir,
+      vectorStore: store,
+      vectorStoreDir: dbDir,
+      client: {} as LMStudioClient,
+      chunkSize: 200,
+      chunkOverlap: 0,
+      maxConcurrent: 1,
+      enableOCR: false,
+      autoReindex: true,
+      parseDelayMs: 0,
+    };
+    const countTokens = async (text: string) => text.split(/\s+/).filter(Boolean).length;
+
+    await new IndexManager({
+      ...base,
+      embeddingModel: {
+        embed: async (_text: string) => ({ embedding: [1, 0, 0] }),
+        countTokens,
+      } as unknown as EmbeddingDynamicHandle,
+      structuredIndexing: false,
+      rebuildExistingFiles: false,
+    }).index();
+    const legacy = await store.listChunks();
+    assert.ok(legacy.some((chunk) => chunk.fileName === "a_failing.txt"));
+    assert.ok(legacy.some((chunk) => chunk.fileName === "b_working.txt"));
+
+    const indexedOrder: string[] = [];
+    await new IndexManager({
+      ...base,
+      embeddingModel: {
+        embed: async (text: string) => {
+          if (text.startsWith("[File: a_failing.txt")) {
+            indexedOrder.push("a");
+            throw new Error("embedding failed");
+          }
+          if (text.startsWith("[File: b_working.txt")) {
+            indexedOrder.push("b");
+          }
+          return { embedding: [1, 0, 0] };
+        },
+        countTokens,
+      } as unknown as EmbeddingDynamicHandle,
+      structuredIndexing: true,
+      rebuildExistingFiles: true,
+    }).index();
+    assert.equal(indexedOrder[0], "a", "the failing file is processed before the working file");
+    assert.ok(indexedOrder.includes("b"));
+
+    const reopened = new VectorStore(dbDir);
+    await reopened.initialize();
+    const after = await reopened.listChunks();
+    assert.ok(after.length > 0);
+    assert.ok(
+      after.every((chunk) => chunk.metadata.indexFormat === "structured-v1"),
+      "no legacy chunks may be resurrected",
+    );
+    assert.ok(after.every((chunk) => chunk.fileName === "b_working.txt"));
+  } finally {
+    await fs.rm(docsDir, { recursive: true, force: true });
+    await fs.rm(dbDir, { recursive: true, force: true });
+  }
+});

@@ -57,3 +57,65 @@ test("listChunks returns an empty array for an empty store", async () => {
     await fs.rm(dir, { recursive: true, force: true });
   }
 });
+
+function chunkFor(fileHash: string, index: number) {
+  return {
+    id: `${fileHash}-${index}`,
+    text: `Chunk ${index} of ${fileHash}`,
+    vector: [1, 0, 0],
+    filePath: `/docs/${fileHash}.md`,
+    fileName: `${fileHash}.md`,
+    fileHash,
+    chunkIndex: index,
+    metadata: {},
+  };
+}
+
+test("deleted chunks stay deleted after another file is added", async () => {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), "big-rag-vs-"));
+  try {
+    const store = new VectorStore(dir);
+    await store.initialize();
+    await store.addChunks([chunkFor("A", 0), chunkFor("A", 1), chunkFor("A", 2)]);
+    await store.deleteByFileHash("A");
+    await store.addChunks([chunkFor("C", 0)]);
+
+    const reopened = new VectorStore(dir);
+    await reopened.initialize();
+    const ids = (await reopened.listChunks()).map((chunk) => `${chunk.metadata.fileHash}-${chunk.chunkIndex}`);
+    assert.deepEqual(ids, ["C-0"]);
+    assert.deepEqual(await reopened.getStats(), { totalChunks: 1, uniqueFiles: 1 });
+    assert.deepEqual(await store.getStats(), { totalChunks: 1, uniqueFiles: 1 });
+  } finally {
+    await fs.rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("repeated deletions reuse parsed shards instead of re-reading index.json", async () => {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), "big-rag-vs-"));
+  const fsModule = require("fs/promises") as { readFile: (...args: any[]) => Promise<any> };
+  const realReadFile = fsModule.readFile;
+  try {
+    const seed = new VectorStore(dir);
+    await seed.initialize();
+    await seed.addChunks([chunkFor("A", 0), chunkFor("B", 0), chunkFor("C", 0), chunkFor("D", 0)]);
+
+    const store = new VectorStore(dir);
+    await store.initialize();
+    await store.listChunks();
+
+    let indexReads = 0;
+    fsModule.readFile = (async (...args: any[]) => {
+      if (String(args[0]).endsWith("index.json")) indexReads++;
+      return realReadFile(...args);
+    }) as typeof fsModule.readFile;
+
+    await store.deleteByFileHash("A");
+    await store.deleteByFileHash("B");
+    await store.deleteByFileHash("C");
+    assert.equal(indexReads, 0, "deletions should not re-parse shards from disk");
+  } finally {
+    fsModule.readFile = realReadFile;
+    await fs.rm(dir, { recursive: true, force: true });
+  }
+});

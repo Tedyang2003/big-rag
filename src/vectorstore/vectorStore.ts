@@ -49,6 +49,12 @@ export class VectorStore {
   private shardDirs: string[] = [];
   private activeShard: LocalIndex | null = null;
   private activeShardCount: number = 0;
+  /**
+   * Shard instances that have been mutated or scanned for deletion. vectra caches a shard's
+   * parsed index.json inside its LocalIndex, so every write to a shard directory must go
+   * through one shared instance - otherwise a stale cached copy can write deleted items back.
+   */
+  private shardCache = new Map<string, LocalIndex>();
   private updateMutex: Promise<void> = Promise.resolve();
 
   constructor(dbPath: string) {
@@ -56,12 +62,25 @@ export class VectorStore {
   }
 
   /**
-   * Open a shard by directory name (e.g. "shard_000"). Caller must not hold the reference
-   * after use so GC can free the parsed index data.
+   * Open a shard by directory name (e.g. "shard_000") for reading. Reuses the shared cached
+   * instance when one exists; otherwise returns a fresh instance the caller must not hold,
+   * so GC can free the parsed index data.
    */
   private openShard(dir: string): LocalIndex {
-    const fullPath = path.join(this.dbPath, dir);
-    return new LocalIndex(fullPath);
+    return this.shardCache.get(dir) ?? new LocalIndex(path.join(this.dbPath, dir));
+  }
+
+  /**
+   * Get (creating if needed) the shared cached instance for a shard directory. Use this for
+   * every mutation so all writes to a directory see the same in-memory data.
+   */
+  private cachedShard(dir: string): LocalIndex {
+    let shard = this.shardCache.get(dir);
+    if (!shard) {
+      shard = new LocalIndex(path.join(this.dbPath, dir));
+      this.shardCache.set(dir, shard);
+    }
+    return shard;
   }
 
   /**
@@ -87,6 +106,7 @@ export class VectorStore {
    */
   async initialize(): Promise<void> {
     await fs.mkdir(this.dbPath, { recursive: true });
+    this.shardCache.clear();
     this.shardDirs = await this.discoverShardDirs();
 
     if (this.shardDirs.length === 0) {
@@ -94,12 +114,13 @@ export class VectorStore {
       const fullPath = path.join(this.dbPath, firstDir);
       const index = new LocalIndex(fullPath);
       await index.createIndex({ version: 1 });
+      this.shardCache.set(firstDir, index);
       this.shardDirs = [firstDir];
       this.activeShard = index;
       this.activeShardCount = 0;
     } else {
       const lastDir = this.shardDirs[this.shardDirs.length - 1];
-      this.activeShard = this.openShard(lastDir);
+      this.activeShard = this.cachedShard(lastDir);
       const items = await this.activeShard.listItems();
       this.activeShardCount = items.length;
     }
@@ -147,6 +168,7 @@ export class VectorStore {
         const fullPath = path.join(this.dbPath, nextDir);
         const newIndex = new LocalIndex(fullPath);
         await newIndex.createIndex({ version: 1 });
+        this.shardCache.set(nextDir, newIndex);
         this.shardDirs.push(nextDir);
         this.activeShard = newIndex;
         this.activeShardCount = 0;
@@ -197,20 +219,27 @@ export class VectorStore {
    * Delete all chunks for a file (by hash) across all shards.
    */
   async deleteByFileHash(fileHash: string): Promise<void> {
-    const lastDir = this.shardDirs[this.shardDirs.length - 1];
     this.updateMutex = this.updateMutex.then(async () => {
+      const lastDir = this.shardDirs[this.shardDirs.length - 1];
       for (const dir of this.shardDirs) {
-        const shard = this.openShard(dir);
+        // Shared instance: the active shard's cache must see this deletion, and later
+        // deletions reuse the parsed data instead of re-reading every shard from disk.
+        const shard = this.cachedShard(dir);
         const items = await shard.listItems();
         const toDelete = items.filter(
           (i) => (i.metadata as ChunkMetadata)?.fileHash === fileHash,
         );
         if (toDelete.length > 0) {
           await shard.beginUpdate();
-          for (const item of toDelete) {
-            await shard.deleteItem(item.id);
+          try {
+            for (const item of toDelete) {
+              await shard.deleteItem(item.id);
+            }
+            await shard.endUpdate();
+          } catch (e) {
+            shard.cancelUpdate();
+            throw e;
           }
-          await shard.endUpdate();
           if (dir === lastDir && this.activeShard) {
             this.activeShardCount = (await this.activeShard.listItems()).length;
           }
@@ -308,5 +337,6 @@ export class VectorStore {
    */
   async close(): Promise<void> {
     this.activeShard = null;
+    this.shardCache.clear();
   }
 }
