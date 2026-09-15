@@ -36,7 +36,7 @@ async function main() {
   const failureReportPath = process.env.BIG_RAG_FAILURE_REPORT_PATH;
   const excludePatterns = parseExcludePatternsFromEnv(process.env.BIG_RAG_EXCLUDE_PATTERNS);
   const structuredIndexing =
-    (process.env.BIG_RAG_STRUCTURED_INDEXING ?? "false").toLowerCase() === "true";
+    (process.env.BIG_RAG_STRUCTURED_INDEXING ?? "true").toLowerCase() === "true";
 
   const resolvedEmbeddingModelId = resolveEmbeddingModelId(process.env.BIG_RAG_EMBEDDING_MODEL);
 

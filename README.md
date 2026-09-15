@@ -94,9 +94,9 @@ The plugin provides the following configuration options in LM Studio:
 
 ### Structured Indexing
 
-- **Structured Indexing** (default: off): Chunks documents by headings, sections, and list items instead of fixed word counts, records each chunk's posted date (from the first page, then the file name, then the file's modified time) and the dates of its sections, and adds a header such as `[File: report.pdf | Posted: 2026-09-20 | Section: Incidents > 2. Bus collision | Dates: 2026-09-08]`. The header is used for search and shown to the model; citations show only the original passage.
-- Turning it on or off does not change the index by itself: run a manual reindex (*Manual Reindex Trigger*). Because the index format changed, that reindex rebuilds every file regardless of *Skip Previously Indexed Files*. Until then, retrieval keeps using the existing index and a status line says a reindex is required.
-- For the CLI indexer, set `BIG_RAG_STRUCTURED_INDEXING=true`.
+- **Structured Indexing** (default: on): Chunks documents by headings, sections, and list items instead of fixed word counts, records each chunk's posted date (from the first page, then the file name, then the file's modified time) and the dates of its sections, and adds a header such as `[File: report.pdf | Posted: 2026-09-20 | Section: Incidents > 2. Bus collision | Dates: 2026-09-08]`. The header is used for search and shown to the model; citations show only the original passage.
+- Turning it on or off does not change the index by itself: run a manual reindex (*Manual Reindex Trigger*). Because the index format changed, that reindex rebuilds every file regardless of *Skip Previously Indexed Files*. Until then, retrieval keeps using the existing index and a status line says a reindex is required. Indexes built before this setting existed use the standard format, so after upgrading, run one manual reindex (or turn the setting off to keep the existing index).
+- For the CLI indexer, set `BIG_RAG_STRUCTURED_INDEXING=false` to build a standard index.
 
 ### Prompt Template
 
@@ -237,7 +237,7 @@ Configured entirely via environment variables:
 - `BIG_RAG_PARSE_DELAY_MS` (default: 500)
 - `BIG_RAG_EXCLUDE_PATTERNS`: semicolon-separated glob patterns (same syntax as the plugin's exclude filename patterns field)
 - `BIG_RAG_FAILURE_REPORT_PATH`: absolute path to write a JSON failure report to after indexing
-- `BIG_RAG_STRUCTURED_INDEXING`: `true` to build a structured index (default `false`); changing it rebuilds every file on the next run
+- `BIG_RAG_STRUCTURED_INDEXING`: `false` to build a standard (legacy) index instead of a structured one (default `true`); changing it rebuilds every file on the next run
 
 ### Failure Reason Reporting
 
