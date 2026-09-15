@@ -145,6 +145,16 @@ export const configSchematics = createConfigSchematics()
     false,
   )
   .field(
+    "structuredIndexing",
+    "boolean",
+    {
+      displayName: "Structured Indexing",
+      subtitle:
+        "Chunk documents by their headings, sections, and list items, record each chunk's dates, and give every chunk a header with its file, section, and dates. Turning this on or off requires a manual reindex with 'Skip Previously Indexed Files' off.",
+    },
+    false,
+  )
+  .field(
     "excludeFilenamePatterns",
     "string",
     {

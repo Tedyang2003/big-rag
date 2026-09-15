@@ -10,6 +10,8 @@ import { calculateFileHash } from "../utils/fileHash";
 import { type EmbeddingDynamicHandle, type LMStudioClient } from "@lmstudio/sdk";
 import { FailedFileRegistry } from "../utils/failedFileRegistry";
 import { coerceEmbeddingVector } from "../utils/coerceEmbedding";
+import { chunkStructured, type StructuredChunk } from "../chunking/structuredChunker";
+import { dayRangeOf, detectDayMonthOrder, documentPostedDate, type DateRange } from "../metadata/dates";
 
 const EXCLUDE_PROGRESS_THROTTLE = 40;
 
@@ -50,6 +52,10 @@ export interface IndexingOptions {
   enableOCR: boolean;
   autoReindex: boolean;
   parseDelayMs: number;
+  /** Build structured chunks (Markdown sections, dates, context headers) instead of legacy chunks. */
+  structuredIndexing: boolean;
+  /** The store holds chunks in the other format: reprocess every file and replace its old chunks. */
+  rebuildExistingFiles: boolean;
   failureReportPath?: string;
   /** Glob patterns (relative to documents dir); matched supported files are skipped before parsing. */
   excludePatterns?: string[];
@@ -58,6 +64,14 @@ export interface IndexingOptions {
 }
 
 type FailureReason = ParseFailureReason | "index.chunk-empty" | "index.vector-add-error";
+
+interface PreparedChunk {
+  text: string;
+  embedText: string;
+  startIndex: number;
+  endIndex: number;
+  metadata: Record<string, string>;
+}
 
 export class IndexManager {
   private queue: PQueue;
@@ -324,14 +338,15 @@ export class IndexManager {
       const existingHashes = fileInventory.get(file.path);
       const hasSeenBefore = existingHashes !== undefined && existingHashes.size > 0;
       const hasSameHash = existingHashes?.has(fileHash) ?? false;
+      const skipUnchanged = autoReindex && !this.options.rebuildExistingFiles;
 
       // Check if file already indexed
-      if (autoReindex && hasSameHash) {
+      if (skipUnchanged && hasSameHash) {
         console.log(`File already indexed (skipped): ${file.name}`);
         return { type: "skipped" };
       }
 
-      if (autoReindex) {
+      if (skipUnchanged) {
         const previousFailure = await this.failedFileRegistry.getFailureReason(file.path, fileHash);
         if (previousFailure) {
           console.log(
@@ -357,17 +372,16 @@ export class IndexManager {
       }
       const parsed = parsedResult.document;
 
-      // Chunk text (sized against real embedding-model tokens, not words)
-      const chunks = await chunkText(markdownToPlain(parsed.text), chunkSize, chunkOverlap, (t) =>
-        embeddingModel.countTokens(t),
-      );
+      const chunks = this.options.structuredIndexing
+        ? await this.prepareStructuredChunks(parsed.text, file)
+        : await this.prepareLegacyChunks(parsed.text);
       if (chunks.length === 0) {
         console.log(`No chunks created from ${file.name}`);
-        this.recordFailure("index.chunk-empty", "chunkText produced 0 chunks", file);
+        this.recordFailure("index.chunk-empty", "chunking produced 0 chunks", file);
         if (fileHash) {
           await this.failedFileRegistry.recordFailure(file.path, fileHash, "index.chunk-empty");
         }
-        return { type: "failed" }; // Failed to chunk
+        return { type: "failed" };
       }
 
       // Generate embeddings and create document chunks
@@ -381,9 +395,9 @@ export class IndexManager {
 
         try {
           // Generate embedding
-          const embeddingResult = await embeddingModel.embed(chunk.text);
+          const embeddingResult = await embeddingModel.embed(chunk.embedText);
           const embedding = coerceEmbeddingVector(embeddingResult.embedding);
-          
+
           documentChunks.push({
             id: `${fileHash}-${i}`,
             text: chunk.text,
@@ -398,6 +412,7 @@ export class IndexManager {
               mtime: file.mtime.toISOString(),
               startIndex: chunk.startIndex,
               endIndex: chunk.endIndex,
+              ...chunk.metadata,
             },
           });
         } catch (error) {
@@ -419,6 +434,12 @@ export class IndexManager {
       }
 
       try {
+        if (this.options.rebuildExistingFiles && existingHashes) {
+          for (const oldHash of existingHashes) {
+            await vectorStore.deleteByFileHash(oldHash);
+          }
+          existingHashes.clear();
+        }
         await vectorStore.addChunks(documentChunks);
         console.log(`Indexed ${documentChunks.length} chunks from ${file.name}`);
         if (!existingHashes) {
@@ -455,6 +476,61 @@ export class IndexManager {
       }
       return { type: "failed" }; // Failed
     }
+  }
+
+  private async prepareLegacyChunks(text: string): Promise<PreparedChunk[]> {
+    const chunks = await chunkText(markdownToPlain(text), this.options.chunkSize, this.options.chunkOverlap, (t) =>
+      this.options.embeddingModel.countTokens(t),
+    );
+    return chunks.map((chunk) => ({
+      text: chunk.text,
+      embedText: chunk.text,
+      startIndex: chunk.startIndex,
+      endIndex: chunk.endIndex,
+      metadata: { indexFormat: "legacy" },
+    }));
+  }
+
+  private async prepareStructuredChunks(markdown: string, file: ScannedFile): Promise<PreparedChunk[]> {
+    const base = {
+      fileName: file.name,
+      chunkSize: this.options.chunkSize,
+      chunkOverlap: this.options.chunkOverlap,
+      countTokens: (t: string) => this.options.embeddingModel.countTokens(t),
+    };
+
+    let postedDate: DateRange;
+    let chunks: StructuredChunk[];
+    try {
+      postedDate = documentPostedDate(markdown, file.name, file.mtime);
+      chunks = await chunkStructured(markdown, {
+        ...base,
+        postedDate,
+        dateContext: {
+          order: detectDayMonthOrder(markdown),
+          referenceTime: file.mtime,
+          defaultYear: Number(postedDate.start.slice(0, 4)),
+        },
+      });
+    } catch (error) {
+      console.warn(`[BigRAG] Date extraction failed for ${file.name}; indexing without dates:`, error);
+      postedDate = dayRangeOf(file.mtime);
+      chunks = await chunkStructured(markdown, { ...base, postedDate, dateContext: {}, extractDates: false });
+    }
+
+    return chunks.map((chunk) => ({
+      text: chunk.text,
+      embedText: `${chunk.contextHeader}\n${chunk.text}`,
+      startIndex: chunk.startIndex,
+      endIndex: chunk.endIndex,
+      metadata: {
+        indexFormat: "structured-v1",
+        postedDate: JSON.stringify(postedDate),
+        dates: JSON.stringify(chunk.dates),
+        sectionPath: chunk.sectionPath,
+        contextHeader: chunk.contextHeader,
+      },
+    }));
   }
 
   /**

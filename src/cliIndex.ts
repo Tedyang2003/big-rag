@@ -2,7 +2,7 @@ import { LMStudioClient } from "@lmstudio/sdk";
 import { VectorStore } from "./vectorstore/vectorStore";
 import { IndexManager } from "./ingestion/indexManager";
 import { resolveEmbeddingModelId } from "./config";
-import { syncEmbeddingManifestAfterIndexing } from "./utils/embeddingIndexManifest";
+import { planIndexFormat, syncEmbeddingManifestAfterIndexing } from "./utils/embeddingIndexManifest";
 import { parseExcludePatternsFromEnv } from "./utils/fileExcludePatterns";
 
 async function main() {
@@ -35,6 +35,8 @@ async function main() {
     : 500;
   const failureReportPath = process.env.BIG_RAG_FAILURE_REPORT_PATH;
   const excludePatterns = parseExcludePatternsFromEnv(process.env.BIG_RAG_EXCLUDE_PATTERNS);
+  const structuredIndexing =
+    (process.env.BIG_RAG_STRUCTURED_INDEXING ?? "false").toLowerCase() === "true";
 
   const resolvedEmbeddingModelId = resolveEmbeddingModelId(process.env.BIG_RAG_EMBEDDING_MODEL);
 
@@ -42,6 +44,7 @@ async function main() {
   console.log(`[BigRAG CLI] Documents dir: ${documentsDir}`);
   console.log(`[BigRAG CLI] Vector store dir: ${vectorStoreDir}`);
   console.log(`[BigRAG CLI] Embedding model: ${resolvedEmbeddingModelId}`);
+  console.log(`[BigRAG CLI] Structured indexing: ${structuredIndexing}`);
   if (excludePatterns.length > 0) {
     console.log(`[BigRAG CLI] Exclude patterns (${excludePatterns.length}): ${excludePatterns.join(", ")}`);
   }
@@ -55,6 +58,16 @@ async function main() {
   console.log("[BigRAG CLI] Loading embedding model...");
   const embeddingModel = await client.embedding.model(resolvedEmbeddingModelId);
 
+  const statsBefore = await vectorStore.getStats();
+  const { indexFormat, rebuildExistingFiles } = await planIndexFormat(
+    vectorStoreDir,
+    statsBefore.totalChunks,
+    structuredIndexing,
+  );
+  if (rebuildExistingFiles) {
+    console.log(`[BigRAG CLI] Index format changes to ${indexFormat}; rebuilding every file.`);
+  }
+
   const indexManager = new IndexManager({
     documentsDir,
     vectorStore,
@@ -65,7 +78,9 @@ async function main() {
     chunkOverlap,
     maxConcurrent,
     enableOCR,
-    autoReindex,
+    autoReindex: rebuildExistingFiles ? false : autoReindex,
+    structuredIndexing,
+    rebuildExistingFiles,
     parseDelayMs,
     failureReportPath,
     excludePatterns,
@@ -100,6 +115,7 @@ async function main() {
       stats.totalChunks,
       resolvedEmbeddingModelId,
       embeddingModel,
+      indexFormat,
     );
 
     console.log(

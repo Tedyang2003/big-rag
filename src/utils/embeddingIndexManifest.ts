@@ -5,9 +5,12 @@ import { coerceEmbeddingVector } from "./coerceEmbedding";
 
 export const EMBEDDING_INDEX_MANIFEST_FILENAME = ".big-rag-embedding.json";
 
+export type IndexFormat = "legacy" | "structured-v1";
+
 export interface EmbeddingIndexManifest {
   embeddingModelId: string;
   dimensions: number;
+  indexFormat: IndexFormat;
 }
 
 export function getEmbeddingManifestPath(vectorStoreDir: string): string {
@@ -28,7 +31,11 @@ export async function readEmbeddingIndexManifest(
       Number.isFinite(data.dimensions) &&
       data.dimensions > 0
     ) {
-      return { embeddingModelId: data.embeddingModelId, dimensions: data.dimensions };
+      return {
+        embeddingModelId: data.embeddingModelId,
+        dimensions: data.dimensions,
+        indexFormat: data.indexFormat === "structured-v1" ? "structured-v1" : "legacy",
+      };
     }
     return null;
   } catch (e: any) {
@@ -68,6 +75,7 @@ export async function syncEmbeddingManifestAfterIndexing(
   totalChunks: number,
   resolvedModelId: string,
   embeddingModel: EmbeddingDynamicHandle,
+  indexFormat: IndexFormat,
 ): Promise<void> {
   if (totalChunks === 0) {
     await deleteEmbeddingIndexManifest(vectorStoreDir);
@@ -78,6 +86,7 @@ export async function syncEmbeddingManifestAfterIndexing(
   await writeEmbeddingIndexManifest(vectorStoreDir, {
     embeddingModelId: resolvedModelId,
     dimensions,
+    indexFormat,
   });
 }
 
@@ -144,4 +153,32 @@ export async function checkEmbeddingModelForRetrieval(args: {
   }
 
   return { ok: true };
+}
+
+export function desiredIndexFormat(structuredIndexing: boolean): IndexFormat {
+  return structuredIndexing ? "structured-v1" : "legacy";
+}
+
+/**
+ * Decides the format to index with, and whether existing files must be
+ * rebuilt because the store already holds chunks in the other format.
+ */
+export async function planIndexFormat(
+  vectorStoreDir: string,
+  totalChunks: number,
+  structuredIndexing: boolean,
+): Promise<{ indexFormat: IndexFormat; rebuildExistingFiles: boolean }> {
+  const indexFormat = desiredIndexFormat(structuredIndexing);
+  if (totalChunks === 0) {
+    return { indexFormat, rebuildExistingFiles: false };
+  }
+  const manifest = await readEmbeddingIndexManifest(vectorStoreDir);
+  return { indexFormat, rebuildExistingFiles: (manifest?.indexFormat ?? "legacy") !== indexFormat };
+}
+
+export function indexFormatMismatchMessage(indexed: IndexFormat, desired: IndexFormat): string | null {
+  if (indexed === desired) return null;
+  return desired === "structured-v1"
+    ? "Reindex required to apply structured indexing."
+    : "Reindex required to switch back to standard indexing.";
 }

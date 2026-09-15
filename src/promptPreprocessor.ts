@@ -181,6 +181,7 @@ export async function preprocess(
   const maxConcurrent = pluginConfig.get("maxConcurrentFiles");
   const enableOCR = pluginConfig.get("enableOCR");
   const enableContextCompaction = pluginConfig.get("enableContextCompaction");
+  const structuredIndexing = pluginConfig.get("structuredIndexing");
   const skipPreviouslyIndexed = pluginConfig.get("manualReindex.skipPreviouslyIndexed");
   const parseDelayMs = pluginConfig.get("parseDelayMs") ?? 0;
   const reindexRequested = pluginConfig.get("manualReindex.trigger");
@@ -280,6 +281,7 @@ export async function preprocess(
       chunkOverlap,
       maxConcurrent,
       enableOCR,
+      structuredIndexing,
       parseDelayMs,
       reindexRequested,
       excludePatterns,
@@ -312,6 +314,7 @@ export async function preprocess(
             chunkOverlap,
             maxConcurrent,
             enableOCR,
+            structuredIndexing,
             autoReindex: false,
             parseDelayMs,
             excludePatterns,
@@ -568,6 +571,7 @@ interface ConfigReindexOpts {
   chunkOverlap: number;
   maxConcurrent: number;
   enableOCR: boolean;
+  structuredIndexing: boolean;
   parseDelayMs: number;
   reindexRequested: boolean;
   excludePatterns: string[];
@@ -583,6 +587,7 @@ async function maybeHandleConfigTriggeredReindex({
   chunkOverlap,
   maxConcurrent,
   enableOCR,
+  structuredIndexing,
   parseDelayMs,
   reindexRequested,
   excludePatterns,
@@ -627,6 +632,7 @@ async function maybeHandleConfigTriggeredReindex({
       chunkOverlap,
       maxConcurrent,
       enableOCR,
+      structuredIndexing,
       autoReindex: skipPreviouslyIndexed,
       parseDelayMs,
       excludePatterns,

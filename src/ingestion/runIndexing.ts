@@ -2,7 +2,7 @@ import { type LMStudioClient } from "@lmstudio/sdk";
 import { IndexManager, type IndexingProgress, type IndexingResult } from "./indexManager";
 import { VectorStore } from "../vectorstore/vectorStore";
 import { resolveEmbeddingModelId } from "../config";
-import { syncEmbeddingManifestAfterIndexing } from "../utils/embeddingIndexManifest";
+import { planIndexFormat, syncEmbeddingManifestAfterIndexing } from "../utils/embeddingIndexManifest";
 
 export interface RunIndexingParams {
   client: LMStudioClient;
@@ -14,6 +14,7 @@ export interface RunIndexingParams {
   chunkOverlap: number;
   maxConcurrent: number;
   enableOCR: boolean;
+  structuredIndexing: boolean;
   autoReindex: boolean;
   parseDelayMs: number;
   /** Glob patterns relative to documents dir; matching supported files are not parsed or embedded. */
@@ -46,6 +47,7 @@ export async function runIndexingJob({
   chunkOverlap,
   maxConcurrent,
   enableOCR,
+  structuredIndexing,
   autoReindex,
   parseDelayMs,
   excludePatterns = [],
@@ -63,6 +65,13 @@ export async function runIndexingJob({
   const resolvedModelId = resolveEmbeddingModelId(embeddingModelId);
   const embeddingModel = await client.embedding.model(resolvedModelId, { signal: abortSignal });
 
+  const statsBefore = await vectorStore.getStats();
+  const { indexFormat, rebuildExistingFiles } = await planIndexFormat(
+    vectorStoreDir,
+    statsBefore.totalChunks,
+    structuredIndexing,
+  );
+
   const indexManager = new IndexManager({
     documentsDir,
     vectorStore,
@@ -73,7 +82,9 @@ export async function runIndexingJob({
     chunkOverlap,
     maxConcurrent,
     enableOCR,
-    autoReindex: forceReindex ? false : autoReindex,
+    autoReindex: forceReindex || rebuildExistingFiles ? false : autoReindex,
+    structuredIndexing,
+    rebuildExistingFiles,
     parseDelayMs,
     excludePatterns,
     abortSignal,
@@ -88,6 +99,7 @@ export async function runIndexingJob({
     stats.totalChunks,
     resolvedModelId,
     embeddingModel,
+    indexFormat,
   );
 
   if (ownsVectorStore) {
