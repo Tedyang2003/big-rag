@@ -1,13 +1,12 @@
 import {
   type ChatMessage,
-  type EmbeddingDynamicHandle,
   type FileHandle,
   type LMStudioClient,
   type PromptPreprocessorController,
   type RetrievalResultEntry,
 } from "@lmstudio/sdk";
 import { configSchematics, DEFAULT_PROMPT_TEMPLATE, resolveEmbeddingModelId } from "./config";
-import { VectorStore, type SearchResult } from "./vectorstore/vectorStore";
+import { VectorStore } from "./vectorstore/vectorStore";
 import { performSanityChecks } from "./utils/sanityChecks";
 import { tryStartIndexing, finishIndexing } from "./utils/indexingLock";
 import {
@@ -17,8 +16,7 @@ import {
 import * as path from "path";
 import { runIndexingJob } from "./ingestion/runIndexing";
 import { parseExcludePatternsBlock } from "./utils/fileExcludePatterns";
-import { trimOverlappingChunks } from "./utils/trimOverlappingChunks";
-import { compactPassageText } from "./utils/compactPassages";
+import { retrieve } from "./retrieval/retrieve";
 
 /**
  * Check the abort signal and throw if the request has been cancelled.
@@ -52,46 +50,6 @@ function summarizeText(text: string, maxLines: number = 3, maxChars: number = 40
     text.length > clipped.length ||
     clipped.length === maxChars && text.length > maxChars;
   return needsEllipsis ? `${clipped.trimEnd()}…` : clipped;
-}
-
-/** How many candidate passages to pull per one requested by retrievalLimit when compaction is on. */
-const CONTEXT_COMPACTION_POOL_MULTIPLIER = 3;
-
-/**
- * Compacts each candidate passage's text (extractive, sentence-level - see
- * compactPassages.ts) and greedily fills the same total token budget
- * retrievalLimit full-size chunks would have used, in score order. Since
- * compaction shrinks passages, this generally ends up including more
- * distinct passages than retrievalLimit for the same context cost, rather
- * than just using less context for its own sake.
- */
-async function compactResultsToBudget(
-  results: SearchResult[],
-  queryEmbedding: number[],
-  embeddingModel: EmbeddingDynamicHandle,
-  targetTokenBudget: number,
-): Promise<SearchResult[]> {
-  const compacted: SearchResult[] = [];
-  let usedTokens = 0;
-
-  for (const result of results) {
-    const compactedText = await compactPassageText(result.text, queryEmbedding, (sentences) =>
-      embeddingModel.embed(sentences),
-    );
-    const tokenCount = await embeddingModel.countTokens(compactedText);
-
-    // Always keep at least one passage even if it alone exceeds the budget;
-    // otherwise skip (not break) so a smaller candidate further down the
-    // ranked list still gets a chance to fit.
-    if (compacted.length > 0 && usedTokens + tokenCount > targetTokenBudget) {
-      continue;
-    }
-
-    compacted.push({ ...result, text: compactedText });
-    usedTokens += tokenCount;
-  }
-
-  return compacted;
 }
 
 // Global state for vector store (persists across requests)
@@ -467,34 +425,25 @@ export async function preprocess(
       text: "Searching for relevant content...",
     });
 
-    // Embed the query
-    const queryEmbeddingResult = await embeddingModel.embed(userPrompt);
-    checkAbort(ctl.abortSignal);
-    const queryEmbedding = queryEmbeddingResult.embedding;
-
-    // Search vector store. With compaction on, pull a larger candidate pool
-    // than retrievalLimit - compaction shrinks passages, so more candidates
-    // than the final count are needed to pick a good compacted set from.
-    const searchLimit = enableContextCompaction
-      ? retrievalLimit * CONTEXT_COMPACTION_POOL_MULTIPLIER
-      : retrievalLimit;
     const queryPreview =
       userPrompt.length > 160 ? `${userPrompt.slice(0, 160)}...` : userPrompt;
     console.info(
-      `[BigRAG] Executing vector search for "${queryPreview}" (limit=${searchLimit}, threshold=${retrievalThreshold})`,
+      `[BigRAG] Executing retrieval for "${queryPreview}" (limit=${retrievalLimit}, threshold=${retrievalThreshold}, compaction=${enableContextCompaction})`,
     );
-    let results = trimOverlappingChunks(
-      await vectorStore.search(queryEmbedding, searchLimit, retrievalThreshold),
+    const { passages: results, timings } = await retrieve(
+      userPrompt,
+      {
+        vectorStore,
+        embedQuery: async (text) => (await embeddingModel.embed(text)).embedding,
+        embedSentences: (sentences) => embeddingModel.embed(sentences),
+        countTokens: (text) => embeddingModel.countTokens(text),
+      },
+      { retrievalLimit, retrievalThreshold, chunkSize, enableContextCompaction },
     );
-
-    if (enableContextCompaction && results.length > 0) {
-      const targetTokenBudget = retrievalLimit * chunkSize;
-      results = await compactResultsToBudget(results, queryEmbedding, embeddingModel, targetTokenBudget);
-      console.info(
-        `[BigRAG] Context compaction: ${results.length} passages selected within a ~${targetTokenBudget}-token budget`,
-      );
-    }
     checkAbort(ctl.abortSignal);
+    console.info(
+      `[BigRAG] Retrieval timings: ${timings.map((t) => `${t.stage}=${t.ms.toFixed(0)}ms`).join(" ")}`,
+    );
     if (results.length > 0) {
       const topHit = results[0];
       console.info(
