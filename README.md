@@ -9,7 +9,7 @@ A powerful RAG (Retrieval-Augmented Generation) plugin for LM Studio that can in
 - **Multiple File Formats**: Supports HTM, HTML, XHTML, PDF, EPUB, DOCX, PPTX, TXT, TEXT, Markdown variants (MD/MDX/MKDN), BMP, JPEG, PNG
 - **Table-Aware DOCX/PPTX Parsing**: Table row/column structure is preserved (one line per row, cells joined with `|`) instead of flattening cells into indistinguishable paragraphs; PPTX slide order and speaker notes follow the presentation's actual relationship graph, not filename numbering
 - **Resilient PDF Parsing**: Three-stage fallback pipeline per PDF — LM Studio's built-in document parser, then `pdf-parse`, then MuPDF-rendered page images run through Tesseract OCR — so scanned/blueprint-style PDFs still get indexed
-- **OCR Support**: Optional OCR for image files and image-based PDFs using Tesseract
+- **OCR Support**: OCR for image files, and as a fallback for scanned PDFs, using Tesseract (always on; exclude image files you don't need)
 - **Configurable File Exclusion**: Skip files by glob pattern (e.g. `*.png`, `archive/**`) without touching your document tree
 - **Customizable Prompt Template**: Control how retrieved passages and the user query are assembled into the final prompt via `{{rag_context}}` / `{{user_query}}` macros
 - **Pre-Indexing Sanity Checks**: Verifies directory access, disk space, and free memory before a large indexing run and estimates its size/time
@@ -17,7 +17,7 @@ A powerful RAG (Retrieval-Augmented Generation) plugin for LM Studio that can in
 - **Headless CLI Indexing**: Index a document set from the command line (`npm run index:cli`) without needing an LM Studio chat session
 - **Vector Search**: Uses Vectra with sharded indexes for efficient vector storage and retrieval (avoids single-file size limits)
 - **Incremental Indexing**: Automatically detects and skips already-indexed files
-- **Concurrent Processing**: Configurable concurrency for optimal performance
+- **Concurrent Processing**: Configurable concurrency for the headless CLI indexer (`BIG_RAG_MAX_CONCURRENT`); the plugin processes one file at a time
 - **Persistent Storage**: Vector embeddings are stored locally and persist across sessions
 
 ## Supported File Types
