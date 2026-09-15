@@ -53,7 +53,11 @@ export function buildContextHeader(
   return `[${parts.join(" | ")}]`;
 }
 
-/** A heading with nothing under it is carried into the next section so a heading never ends a chunk. */
+/**
+ * A heading with nothing under it is carried into the next section so a heading never ends a chunk.
+ * When that next section is a list item, the merged section keeps the heading's path: the section
+ * now begins with the heading, and list items contribute no title of their own to the header.
+ */
 function mergeHeadingOnlySections(sections: Section[]): Section[] {
   const merged: Section[] = [];
   let pending: Section | null = null;
@@ -63,7 +67,12 @@ function mergeHeadingOnlySections(sections: Section[]): Section[] {
       pending = pending ? { ...section, blocks: [...pending.blocks, ...section.blocks] } : section;
       continue;
     }
-    merged.push(pending ? { ...section, blocks: [...pending.blocks, ...section.blocks] } : section);
+    if (pending) {
+      const path = section.blocks[0]?.kind === "listItem" ? pending.path : section.path;
+      merged.push({ ...section, path, blocks: [...pending.blocks, ...section.blocks] });
+    } else {
+      merged.push(section);
+    }
     pending = null;
   }
   if (pending) merged.push(pending);
@@ -129,12 +138,27 @@ export async function chunkStructured(markdown: string, options: StructuredChunk
   const describe = (group: Section[], text: string) => {
     const [first, ...rest] = group;
     const firstPath = first.path.join(" > ");
-    const extraTitles = rest.map((s) => s.path[s.path.length - 1]).filter((title): title is string => Boolean(title));
+    // Only packed sections that begin with a heading add their title; list-item sections add none,
+    // so bullet-heavy chunks do not get headers larger than their text.
+    const extraTitles = rest
+      .filter((s) => s.blocks[0]?.kind === "heading")
+      .map((s) => s.path[s.path.length - 1])
+      .filter((title): title is string => Boolean(title));
     const sectionPath = [firstPath, ...extraTitles].filter(Boolean).join(" ; ");
     const dates = dedupeRanges([...group.flatMap((s) => s.dates), ...textDates(text)]);
     const contextHeader = buildContextHeader(options.fileName, options.postedDate, sectionPath, dates);
     return { sectionPath, dates, contextHeader };
   };
+
+  // Headers (dates, pipes) usually tokenize denser than body text, so measure their
+  // density once per document and convert header words to body-equivalent budget words.
+  const firstHeader = describe([sections[0]], tokensToText(tokenizeSection(sections[0], 0).tokens)).contextHeader;
+  const firstHeaderWords = wordCount(firstHeader);
+  const firstHeaderTokens = await options.countTokens(firstHeader);
+  const headerTokensPerWord =
+    firstHeaderTokens > 0 && firstHeaderWords > 0 ? firstHeaderTokens / firstHeaderWords : tokensPerWord;
+  const headerBudgetWords = (header: string): number =>
+    Math.ceil((wordCount(header) * headerTokensPerWord) / tokensPerWord);
 
   const chunks: StructuredChunk[] = [];
   const emit = (group: Section[], tokens: Token[], startIndex: number) => {
@@ -149,7 +173,7 @@ export async function chunkStructured(markdown: string, options: StructuredChunk
       items.map((item) => item.section),
       tokensToText(tokens),
     );
-    return wordCount(contextHeader) + tokens.length <= budgetWords;
+    return headerBudgetWords(contextHeader) + tokens.length <= budgetWords;
   };
 
   const splitOversized = (item: SectionTokens) => {
@@ -158,7 +182,7 @@ export async function chunkStructured(markdown: string, options: StructuredChunk
     // A header can itself approach or exceed the budget; floor the piece budget
     // at half the budget instead of shrinking pieces to nothing. Chunks whose
     // header is unusually large may then exceed the nominal token budget.
-    const pieceBudget = Math.max(Math.ceil(budgetWords / 2), budgetWords - wordCount(worstHeader));
+    const pieceBudget = Math.max(Math.ceil(budgetWords / 2), budgetWords - headerBudgetWords(worstHeader));
     const sentences = sentenceEnds(item.tokens);
     const total = item.tokens.length;
     const headingEndSet = new Set(item.headingEnds);

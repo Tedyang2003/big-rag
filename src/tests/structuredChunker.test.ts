@@ -121,3 +121,44 @@ test("buildContextHeader omits empty section and dates", () => {
     "[File: a.pdf | Posted: 2026-07-01–2026-09-30 | Section: Intro | Dates: 2026-09-08]",
   );
 });
+
+test("chunkStructured does not repeat packed list-item titles in the header", async () => {
+  const bullets = Array.from(
+    { length: 12 },
+    (_, i) => `- Item ${i + 1} revenue grew strongly across the northern region`,
+  );
+  const markdown = ["## Slide 3: Regional Results", "", ...bullets].join("\n");
+  const chunks = await chunkStructured(markdown, options({ chunkSize: 400 }));
+  assert.equal(chunks.length, 1);
+  assert.equal(chunks[0].sectionPath, "Slide 3: Regional Results");
+  assert.ok(
+    words(chunks[0].contextHeader) < words(chunks[0].text),
+    `header larger than text: ${chunks[0].contextHeader}`,
+  );
+});
+
+test("chunkStructured budgets headers at their own token density", async () => {
+  const denseCount = async (text: string) =>
+    text
+      .split(/\s+/)
+      .filter(Boolean)
+      .reduce((sum, word) => sum + (/[\d|]/.test(word) ? 3 : 1), 0);
+  const prose = "the crews worked through the night to restore power and water to affected homes nearby";
+  const operations = [
+    "# Weekly Operations Report",
+    "",
+    ...Array.from({ length: 6 }, (_, i) => [`## Update ${i + 3} Sep 2026`, "", `${prose} ${prose}`, ""]).flat(),
+  ].join("\n");
+  const cases: Array<[string, number]> = [
+    [ROUNDUP, 110],
+    [operations, 52],
+  ];
+  for (const [markdown, chunkSize] of cases) {
+    const chunks = await chunkStructured(markdown, options({ chunkSize, countTokens: denseCount }));
+    assert.ok(chunks.length > 0);
+    for (const chunk of chunks) {
+      const total = (await denseCount(chunk.contextHeader)) + (await denseCount(chunk.text));
+      assert.ok(total <= chunkSize * 1.2, `over budget (${total} > ${chunkSize * 1.2}): ${chunk.contextHeader}`);
+    }
+  }
+});
