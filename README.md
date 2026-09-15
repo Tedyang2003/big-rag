@@ -54,59 +54,58 @@ npm run dev
 
 ## Configuration
 
-The plugin provides the following configuration options in LM Studio:
+Big RAG has two places for settings.
 
-### Required Settings
+### Global Settings
 
-- **Documents Directory**: Root directory containing your documents (read access required)
-- **Vector Store Directory**: Where the vector database will be stored (read/write access required)
+Set these once in Big RAG’s plugin settings in LM Studio. They apply to every chat.
 
-### Embedding model
+- **Documents Directory** (required): Root directory containing your documents (read access required). All subdirectories are scanned.
+- **Vector Store Directory** (required): Where the vector database is stored (read/write access required).
+- **Embedding Model** (default: `nomic-ai/nomic-embed-text-v1.5-GGUF`): String passed to LM Studio’s embedding load API. **Both** common forms can work for the same weights—for example **`mixedbread-ai/mxbai-embed-large-v1`** (Hub / `lms get`) and **`text-embedding-mxbai-embed-large-v1`** (as shown in `lms ls`). Use **one** spelling consistently so it matches **`.big-rag-embedding.json`**. After changing the model, set **Reindex** to *Rebuild everything*; vectors from different models are not comparable in the same index.
+- **Exclude filename patterns** (optional): One glob pattern per line, matched against each file’s path relative to the Documents Directory (forward slashes). Lines starting with `#` are comments. Example: `*.png` excludes PNGs anywhere; `archive/**` excludes that subtree. Image files are always read with OCR, so exclude them here to skip them. Excluding a file does not remove chunks already in the vector store — reindex to drop them.
+- **Prompt Template**: How retrieved passages and the user query are assembled into the final prompt. Must contain the `{{rag_context}}` and `{{user_query}}` macros — if either is missing, the plugin logs a warning and inserts it automatically. Default is a simple "use these citations if relevant" instruction followed by the user’s query.
 
-- **Embedding Model** (plugin setting): String passed to LM Studio’s embedding load API. **Both** common forms can work for the same weights—for example **`mixedbread-ai/mxbai-embed-large-v1`** (Hub / `lms get`) and **`text-embedding-mxbai-embed-large-v1`** (as shown in `lms ls`). Use **one** spelling consistently for indexing and retrieval so it matches **`.big-rag-embedding.json`**; switching spelling without reindexing can trigger a mismatch warning. Default: `nomic-ai/nomic-embed-text-v1.5-GGUF`.
-- **After changing the embedding model**, run a **full reindex** (toggle *Manual Reindex Trigger* with *Skip Previously Indexed Files* off, or clear the vector store and let first-run indexing rebuild). Vectors from different models are not comparable in the same index.
-- **`.big-rag-embedding.json`**: Written under the vector store directory when the index has at least one chunk; records the model id and vector length used to build the index. If the configured model no longer matches this file, retrieval is blocked until you reindex or revert the setting. If the index has **zero** chunks, this file is removed so metadata cannot drift (including after manual shard deletion).
-- **Indexes built with older plugin versions** may have chunks but no manifest; retrieval still works, and a full reindex will create the manifest.
+If Documents Directory or Vector Store Directory is empty, chats show "Big RAG is not in use: set … in Big RAG’s global settings." and messages are sent to the model unchanged.
 
-### Retrieval Settings
+### Chat Sidebar: Reindex
 
-- **Retrieval Limit** (1-20, default: 5): Maximum number of chunks to return
-- **Retrieval Affinity Threshold** (0.0-1.0, default: 0.5): Minimum similarity score for relevance
-- **Chunk Size** (128-2048 tokens, default: 512): Size of text chunks for embedding
-- **Chunk Overlap** (0-512 tokens, default: 100): Overlap between consecutive chunks
+- **Reindex** (default: *Off*): Choose *New & changed files* (skips unchanged files and files that previously failed to parse) or *Rebuild everything* (re-processes every file), then send a message. The reindex runs once; later messages show "Reindex already done at …". To run another, set Reindex to *Off*, send a message, then choose a mode again.
+- **Automatic first run**: If the vector store is empty, the plugin indexes your documents the first time a message is processed.
+- **Indexing lock**: Only one indexing run can be active at a time; a request made while one is running is reported and skipped.
+- The "done" record is the file `.big-rag-reindex.json` in the Vector Store Directory. Because Reindex is set per chat, a message in another chat where Reindex is *Off* clears it.
 
-### Performance Settings
+### How Documents Are Indexed
 
-- **Max Concurrent Files** (1-10, default: 1): Number of files to process simultaneously
-- **Parser Delay (ms)** (0-5000, default: 500): Wait time before parsing each document, inserted to help avoid WebSocket throttling against LM Studio
-- **Enable OCR** (default: true): Enable OCR for image files and image-based PDFs using LM Studio's built-in document parser
+- **Structured indexing**: Documents are chunked by headings, sections, and list items. Each chunk records its posted date (from the first page, then the file name, then the file’s modified time) and the dates of its sections, and gets a header such as `[File: report.pdf | Posted: 2026-09-20 | Section: Incidents > 2. Bus collision | Dates: 2026-09-08]`. The header is used for search and shown to the model; citations show only the original passage.
+- **OCR**: Always on. Scanned PDFs fall back to OCR when no text can be extracted, and image files (BMP/JPEG/PNG) are OCR’d.
+- **`.big-rag-embedding.json`**: Written in the vector store directory when the index has at least one chunk; records the embedding model, vector length, and index format. If the configured model no longer matches, retrieval is blocked until you reindex or revert the setting. Indexes built with older plugin versions may have chunks but no manifest; retrieval still works, and a reindex creates it.
+- **Index format changes**: Indexes built before structured indexing use the standard format; the plugin shows "Reindex required to apply structured indexing." until you reindex, and that reindex rebuilds every file whichever mode you choose.
 
-### File Filtering
+### Maintainer Defaults
 
-- **Exclude filename patterns** (optional): One glob pattern per line, matched against each file's path relative to the Documents Directory (forward slashes). Lines starting with `#` are comments. Example: `*.png` excludes PNGs anywhere; `archive/**` excludes that subtree. This only prevents new files from being parsed/embedded — it does not remove chunks already in the vector store, so reindex or clear the store to drop previously indexed matches.
+These values are fixed in the plugin (`src/settings/defaults.ts`). The headless CLI indexer and the evaluation harness accept the listed environment variables to override them.
 
-### Reindexing Controls
+| Value | Fixed default | Override |
+|---|---|---|
+| Retrieval limit | 5 | `BIG_RAG_RETRIEVAL_LIMIT` (eval) |
+| Affinity threshold | 0.5 | `BIG_RAG_RETRIEVAL_THRESHOLD` (eval) |
+| Chunk size (tokens) | 512 | `BIG_RAG_CHUNK_SIZE` |
+| Chunk overlap (tokens) | 100 | `BIG_RAG_CHUNK_OVERLAP` |
+| Max concurrent files | 1 | `BIG_RAG_MAX_CONCURRENT` |
+| Parser delay (ms) | 500 | `BIG_RAG_PARSE_DELAY_MS` |
+| OCR | on | `BIG_RAG_ENABLE_OCR` |
+| Structured indexing | on | `BIG_RAG_STRUCTURED_INDEXING` |
+| Context compaction | off | `BIG_RAG_ENABLE_COMPACTION` (eval) |
 
-- **Manual Reindex Trigger** (toggle): Turn this ON and submit any chat message to force indexing to run on every chat session where the plugin is enabled. Flip it OFF once you’re done to stop the automatic reindex loop.
-- **Skip Previously Indexed Files** (default: true): If enabled while "Manual Reindex Trigger" is enabled, each manual run touches just the documents that are new or have changed since the last index (files that previously failed to parse are also skipped); if disabled, every chat rebuilds the entire index from scratch. Combine "Skip Previously Indexed Files" and "Manual Reindex Trigger" to choose between incremental updates or repeated full refreshes.
-- **Automatic First-Run**: If the vector store is empty, the plugin automatically indexes the configured documents the first time any chat message is processed—no manual input is required.
-- **Indexing Lock**: Only one indexing run (automatic or manual) can be active at a time; if you trigger a manual reindex while one is already running, the plugin reports it and skips the new request instead of running two jobs concurrently.
+### Upgrading from 1.3
 
-### Structured Indexing
-
-- **Structured Indexing** (default: on): Chunks documents by headings, sections, and list items instead of fixed word counts, records each chunk's posted date (from the first page, then the file name, then the file's modified time) and the dates of its sections, and adds a header such as `[File: report.pdf | Posted: 2026-09-20 | Section: Incidents > 2. Bus collision | Dates: 2026-09-08]`. The header is used for search and shown to the model; citations show only the original passage.
-- Turning it on or off does not change the index by itself: run a manual reindex (*Manual Reindex Trigger*). Because the index format changed, that reindex rebuilds every file regardless of *Skip Previously Indexed Files*. Until then, retrieval keeps using the existing index and a status line says a reindex is required. Indexes built before this setting existed use the standard format, so after upgrading, run one manual reindex (or turn the setting off to keep the existing index).
-- For the CLI indexer, set `BIG_RAG_STRUCTURED_INDEXING=false` to build a standard index.
-
-### Prompt Template
-
-- **Prompt Template** (plugin setting): Customize how the retrieved passages and user query are assembled into the final prompt sent to the model. Must contain the `{{rag_context}}` and `{{user_query}}` macros — if either is missing, the plugin logs a warning and inserts it automatically so retrieval still works. Default is a simple "use these citations if relevant" instruction followed by the user's query.
+Settings moved out of the chat sidebar. After upgrading, enter **Documents Directory** and **Vector Store Directory** (and any custom Embedding Model, exclude patterns, or prompt template) once in Big RAG’s global settings. Pointing Vector Store Directory at your existing folder keeps your existing index. Old per-chat values for retrieval limit, threshold, chunk size, overlap, concurrency, parser delay, OCR, structured indexing, and context compaction are no longer used.
 
 ## Usage
 
 1. **Configure the Plugin**:
-   - Open LM Studio settings
-   - Navigate to the Big RAG plugin configuration
+   - Open Big RAG's plugin settings in LM Studio (global settings)
    - Set your documents directory (e.g., `/Users/user/Documents/MyLibrary`)
    - Set your vector store directory (e.g., `/Users/user/.lmstudio/big-rag-db`)
 
@@ -173,15 +172,13 @@ The plugin provides the following configuration options in LM Studio:
 
 - **Disk Space**: The vector store requires additional disk space (typically 10-20% of original document size)
 - **Initial Indexing**: Can take several hours for TB-scale collections
-- **Memory Usage**: Scales with concurrent processing (reduce `maxConcurrentFiles` if needed)
+- **Memory Usage**: Scales with concurrent processing (the plugin processes one file at a time; the CLI accepts `BIG_RAG_MAX_CONCURRENT`)
 
 ### Optimization Tips
 
 1. **Start Small**: Test with a subset of documents first
-2. **Disable OCR**: Unless you have many image-based documents, keep OCR disabled
-3. **Adjust Concurrency**: Lower `maxConcurrentFiles` on systems with limited resources
-4. **Chunk Size**: Larger chunks (1024-2048) work better for technical documents
-5. **Threshold Tuning**: Adjust `retrievalAffinityThreshold` based on result quality
+2. **Skip Images**: Exclude image files (e.g. `*.png`, `*.jpg`) if they don't contain useful text, since they are always OCR'd
+3. **Use the CLI for Large Collections**: `npm run index:cli` can tune concurrency and chunk size through environment variables
 
 ## Troubleshooting
 
@@ -189,7 +186,7 @@ The plugin provides the following configuration options in LM Studio:
 
 - Check that documents directory is correctly configured
 - Verify that indexing completed successfully
-- Try lowering the retrieval affinity threshold
+- Check that the files you expect aren't matched by an exclude pattern
 - Check LM Studio logs for errors
 
 ### Embedding model mismatch
@@ -199,13 +196,13 @@ The plugin provides the following configuration options in LM Studio:
 
 ### Slow Indexing
 
-- Reduce `maxConcurrentFiles`
-- Disable OCR if not needed
+- Exclude image files you don't need (they are always OCR'd)
 - Ensure vector store directory is on a fast drive (SSD recommended)
+- For very large collections, index with the CLI and `BIG_RAG_MAX_CONCURRENT`
 
 ### Out of Memory
 
-- Reduce `maxConcurrentFiles` to 1 or 2
+- When using the CLI, set `BIG_RAG_MAX_CONCURRENT` to 1 or 2
 - Process documents in batches by organizing them into subdirectories
 - Increase system swap space
 
