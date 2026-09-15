@@ -3,14 +3,12 @@ import * as path from "path";
 import { resolveEmbeddingModelId } from "./config";
 import { VectorStore } from "./vectorstore/vectorStore";
 import { retrieve, CONTEXT_COMPACTION_POOL_MULTIPLIER } from "./retrieval/retrieve";
-import {
-  checkEmbeddingModelForRetrieval,
-  readEmbeddingIndexManifest,
-} from "./utils/embeddingIndexManifest";
+import { checkEmbeddingModelForRetrieval } from "./utils/embeddingIndexManifest";
 import { buildQuestionPrompt, generateQuestions, QUESTION_JSON_SCHEMA } from "./eval/generateQuestions";
 import { loadQuestionSet, toRelativeSourcePath, writeNewFile } from "./eval/questionSet";
 import { formatMetricsTable, runEval } from "./eval/runEval";
 import { readGenerationSettings, readRetrievalSettings } from "./eval/settings";
+import { buildSettingsSnapshot } from "./eval/settingsSnapshot";
 import { isPathIgnored } from "./eval/gitIgnore";
 
 const USAGE =
@@ -90,16 +88,15 @@ async function runRun(client: LMStudioClient, vectorStore: VectorStore, document
     MIN_DIAGNOSTIC_POOL_SIZE,
     settings.retrievalLimit * (settings.enableContextCompaction ? CONTEXT_COMPACTION_POOL_MULTIPLIER : 1),
   );
-  const settingsSnapshot = {
-    ...settings,
+  const settingsSnapshot = await buildSettingsSnapshot({
+    settings,
     diagnosticPoolSize,
     embeddingModelId,
-    indexManifest: await readEmbeddingIndexManifest(vectorStoreDir),
+    vectorStoreDir,
     totalChunks: stats.totalChunks,
     questionsFile: questionsPath,
-    questionCount: questionSet.questions.length,
-    questionGenerator: questionSet.generator,
-  };
+    questionSet,
+  });
 
   console.log(`[BigRAG Eval] Running ${questionSet.questions.length} questions with ${JSON.stringify(settings)}...`);
 
