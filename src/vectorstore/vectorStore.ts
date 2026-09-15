@@ -27,6 +27,14 @@ export interface SearchResult {
   metadata: Record<string, any>;
 }
 
+export interface IndexedChunk {
+  text: string;
+  filePath: string;
+  fileName: string;
+  chunkIndex: number;
+  metadata: Record<string, any>;
+}
+
 type ChunkMetadata = {
   text: string;
   filePath: string;
@@ -235,6 +243,29 @@ export class VectorStore {
       }
     }
     return inventory;
+  }
+
+  /**
+   * List every indexed chunk across all shards.
+   */
+  async listChunks(): Promise<IndexedChunk[]> {
+    const chunks: IndexedChunk[] = [];
+    for (const dir of this.shardDirs) {
+      const shard = this.openShard(dir);
+      const items = await shard.listItems();
+      for (const item of items) {
+        const m = item.metadata as ChunkMetadata;
+        if (!m?.filePath || typeof m.text !== "string") continue;
+        chunks.push({
+          text: m.text,
+          filePath: m.filePath,
+          fileName: m.fileName,
+          chunkIndex: m.chunkIndex,
+          metadata: m,
+        });
+      }
+    }
+    return chunks;
   }
 
   /**
