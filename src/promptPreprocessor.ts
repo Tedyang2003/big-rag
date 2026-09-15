@@ -6,7 +6,14 @@ import {
   type RetrievalResultEntry,
 } from "@lmstudio/sdk";
 import { configSchematics, DEFAULT_PROMPT_TEMPLATE, globalConfigSchematics } from "./config";
-import { asConfigReader, notConfiguredMessage, resolveSettings } from "./settings/resolveSettings";
+import {
+  asConfigReader,
+  notConfiguredMessage,
+  resolveSettings,
+  type ReindexMode,
+  type ResolvedSettings,
+} from "./settings/resolveSettings";
+import { handleReindexRequest, reindexAlreadyDoneMessage } from "./settings/reindexMarker";
 import { VectorStore } from "./vectorstore/vectorStore";
 import { performSanityChecks } from "./utils/sanityChecks";
 import { tryStartIndexing, finishIndexing } from "./utils/indexingLock";
@@ -273,21 +280,7 @@ export async function preprocess(
 
     checkAbort(ctl.abortSignal);
 
-    await maybeHandleConfigTriggeredReindex({
-      ctl,
-      documentsDir,
-      vectorStoreDir,
-      embeddingModelId: resolvedEmbeddingModelId,
-      chunkSize,
-      chunkOverlap,
-      maxConcurrent,
-      enableOCR,
-      structuredIndexing,
-      parseDelayMs,
-      reindexRequested: reindexMode !== "off",
-      excludePatterns,
-      skipPreviouslyIndexed: reindexMode === "changed",
-    });
+    await maybeHandleReindexRequest(ctl, settings, vectorStore);
 
     checkAbort(ctl.abortSignal);
 
@@ -566,82 +559,69 @@ export async function preprocess(
   }
 }
 
-interface ConfigReindexOpts {
-  ctl: PromptPreprocessorController;
-  documentsDir: string;
-  vectorStoreDir: string;
-  embeddingModelId: string;
-  chunkSize: number;
-  chunkOverlap: number;
-  maxConcurrent: number;
-  enableOCR: boolean;
-  structuredIndexing: boolean;
-  parseDelayMs: number;
-  reindexRequested: boolean;
-  excludePatterns: string[];
-  skipPreviouslyIndexed: boolean;
+const REINDEX_MODE_LABELS: Record<Exclude<ReindexMode, "off">, string> = {
+  changed: "New & changed files",
+  rebuild: "Rebuild everything",
+};
+
+async function maybeHandleReindexRequest(
+  ctl: PromptPreprocessorController,
+  settings: ResolvedSettings,
+  store: VectorStore,
+): Promise<void> {
+  const outcome = await handleReindexRequest({
+    vectorStoreDir: settings.vectorStoreDirectory,
+    mode: settings.reindexMode,
+    run: () => runRequestedReindex(ctl, settings, store),
+  });
+  if (outcome.decision === "skip" && outcome.marker) {
+    ctl.createStatus({ status: "done", text: reindexAlreadyDoneMessage(outcome.marker) });
+  }
 }
 
-async function maybeHandleConfigTriggeredReindex({
-  ctl,
-  documentsDir,
-  vectorStoreDir,
-  embeddingModelId,
-  chunkSize,
-  chunkOverlap,
-  maxConcurrent,
-  enableOCR,
-  structuredIndexing,
-  parseDelayMs,
-  reindexRequested,
-  excludePatterns,
-  skipPreviouslyIndexed,
-}: ConfigReindexOpts) {
-  if (!reindexRequested) {
-    return;
+/** Runs the reindex the user chose. Resolves true only when the run completed. */
+async function runRequestedReindex(
+  ctl: PromptPreprocessorController,
+  settings: ResolvedSettings,
+  store: VectorStore,
+): Promise<boolean> {
+  const mode = settings.reindexMode;
+  if (mode === "off") {
+    return false;
   }
-
-  const reminderText =
-    `Manual Reindex Trigger is ON. Skip Previously Indexed Files is currently ${skipPreviouslyIndexed ? "ON" : "OFF"}. ` +
-    "The index will be rebuilt each chat when 'Skip Previously Indexed Files' is OFF. If 'Skip Previously Indexed Files' is ON, the index will only be rebuilt for new or changed files. " +
-    `Embedding model for this run: ${embeddingModelId}.`;
-  
-  console.info(`[BigRAG] ${reminderText}`);
-  ctl.createStatus({
-    status: "done",
-    text: reminderText,
-  });
+  const embeddingModelId = settings.embeddingModelId;
+  const label = REINDEX_MODE_LABELS[mode];
 
   if (!tryStartIndexing("config-trigger")) {
     ctl.createStatus({
       status: "canceled",
-      text: "Manual reindex already running. Please wait for it to finish.",
+      text: "A reindex is already running. Please wait for it to finish.",
     });
-    return;
+    return false;
   }
 
   const status = ctl.createStatus({
     status: "loading",
-    text: `Manual reindex requested from config… (embedding model: ${embeddingModelId})`,
+    text: `Reindex requested (${label})… (embedding model: ${embeddingModelId})`,
   });
 
   try {
     const { indexingResult } = await runIndexingJob({
       client: ctl.client,
       abortSignal: ctl.abortSignal,
-      documentsDir,
-      vectorStoreDir,
+      documentsDir: settings.documentsDirectory,
+      vectorStoreDir: settings.vectorStoreDirectory,
       embeddingModelId,
-      chunkSize,
-      chunkOverlap,
-      maxConcurrent,
-      enableOCR,
-      structuredIndexing,
-      autoReindex: skipPreviouslyIndexed,
-      parseDelayMs,
-      excludePatterns,
-      forceReindex: !skipPreviouslyIndexed,
-      vectorStore: vectorStore ?? undefined,
+      chunkSize: settings.chunkSize,
+      chunkOverlap: settings.chunkOverlap,
+      maxConcurrent: settings.maxConcurrentFiles,
+      enableOCR: settings.enableOCR,
+      structuredIndexing: settings.structuredIndexing,
+      autoReindex: mode === "changed",
+      parseDelayMs: settings.parseDelayMs,
+      excludePatterns: settings.excludePatterns,
+      forceReindex: mode === "rebuild",
+      vectorStore: store,
       onProgress: (progress) => {
         if (progress.status === "scanning") {
           status.setState({
@@ -675,7 +655,7 @@ async function maybeHandleConfigTriggeredReindex({
 
     status.setState({
       status: "done",
-      text: `Manual reindex complete! (embedding model: ${embeddingModelId})`,
+      text: `Reindex complete (${label}). Set Reindex to Off, then choose it again to run another.`,
     });
 
     const summaryLines = [
@@ -693,36 +673,29 @@ async function maybeHandleConfigTriggeredReindex({
       status: "done",
       text: summaryLines.join("\n"),
     });
+    console.log(`[BigRAG] Reindex summary:\n  ${summaryLines.join("\n  ")}`);
 
-    console.log(
-      `[BigRAG] Manual reindex summary:\n  ${summaryLines.join("\n  ")}`,
-    );
-
-    await notifyManualResetNeeded(ctl, embeddingModelId);
+    try {
+      await ctl.client.system.notify({
+        title: "Big RAG reindex completed",
+        description: `Reindex (${label}) finished. Set Reindex to Off, then choose it again to run another.`,
+      });
+    } catch (error) {
+      console.warn("[BigRAG] Unable to send reindex notification:", error);
+    }
+    return true;
   } catch (error) {
+    if (isAbortError(error)) {
+      throw error;
+    }
     status.setState({
       status: "error",
-      text: `Manual reindex failed: ${error instanceof Error ? error.message : String(error)}`,
+      text: `Reindex failed: ${error instanceof Error ? error.message : String(error)}`,
     });
-    console.error("[BigRAG] Manual reindex failed:", error);
+    console.error("[BigRAG] Reindex failed:", error);
+    return false;
   } finally {
     finishIndexing();
   }
 }
-
-async function notifyManualResetNeeded(
-  ctl: PromptPreprocessorController,
-  embeddingModelId: string,
-) {
-  try {
-    await ctl.client.system.notify({
-      title: "Manual reindex completed",
-      description:
-        `Manual Reindex Trigger is ON. The index will be rebuilt each chat when 'Skip Previously Indexed Files' is OFF. If 'Skip Previously Indexed Files' is ON, the index will only be rebuilt for new or changed files. Last run used embedding model: ${embeddingModelId}.`,
-    });
-  } catch (error) {
-    console.warn("[BigRAG] Unable to send notification about manual reindex reset:", error);
-  }
-}
-
 
