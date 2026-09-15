@@ -95,7 +95,7 @@ The plugin provides the following configuration options in LM Studio:
 ### Structured Indexing
 
 - **Structured Indexing** (default: off): Chunks documents by headings, sections, and list items instead of fixed word counts, records each chunk's posted date (from the first page, then the file name, then the file's modified time) and the dates of its sections, and adds a header such as `[File: report.pdf | Posted: 2026-09-20 | Section: Incidents > 2. Bus collision | Dates: 2026-09-08]`. The header is used for search and shown to the model; citations show only the original passage.
-- Turning it on or off requires a manual reindex with *Skip Previously Indexed Files* off. Until then, retrieval keeps using the existing index and a status line says a reindex is required.
+- Turning it on or off does not change the index by itself: run a manual reindex (*Manual Reindex Trigger*). Because the index format changed, that reindex rebuilds every file regardless of *Skip Previously Indexed Files*. Until then, retrieval keeps using the existing index and a status line says a reindex is required.
 - For the CLI indexer, set `BIG_RAG_STRUCTURED_INDEXING=true`.
 
 ### Prompt Template

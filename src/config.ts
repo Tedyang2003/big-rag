@@ -150,7 +150,7 @@ export const configSchematics = createConfigSchematics()
     {
       displayName: "Structured Indexing",
       subtitle:
-        "Chunk documents by their headings, sections, and list items, record each chunk's dates, and give every chunk a header with its file, section, and dates. Turning this on or off requires a manual reindex with 'Skip Previously Indexed Files' off.",
+        "Chunk documents by their headings, sections, and list items, record each chunk's dates, and give every chunk a header with its file, section, and dates. Turning this on or off requires a manual reindex, which rebuilds every file regardless of 'Skip Previously Indexed Files'.",
     },
     false,
   )
