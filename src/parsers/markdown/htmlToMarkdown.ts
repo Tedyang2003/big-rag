@@ -1,13 +1,35 @@
 import * as cheerio from "cheerio";
 import type { AnyNode, Element, Text } from "domhandler";
 
-const CONTAINER_TAGS = new Set([
-  "html", "body", "div", "section", "article", "main", "header", "footer", "aside", "blockquote", "figure",
-]);
 const BLOCK_SELECTOR = "p,div,section,article,main,header,footer,aside,blockquote,figure,ul,ol,table,h1,h2,h3,h4,h5,h6";
+/** Elements whose text must stay whitespace-separated from neighbouring text. */
+const SEPARATED_TAGS = new Set([
+  ...BLOCK_SELECTOR.split(","),
+  "html", "body", "form", "fieldset", "li", "dl", "dt", "dd", "tr", "td", "th", "thead", "tbody", "tfoot",
+  "caption", "pre", "address", "details", "summary", "figcaption", "nav", "hr", "br",
+]);
 
 function collapse(text: string): string {
   return text.replace(/\s+/g, " ").trim();
+}
+
+/** Text of a node with line breaks and block boundaries kept as whitespace, then collapsed. */
+function separatedText(nodes: AnyNode[]): string {
+  const parts: string[] = [];
+  const walk = (node: AnyNode): void => {
+    if (node.nodeType === 3) {
+      parts.push((node as Text).data);
+      return;
+    }
+    if (node.nodeType !== 1) return;
+    const element = node as Element;
+    const separated = SEPARATED_TAGS.has(element.tagName.toLowerCase());
+    if (separated) parts.push(" ");
+    element.children.forEach(walk);
+    if (separated) parts.push(" ");
+  };
+  nodes.forEach(walk);
+  return collapse(parts.join(""));
 }
 
 /** Converts HTML to the normalized Markdown contract (headings, paragraphs, lists, table rows). */
@@ -24,7 +46,7 @@ export function htmlToMarkdown(html: string): string {
       .each((index, item) => {
         const own = $(item).clone();
         own.find("ul, ol").remove();
-        const text = collapse(own.text());
+        const text = separatedText(own.get());
         if (text) lines.push(`${"  ".repeat(depth)}${ordered ? `${index + 1}.` : "-"} ${text}`);
         $(item)
           .children("ul, ol")
@@ -42,7 +64,7 @@ export function htmlToMarkdown(html: string): string {
       .each((_, row) => {
         const cells = $(row)
           .children("td, th")
-          .map((_, cell) => collapse($(cell).text()))
+          .map((_, cell) => separatedText([cell]))
           .get();
         if (cells.some((cell) => cell.length > 0)) rows.push(cells.join(" | "));
       });
@@ -61,7 +83,7 @@ export function htmlToMarkdown(html: string): string {
 
     const heading = /^h([1-6])$/.exec(tag);
     if (heading) {
-      const text = collapse($(element).text());
+      const text = separatedText([element]);
       if (text) blocks.push(`${"#".repeat(Math.min(Number(heading[1]), 3))} ${text}`);
       return;
     }
@@ -75,11 +97,12 @@ export function htmlToMarkdown(html: string): string {
       if (rows.length > 0) blocks.push(rows.join("\n"));
       return;
     }
-    if (CONTAINER_TAGS.has(tag) && $(element).find(BLOCK_SELECTOR).length > 0) {
+    // Any element holding block elements is a container, so its blocks stay separate.
+    if ($(element).find(BLOCK_SELECTOR).length > 0) {
       element.children.forEach(visit);
       return;
     }
-    const text = collapse($(element).text());
+    const text = separatedText([element]);
     if (text) blocks.push(text);
   };
 

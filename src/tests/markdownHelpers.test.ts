@@ -114,3 +114,13 @@ test("normalizeMarkdown keeps structure and removes formatting noise", () => {
 test("markdownToPlain strips heading and bullet markers but keeps numbers", () => {
   assert.equal(markdownToPlain("## Slide 1: Title\n- point\n  - nested\n1. step"), "Slide 1: Title\npoint\nnested\n1. step");
 });
+
+test("htmlToMarkdown separates words across line breaks and nested blocks", () => {
+  assert.equal(htmlToMarkdown("<p>Report<br>15 September 2026</p>"), "Report 15 September 2026");
+  assert.equal(htmlToMarkdown("<form><h1>Title</h1><p>Body para</p></form>"), "# Title\n\nBody para");
+  assert.equal(
+    htmlToMarkdown("<table><tr><td><p>a</p><p>b</p></td><td>c</td></tr></table>"),
+    "a b | c",
+  );
+  assert.equal(htmlToMarkdown("<ul><li><p>one</p><p>two</p></li></ul>"), "- one two");
+});
