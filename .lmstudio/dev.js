@@ -162,6 +162,14 @@ User Query:
       },
       false
     ).field(
+      "structuredIndexing",
+      "boolean",
+      {
+        displayName: "Structured Indexing",
+        subtitle: "Chunk documents by their headings, sections, and list items, record each chunk's dates, and give every chunk a header with its file, section, and dates. Turning this on or off requires a manual reindex, which rebuilds every file regardless of 'Skip Previously Indexed Files'."
+      },
+      true
+    ).field(
       "excludeFilenamePatterns",
       "string",
       {
@@ -208,31 +216,59 @@ User Query:
 });
 
 // src/vectorstore/vectorStore.ts
-var fs, path, import_vectra, MAX_ITEMS_PER_SHARD, SHARD_DIR_PREFIX, SHARD_DIR_REGEX, VectorStore;
+var fs, path, import_vectra, DEFAULT_MAX_ITEMS_PER_SHARD, SHARD_DIR_PREFIX, SHARD_DIR_REGEX, VectorStore;
 var init_vectorStore = __esm({
   "src/vectorstore/vectorStore.ts"() {
     "use strict";
     fs = __toESM(require("fs/promises"));
     path = __toESM(require("path"));
     import_vectra = require("vectra");
-    MAX_ITEMS_PER_SHARD = 1e4;
+    DEFAULT_MAX_ITEMS_PER_SHARD = 1e4;
     SHARD_DIR_PREFIX = "shard_";
     SHARD_DIR_REGEX = /^shard_(\d+)$/;
     VectorStore = class {
-      constructor(dbPath) {
+      /**
+       * @param maxItemsPerShard Test seam only: overrides the shard rotation threshold so tests
+       * can force multiple shards without inserting thousands of chunks. Production callers should
+       * omit this and get the real default.
+       */
+      constructor(dbPath, maxItemsPerShard = DEFAULT_MAX_ITEMS_PER_SHARD) {
         this.shardDirs = [];
         this.activeShard = null;
         this.activeShardCount = 0;
+        /**
+         * Shard instances that have been mutated or scanned for deletion. vectra caches a shard's
+         * parsed index.json inside its LocalIndex, so every write to a shard directory must go
+         * through one shared instance - otherwise a stale cached copy can write deleted items back.
+         */
+        this.shardCache = /* @__PURE__ */ new Map();
         this.updateMutex = Promise.resolve();
         this.dbPath = path.resolve(dbPath);
+        this.maxItemsPerShard = maxItemsPerShard;
+      }
+      /** Number of shards currently held in the write-through cache. Exposed for tests. */
+      get cachedShardCount() {
+        return this.shardCache.size;
       }
       /**
-       * Open a shard by directory name (e.g. "shard_000"). Caller must not hold the reference
-       * after use so GC can free the parsed index data.
+       * Open a shard by directory name (e.g. "shard_000") for reading. Reuses the shared cached
+       * instance when one exists; otherwise returns a fresh instance the caller must not hold,
+       * so GC can free the parsed index data.
        */
       openShard(dir) {
-        const fullPath = path.join(this.dbPath, dir);
-        return new import_vectra.LocalIndex(fullPath);
+        return this.shardCache.get(dir) ?? new import_vectra.LocalIndex(path.join(this.dbPath, dir));
+      }
+      /**
+       * Get (creating if needed) the shared cached instance for a shard directory. Use this for
+       * every mutation so all writes to a directory see the same in-memory data.
+       */
+      cachedShard(dir) {
+        let shard = this.shardCache.get(dir);
+        if (!shard) {
+          shard = new import_vectra.LocalIndex(path.join(this.dbPath, dir));
+          this.shardCache.set(dir, shard);
+        }
+        return shard;
       }
       /**
        * Scan dbPath for shard_NNN directories and return sorted list.
@@ -256,18 +292,20 @@ var init_vectorStore = __esm({
        */
       async initialize() {
         await fs.mkdir(this.dbPath, { recursive: true });
+        this.shardCache.clear();
         this.shardDirs = await this.discoverShardDirs();
         if (this.shardDirs.length === 0) {
           const firstDir = `${SHARD_DIR_PREFIX}000`;
           const fullPath = path.join(this.dbPath, firstDir);
           const index = new import_vectra.LocalIndex(fullPath);
           await index.createIndex({ version: 1 });
+          this.shardCache.set(firstDir, index);
           this.shardDirs = [firstDir];
           this.activeShard = index;
           this.activeShardCount = 0;
         } else {
           const lastDir = this.shardDirs[this.shardDirs.length - 1];
-          this.activeShard = this.openShard(lastDir);
+          this.activeShard = this.cachedShard(lastDir);
           const items = await this.activeShard.listItems();
           this.activeShardCount = items.length;
         }
@@ -306,12 +344,13 @@ var init_vectorStore = __esm({
           }
           this.activeShardCount += chunks.length;
           console.log(`Added ${chunks.length} chunks to vector store`);
-          if (this.activeShardCount >= MAX_ITEMS_PER_SHARD) {
+          if (this.activeShardCount >= this.maxItemsPerShard) {
             const nextNum = this.shardDirs.length;
             const nextDir = `${SHARD_DIR_PREFIX}${String(nextNum).padStart(3, "0")}`;
             const fullPath = path.join(this.dbPath, nextDir);
             const newIndex = new import_vectra.LocalIndex(fullPath);
             await newIndex.createIndex({ version: 1 });
+            this.shardCache.set(nextDir, newIndex);
             this.shardDirs.push(nextDir);
             this.activeShard = newIndex;
             this.activeShardCount = 0;
@@ -352,20 +391,25 @@ var init_vectorStore = __esm({
        * Delete all chunks for a file (by hash) across all shards.
        */
       async deleteByFileHash(fileHash) {
-        const lastDir = this.shardDirs[this.shardDirs.length - 1];
         this.updateMutex = this.updateMutex.then(async () => {
+          const lastDir = this.shardDirs[this.shardDirs.length - 1];
           for (const dir of this.shardDirs) {
-            const shard = this.openShard(dir);
+            const shard = this.cachedShard(dir);
             const items = await shard.listItems();
             const toDelete = items.filter(
               (i) => i.metadata?.fileHash === fileHash
             );
             if (toDelete.length > 0) {
               await shard.beginUpdate();
-              for (const item of toDelete) {
-                await shard.deleteItem(item.id);
+              try {
+                for (const item of toDelete) {
+                  await shard.deleteItem(item.id);
+                }
+                await shard.endUpdate();
+              } catch (e) {
+                shard.cancelUpdate();
+                throw e;
               }
-              await shard.endUpdate();
               if (dir === lastDir && this.activeShard) {
                 this.activeShardCount = (await this.activeShard.listItems()).length;
               }
@@ -399,6 +443,28 @@ var init_vectorStore = __esm({
         return inventory;
       }
       /**
+       * List every indexed chunk across all shards.
+       */
+      async listChunks() {
+        const chunks = [];
+        for (const dir of this.shardDirs) {
+          const shard = this.openShard(dir);
+          const items = await shard.listItems();
+          for (const item of items) {
+            const m = item.metadata;
+            if (!m?.filePath || typeof m.text !== "string") continue;
+            chunks.push({
+              text: m.text,
+              filePath: m.filePath,
+              fileName: m.fileName,
+              chunkIndex: m.chunkIndex,
+              metadata: m
+            });
+          }
+        }
+        return chunks;
+      }
+      /**
        * Get total chunk count and unique file count.
        */
       async getStats() {
@@ -429,10 +495,38 @@ var init_vectorStore = __esm({
         return false;
       }
       /**
+       * Drop every cached shard except the active shard's entry. `cachedShard` (used by
+       * deleteByFileHash) caches every shard it touches, and vectra's LocalIndex keeps its entire
+       * parsed index.json - including every item's vector - in memory for the life of the
+       * instance. In a long-lived VectorStore that scan makes the whole index resident in RAM after
+       * the first delete of an indexing run. Everything cached here has already been flushed to
+       * disk (vectra writes on endUpdate), so dropping the entries loses nothing; a later read
+       * simply re-opens the shard fresh via `openShard`. Chained through updateMutex so it can't
+       * race an in-flight addChunks/deleteByFileHash.
+       */
+      async releaseShardCache() {
+        this.updateMutex = this.updateMutex.then(() => {
+          let activeDir;
+          for (const [dir, shard] of this.shardCache) {
+            if (shard === this.activeShard) {
+              activeDir = dir;
+              break;
+            }
+          }
+          for (const dir of [...this.shardCache.keys()]) {
+            if (dir !== activeDir) {
+              this.shardCache.delete(dir);
+            }
+          }
+        });
+        return this.updateMutex;
+      }
+      /**
        * Release the active shard reference.
        */
       async close() {
         this.activeShard = null;
+        this.shardCache.clear();
       }
     };
   }
@@ -626,7 +720,11 @@ async function readEmbeddingIndexManifest(vectorStoreDir) {
     const raw = await fs3.readFile(filePath, "utf-8");
     const data = JSON.parse(raw);
     if (typeof data.embeddingModelId === "string" && data.embeddingModelId.length > 0 && typeof data.dimensions === "number" && Number.isFinite(data.dimensions) && data.dimensions > 0) {
-      return { embeddingModelId: data.embeddingModelId, dimensions: data.dimensions };
+      return {
+        embeddingModelId: data.embeddingModelId,
+        dimensions: data.dimensions,
+        indexFormat: data.indexFormat === "structured-v1" ? "structured-v1" : "legacy"
+      };
     }
     return null;
   } catch (e) {
@@ -652,7 +750,7 @@ async function deleteEmbeddingIndexManifest(vectorStoreDir) {
     }
   }
 }
-async function syncEmbeddingManifestAfterIndexing(vectorStoreDir, totalChunks, resolvedModelId, embeddingModel) {
+async function syncEmbeddingManifestAfterIndexing(vectorStoreDir, totalChunks, resolvedModelId, embeddingModel, indexFormat) {
   if (totalChunks === 0) {
     await deleteEmbeddingIndexManifest(vectorStoreDir);
     return;
@@ -661,7 +759,8 @@ async function syncEmbeddingManifestAfterIndexing(vectorStoreDir, totalChunks, r
   const dimensions = coerceEmbeddingVector(probe.embedding).length;
   await writeEmbeddingIndexManifest(vectorStoreDir, {
     embeddingModelId: resolvedModelId,
-    dimensions
+    dimensions,
+    indexFormat
   });
 }
 async function checkEmbeddingModelForRetrieval(args) {
@@ -700,6 +799,32 @@ async function checkEmbeddingModelForRetrieval(args) {
     };
   }
   return { ok: true };
+}
+function desiredIndexFormat(structuredIndexing) {
+  return structuredIndexing ? "structured-v1" : "legacy";
+}
+async function planIndexFormat(vectorStoreDir, totalChunks, structuredIndexing) {
+  const indexFormat = desiredIndexFormat(structuredIndexing);
+  if (totalChunks === 0) {
+    return { indexFormat, rebuildExistingFiles: false };
+  }
+  const manifest = await readEmbeddingIndexManifest(vectorStoreDir);
+  return { indexFormat, rebuildExistingFiles: (manifest?.indexFormat ?? "legacy") !== indexFormat };
+}
+async function indexFormatStatusMessage(vectorStoreDir, structuredIndexing, getTotalChunks) {
+  const manifest = await readEmbeddingIndexManifest(vectorStoreDir);
+  let indexed;
+  if (manifest) {
+    indexed = manifest.indexFormat;
+  } else {
+    if (await getTotalChunks() === 0) return null;
+    indexed = "legacy";
+  }
+  return indexFormatMismatchMessage(indexed, desiredIndexFormat(structuredIndexing));
+}
+function indexFormatMismatchMessage(indexed, desired) {
+  if (indexed === desired) return null;
+  return desired === "structured-v1" ? "Reindex required to apply structured indexing." : "Reindex required to switch back to standard indexing.";
 }
 var fs3, path2, EMBEDDING_INDEX_MANIFEST_FILENAME, legacyWarnedDirs;
 var init_embeddingIndexManifest = __esm({
@@ -884,25 +1009,221 @@ var init_fileScanner = __esm({
   }
 });
 
+// src/parsers/markdown/htmlToMarkdown.ts
+function collapse(text) {
+  return text.replace(/\s+/g, " ").trim();
+}
+function separatedText(nodes) {
+  const parts = [];
+  const walk = (node) => {
+    if (node.nodeType === 3) {
+      parts.push(node.data);
+      return;
+    }
+    if (node.nodeType !== 1) return;
+    const element = node;
+    const separated = SEPARATED_TAGS.has(element.tagName.toLowerCase());
+    if (separated) parts.push(" ");
+    element.children.forEach(walk);
+    if (separated) parts.push(" ");
+  };
+  nodes.forEach(walk);
+  return collapse(parts.join(""));
+}
+function htmlToMarkdown(html) {
+  const $ = cheerio.load(html);
+  $("script, style, noscript, nav").remove();
+  const blocks = [];
+  const renderList = (list, depth) => {
+    const ordered = list.tagName.toLowerCase() === "ol";
+    const lines = [];
+    $(list).children("li").each((index, item) => {
+      const own = $(item).clone();
+      own.find("ul, ol").remove();
+      const text = separatedText(own.get());
+      if (text) lines.push(`${"  ".repeat(depth)}${ordered ? `${index + 1}.` : "-"} ${text}`);
+      $(item).children("ul, ol").each((_, nested) => {
+        lines.push(...renderList(nested, depth + 1));
+      });
+    });
+    return lines;
+  };
+  const renderTable = (table) => {
+    const rows = [];
+    $(table).find("tr").each((_, row) => {
+      const cells = $(row).children("td, th").map((_2, cell) => separatedText([cell])).get();
+      if (cells.some((cell) => cell.length > 0)) rows.push(cells.join(" | "));
+    });
+    return rows;
+  };
+  const visit = (node) => {
+    if (node.nodeType === 3) {
+      const text2 = collapse(node.data);
+      if (text2) blocks.push(text2);
+      return;
+    }
+    if (node.nodeType !== 1) return;
+    const element = node;
+    const tag = element.tagName.toLowerCase();
+    const heading = /^h([1-6])$/.exec(tag);
+    if (heading) {
+      const text2 = separatedText([element]);
+      if (text2) blocks.push(`${"#".repeat(Math.min(Number(heading[1]), 3))} ${text2}`);
+      return;
+    }
+    if (tag === "ul" || tag === "ol") {
+      const lines = renderList(element, 0);
+      if (lines.length > 0) blocks.push(lines.join("\n"));
+      return;
+    }
+    if (tag === "table") {
+      const rows = renderTable(element);
+      if (rows.length > 0) blocks.push(rows.join("\n"));
+      return;
+    }
+    if ($(element).find(BLOCK_SELECTOR).length > 0) {
+      element.children.forEach(visit);
+      return;
+    }
+    const text = separatedText([element]);
+    if (text) blocks.push(text);
+  };
+  $("body").contents().each((_, node) => visit(node));
+  return blocks.join("\n\n");
+}
+var cheerio, BLOCK_SELECTOR, SEPARATED_TAGS;
+var init_htmlToMarkdown = __esm({
+  "src/parsers/markdown/htmlToMarkdown.ts"() {
+    "use strict";
+    cheerio = __toESM(require("cheerio"));
+    BLOCK_SELECTOR = "p,div,section,article,main,header,footer,aside,blockquote,figure,ul,ol,table,h1,h2,h3,h4,h5,h6";
+    SEPARATED_TAGS = /* @__PURE__ */ new Set([
+      ...BLOCK_SELECTOR.split(","),
+      "html",
+      "body",
+      "form",
+      "fieldset",
+      "li",
+      "dl",
+      "dt",
+      "dd",
+      "tr",
+      "td",
+      "th",
+      "thead",
+      "tbody",
+      "tfoot",
+      "caption",
+      "pre",
+      "address",
+      "details",
+      "summary",
+      "figcaption",
+      "nav",
+      "hr",
+      "br"
+    ]);
+  }
+});
+
 // src/parsers/htmlParser.ts
 async function parseHTML(filePath) {
   try {
     const content = await fs5.promises.readFile(filePath, "utf-8");
-    const $ = cheerio.load(content);
-    $("script, style, noscript").remove();
-    const text = $("body").text() || $.text();
-    return text.replace(/\s+/g, " ").replace(/\n+/g, "\n").trim();
+    return htmlToMarkdown(content);
   } catch (error) {
     console.error(`Error parsing HTML file ${filePath}:`, error);
     return "";
   }
 }
-var cheerio, fs5;
+var fs5;
 var init_htmlParser = __esm({
   "src/parsers/htmlParser.ts"() {
     "use strict";
-    cheerio = __toESM(require("cheerio"));
     fs5 = __toESM(require("fs"));
+    init_htmlToMarkdown();
+  }
+});
+
+// src/parsers/markdown/inferStructure.ts
+function normalizeListItem(line) {
+  const match = LIST_ITEM.exec(line);
+  const rest = line.slice(match[0].length);
+  if (match[1]) return `${match[1]}. ${rest}`;
+  if (match[2]) return `${match[2]}. ${rest}`;
+  return `- ${rest}`;
+}
+function isHeadingCandidate(line) {
+  if (line.split(" ").length > MAX_HEADING_WORDS) return false;
+  if (/[.,;:]$/.test(line)) return false;
+  return /\p{L}/u.test(line);
+}
+function inferStructure(raw) {
+  const lines = raw.replace(/\r\n?/g, "\n").split("\n").map((line) => line.replace(/[ \t\f\v]+/g, " ").trim());
+  const blocks = [];
+  let current = [];
+  let seenContent = false;
+  const flush = () => {
+    if (current.length > 0) {
+      blocks.push(current.join(" "));
+      current = [];
+    }
+  };
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    if (line === "") {
+      flush();
+      continue;
+    }
+    if (EXISTING_HEADING.test(line)) {
+      flush();
+      blocks.push(line);
+      seenContent = true;
+      continue;
+    }
+    if (LIST_ITEM.test(line)) {
+      flush();
+      current = [normalizeListItem(line)];
+      seenContent = true;
+      continue;
+    }
+    if (current.length === 0) {
+      const next = lines[i + 1];
+      const followedByBlank = next === void 0 || next === "";
+      if (isHeadingCandidate(line) && (followedByBlank || !seenContent)) {
+        blocks.push(`## ${line}`);
+        seenContent = true;
+        continue;
+      }
+    }
+    current.push(line);
+    seenContent = true;
+  }
+  flush();
+  return blocks.join("\n\n");
+}
+var LIST_ITEM, EXISTING_HEADING, MAX_HEADING_WORDS;
+var init_inferStructure = __esm({
+  "src/parsers/markdown/inferStructure.ts"() {
+    "use strict";
+    LIST_ITEM = /^(?:(\d{1,3})[.)]|([a-zA-Z])[.)]|[-*•▪◦])\s+/;
+    EXISTING_HEADING = /^#{1,6}\s+\S/;
+    MAX_HEADING_WORDS = 12;
+  }
+});
+
+// src/parsers/markdown/ocrPages.ts
+function formatOcrPage(pageNumber, rawText) {
+  const body = inferStructure(rawText);
+  if (!body) return null;
+  return { markdown: `## Page ${pageNumber}
+
+${body}`, contentLength: body.length };
+}
+var init_ocrPages = __esm({
+  "src/parsers/markdown/ocrPages.ts"() {
+    "use strict";
+    init_inferStructure();
   }
 });
 
@@ -912,9 +1233,6 @@ async function getMupdf() {
     cachedMupdf = await import("mupdf");
   }
   return cachedMupdf;
-}
-function cleanText(text) {
-  return text.replace(/\s+/g, " ").replace(/\n+/g, "\n").trim();
 }
 async function tryLmStudioParser(filePath, client2) {
   const maxRetries = 2;
@@ -931,7 +1249,7 @@ async function tryLmStudioParser(filePath, client2) {
           }
         }
       });
-      const cleaned = cleanText(result.content);
+      const cleaned = inferStructure(result.content);
       if (cleaned.length >= MIN_TEXT_LENGTH) {
         return { success: true, text: cleaned, stage: "lmstudio" };
       }
@@ -971,7 +1289,7 @@ async function tryPdfParse(filePath) {
   try {
     const buffer = await fs6.promises.readFile(filePath);
     const result = await (0, import_pdf_parse.default)(buffer);
-    const cleaned = cleanText(result.text || "");
+    const cleaned = inferStructure(result.text || "");
     if (cleaned.length >= MIN_TEXT_LENGTH) {
       console.log(`[PDF Parser] (pdf-parse) Successfully extracted text from ${fileName}`);
       return { success: true, text: cleaned, stage: "pdf-parse" };
@@ -1024,6 +1342,7 @@ async function tryOcrWithMuPdf(filePath) {
     );
     worker = await (0, import_tesseract.createWorker)("eng");
     const textParts = [];
+    let contentLength = 0;
     let renderErrors = 0;
     for (let pageNum = 0; pageNum < maxPages; pageNum++) {
       let page = null;
@@ -1044,9 +1363,10 @@ async function tryOcrWithMuPdf(filePath) {
         const pngBuffer = pixmap.asPNG();
         try {
           const { data: { text } } = await worker.recognize(Buffer.from(pngBuffer));
-          const cleaned = cleanText(text || "");
-          if (cleaned.length > 0) {
-            textParts.push(cleaned);
+          const page2 = formatOcrPage(pageNum + 1, text || "");
+          if (page2) {
+            textParts.push(page2.markdown);
+            contentLength += page2.contentLength;
           }
         } catch (recognizeError) {
           renderErrors++;
@@ -1097,8 +1417,8 @@ async function tryOcrWithMuPdf(filePath) {
         `[PDF Parser] (OCR) ${fileName} had ${renderErrors}/${maxPages} page render errors`
       );
     }
-    const fullText = cleanText(textParts.join("\n\n"));
-    if (fullText.length >= MIN_TEXT_LENGTH) {
+    const fullText = textParts.join("\n\n");
+    if (contentLength >= MIN_TEXT_LENGTH) {
       return { success: true, text: fullText, stage: "ocr" };
     }
     if (renderErrors > 0) {
@@ -1161,6 +1481,8 @@ var init_pdfParser = __esm({
     fs6 = __toESM(require("fs"));
     import_pdf_parse = __toESM(require("pdf-parse"));
     import_tesseract = require("tesseract.js");
+    init_inferStructure();
+    init_ocrPages();
     cachedMupdf = null;
     MIN_TEXT_LENGTH = 50;
     OCR_MAX_PAGES = 50;
@@ -1179,7 +1501,7 @@ async function parseEPUB(filePath) {
         console.error(`Error parsing EPUB file ${filePath}:`, error);
         resolve4("");
       });
-      const stripHtml = (input) => input.replace(/<[^>]*>/g, " ");
+      const stripHtml = (input) => htmlToMarkdown(input);
       const getManifestEntry = (chapterId) => {
         return epub.manifest?.[chapterId];
       };
@@ -1257,9 +1579,7 @@ async function parseEPUB(filePath) {
             }
           }
           const fullText = textParts.join("\n\n");
-          resolve4(
-            fullText.replace(/\s+/g, " ").replace(/\n+/g, "\n").trim()
-          );
+          resolve4(fullText.replace(/\n{3,}/g, "\n\n").trim());
         } catch (error) {
           console.error(`Error processing EPUB chapters:`, error);
           resolve4("");
@@ -1277,6 +1597,7 @@ var init_epubParser = __esm({
   "src/parsers/epubParser.ts"() {
     "use strict";
     import_epub2 = require("epub2");
+    init_htmlToMarkdown();
   }
 });
 
@@ -1286,7 +1607,7 @@ async function parseImage(filePath) {
     const worker = await (0, import_tesseract2.createWorker)("eng");
     const { data: { text } } = await worker.recognize(filePath);
     await worker.terminate();
-    return text.replace(/\s+/g, " ").replace(/\n+/g, "\n").trim();
+    return inferStructure(text);
   } catch (error) {
     console.error(`Error parsing image file ${filePath}:`, error);
     return "";
@@ -1297,52 +1618,58 @@ var init_imageParser = __esm({
   "src/parsers/imageParser.ts"() {
     "use strict";
     import_tesseract2 = require("tesseract.js");
+    init_inferStructure();
+  }
+});
+
+// src/parsers/markdown/normalizeMarkdown.ts
+function normalizeMarkdown(markdown) {
+  let output = markdown.replace(/\r\n?/g, "\n");
+  output = output.replace(/```[\s\S]*?```/g, "");
+  output = output.replace(/`([^`]+)`/g, "$1");
+  output = output.replace(/!\[([^\]]*)\]\([^)]*\)/g, "$1");
+  output = output.replace(/\[([^\]]+)\]\([^)]*\)/g, "$1");
+  output = output.replace(/^[ \t]{0,3}>[ \t]?/gm, "");
+  output = output.replace(/^[ \t]{0,3}([-*_])(?:[ \t]*\1){2,}[ \t]*$/gm, "");
+  output = output.replace(/^([ \t]*)[*+]([ \t]+)/gm, "$1-$2");
+  output = output.replace(/(\*\*|__)(.+?)\1/g, "$2");
+  output = output.replace(/(?<![\w*])\*(?!\s)(.+?)(?<!\s)\*(?![\w*])/g, "$1");
+  output = output.replace(/(?<![\w_])_(?!\s)(.+?)(?<!\s)_(?![\w_])/g, "$1");
+  output = output.replace(/^[ \t]*\|?[ \t]*:?-{3,}:?[ \t]*(?:\|[ \t]*:?-{3,}:?[ \t]*)+\|?[ \t]*$\n?/gm, "");
+  output = output.replace(
+    /^[ \t]*\|(.*)\|[ \t]*$/gm,
+    (_match, inner) => inner.split("|").map((cell) => cell.trim()).join(" | ")
+  );
+  output = output.replace(/<[^>]+>/g, " ");
+  output = output.split("\n").map((line) => line.replace(/[ \t]+$/, "")).join("\n");
+  return output.replace(/\n{3,}/g, "\n\n").trim();
+}
+function markdownToPlain(markdown) {
+  return markdown.replace(/^#{1,6}[ \t]+/gm, "").replace(/^[ \t]*-[ \t]+/gm, "");
+}
+var init_normalizeMarkdown = __esm({
+  "src/parsers/markdown/normalizeMarkdown.ts"() {
+    "use strict";
   }
 });
 
 // src/parsers/textParser.ts
-async function parseText(filePath, options = {}) {
-  const { stripMarkdown = false, preserveLineBreaks = false } = options;
+async function parseText(filePath, kind) {
   try {
     const content = await fs7.promises.readFile(filePath, "utf-8");
-    const normalized = normalizeLineEndings(content);
-    const stripped = stripMarkdown ? stripMarkdownSyntax(normalized) : normalized;
-    return (preserveLineBreaks ? collapseWhitespaceButKeepLines(stripped) : collapseWhitespace(stripped)).trim();
+    return kind === "markdown" ? normalizeMarkdown(content) : inferStructure(content);
   } catch (error) {
     console.error(`Error parsing text file ${filePath}:`, error);
     return "";
   }
-}
-function normalizeLineEndings(input) {
-  return input.replace(/\r\n?/g, "\n");
-}
-function collapseWhitespace(input) {
-  return input.replace(/\s+/g, " ");
-}
-function collapseWhitespaceButKeepLines(input) {
-  return input.replace(/[ \t]+\n/g, "\n").replace(/\n{3,}/g, "\n\n").replace(/[ \t]{2,}/g, " ");
-}
-function stripMarkdownSyntax(input) {
-  let output = input;
-  output = output.replace(/```[\s\S]*?```/g, " ");
-  output = output.replace(/`([^`]+)`/g, "$1");
-  output = output.replace(/!\[([^\]]*)\]\([^)]*\)/g, "$1 ");
-  output = output.replace(/\[([^\]]+)\]\([^)]*\)/g, "$1");
-  output = output.replace(/(\*\*|__)(.*?)\1/g, "$2");
-  output = output.replace(/(\*|_)(.*?)\1/g, "$2");
-  output = output.replace(/^\s{0,3}#{1,6}\s+/gm, "");
-  output = output.replace(/^\s{0,3}>\s?/gm, "");
-  output = output.replace(/^\s{0,3}[-*+]\s+/gm, "");
-  output = output.replace(/^\s{0,3}\d+[\.\)]\s+/gm, "");
-  output = output.replace(/^\s{0,3}([-*_]\s?){3,}$/gm, "");
-  output = output.replace(/<[^>]+>/g, " ");
-  return output;
 }
 var fs7;
 var init_textParser = __esm({
   "src/parsers/textParser.ts"() {
     "use strict";
     fs7 = __toESM(require("fs"));
+    init_inferStructure();
+    init_normalizeMarkdown();
   }
 });
 
@@ -1356,9 +1683,6 @@ var init_embeddedImages = __esm({
 });
 
 // src/parsers/pptxParser.ts
-function cleanText2(text) {
-  return text.replace(/[ \t]+/g, " ").replace(/[ \t]*\n[ \t]*/g, "\n").replace(/\n{2,}/g, "\n").trim();
-}
 function extractTextRuns(xml) {
   const runs = [];
   const regex = /<a:t>([\s\S]*?)<\/a:t>/g;
@@ -1402,15 +1726,16 @@ function extractTableRows(tableXml) {
 }
 function extractContentBlocks(xml) {
   const blocks = [];
+  const paragraphs = (fragment) => extractParagraphs(fragment).map((text) => ({ kind: "paragraph", text }));
   const tableRegex = /<a:tbl>([\s\S]*?)<\/a:tbl>/g;
   let lastIndex = 0;
   let match;
   while ((match = tableRegex.exec(xml)) !== null) {
-    blocks.push(...extractParagraphs(xml.slice(lastIndex, match.index)));
-    blocks.push(...extractTableRows(match[1]));
+    blocks.push(...paragraphs(xml.slice(lastIndex, match.index)));
+    blocks.push(...extractTableRows(match[1]).map((text) => ({ kind: "tableRow", text })));
     lastIndex = tableRegex.lastIndex;
   }
-  blocks.push(...extractParagraphs(xml.slice(lastIndex)));
+  blocks.push(...paragraphs(xml.slice(lastIndex)));
   return blocks;
 }
 function parseRelationships(xml) {
@@ -1486,28 +1811,33 @@ async function parsePPTX(filePath, options = {}) {
   if (slidePaths.length === 0) {
     return "";
   }
-  const parts = [];
+  const slides = [];
   for (let i = 0; i < slidePaths.length; i++) {
     const slidePath = slidePaths[i];
     const displayNumber = i + 1;
     const xml = await zip.files[slidePath].async("text");
-    const contentBlocks = extractContentBlocks(xml);
-    if (contentBlocks.length === 0 && !includeSpeakerNotes) continue;
-    parts.push(`[Slide ${displayNumber}]`);
-    parts.push(...contentBlocks);
+    const blocks = extractContentBlocks(xml);
+    if (blocks.length === 0 && !includeSpeakerNotes) continue;
+    const titleIndex = blocks.findIndex((block) => block.kind === "paragraph");
+    const title = titleIndex >= 0 ? blocks[titleIndex].text : "";
+    const lines = [`## Slide ${displayNumber}${title ? `: ${title}` : ""}`];
+    blocks.forEach((block, index) => {
+      if (index === titleIndex) return;
+      lines.push(block.kind === "tableRow" ? block.text : `- ${block.text}`);
+    });
     if (includeSpeakerNotes) {
       const notesPath = await getNotesPathForSlide(zip, slidePath);
       if (notesPath) {
         const notesXml = await zip.files[notesPath].async("text");
-        const notesParagraphs = extractContentBlocks(notesXml);
-        if (notesParagraphs.length > 0) {
-          parts.push(`[Slide ${displayNumber} notes]`);
-          parts.push(...notesParagraphs);
+        const notesBlocks = extractContentBlocks(notesXml);
+        if (notesBlocks.length > 0) {
+          lines.push("", "### Notes", ...notesBlocks.map((block) => block.text));
         }
       }
     }
+    slides.push(lines.join("\n"));
   }
-  return cleanText2(parts.join("\n"));
+  return slides.join("\n\n");
 }
 var fs8, path4, import_jszip2;
 var init_pptxParser = __esm({
@@ -1521,39 +1851,17 @@ var init_pptxParser = __esm({
 });
 
 // src/parsers/docxParser.ts
-function cleanBlockText(text) {
-  return text.replace(/[ \t]+/g, " ").trim();
-}
-function renderTable($, table) {
-  const rows = [];
-  table.find("tr").each((_, rowEl) => {
-    const cells = $(rowEl).find("td, th").map((_2, cellEl) => cleanBlockText($(cellEl).text())).get();
-    if (cells.some((cell) => cell.length > 0)) {
-      rows.push(cells.join(" | "));
-    }
-  });
-  return rows.join("\n");
-}
 async function parseDOCX(filePath) {
   const { value: html } = await import_mammoth.default.convertToHtml({ path: filePath });
-  const $ = cheerio2.load(html);
-  const blocks = [];
-  $("body").children().each((_, el) => {
-    const node = $(el);
-    const block = el.type === "tag" && el.name === "table" ? renderTable($, node) : cleanBlockText(node.text());
-    if (block.length > 0) {
-      blocks.push(block);
-    }
-  });
-  return blocks.join("\n\n");
+  return htmlToMarkdown(html);
 }
-var import_mammoth, cheerio2;
+var import_mammoth;
 var init_docxParser = __esm({
   "src/parsers/docxParser.ts"() {
     "use strict";
     import_mammoth = __toESM(require("mammoth"));
-    cheerio2 = __toESM(require("cheerio"));
     init_embeddedImages();
+    init_htmlToMarkdown();
   }
 });
 
@@ -1662,10 +1970,7 @@ async function parseDocument(filePath, enableOCR = false, client2) {
           fileName,
           "text.empty",
           "text.error",
-          () => parseText(filePath, {
-            stripMarkdown: isMarkdownExtension(ext),
-            preserveLineBreaks: isPlainTextExtension(ext)
-          })
+          () => parseText(filePath, isMarkdownExtension(ext) ? "markdown" : "plain")
         )
       );
     }
@@ -1841,6 +2146,469 @@ var init_failedFileRegistry = __esm({
   }
 });
 
+// src/metadata/dates.ts
+function pad(value) {
+  return String(value).padStart(2, "0");
+}
+function capitalised(monthName) {
+  return /^[A-Z]/.test(monthName);
+}
+function monthIndex(name) {
+  return MONTH_KEYS.indexOf(name.slice(0, 3).toLowerCase()) + 1;
+}
+function singleDay(year, month, dayOfMonth) {
+  if (month < 1 || month > 12 || dayOfMonth < 1 || dayOfMonth > 31) return null;
+  const date = new Date(Date.UTC(year, month - 1, dayOfMonth));
+  if (date.getUTCMonth() !== month - 1 || date.getUTCDate() !== dayOfMonth) return null;
+  const iso = `${year}-${pad(month)}-${pad(dayOfMonth)}`;
+  return { start: iso, end: iso };
+}
+function monthRange(year, month) {
+  const lastDay = new Date(Date.UTC(year, month, 0)).getUTCDate();
+  return { start: `${year}-${pad(month)}-01`, end: `${year}-${pad(month)}-${pad(lastDay)}` };
+}
+function quarterRange(year, quarter) {
+  const startMonth = (quarter - 1) * 3 + 1;
+  const endMonth = startMonth + 2;
+  const lastDay = new Date(Date.UTC(year, endMonth, 0)).getUTCDate();
+  return { start: `${year}-${pad(startMonth)}-01`, end: `${year}-${pad(endMonth)}-${pad(lastDay)}` };
+}
+function expandTwoDigitYear(value) {
+  const n = Number(value);
+  return n < 70 ? 2e3 + n : 1900 + n;
+}
+function daysApart(iso, reference) {
+  const [year, month, dayOfMonth] = iso.split("-").map(Number);
+  const referenceDay = Date.UTC(reference.getFullYear(), reference.getMonth(), reference.getDate());
+  return Math.abs(Date.UTC(year, month - 1, dayOfMonth) - referenceDay) / DAY_MS;
+}
+function present(ranges) {
+  return ranges.filter((range) => range !== null);
+}
+function resolveNumeric(first, second, year, context) {
+  const dayFirst = singleDay(year, second, first);
+  const monthFirst = singleDay(year, first, second);
+  if (!dayFirst && !monthFirst) return [];
+  if (!dayFirst) return [monthFirst];
+  if (!monthFirst) return [dayFirst];
+  if (first === second) return [dayFirst];
+  if (context.order) return [context.order === "day-first" ? dayFirst : monthFirst];
+  if (context.referenceTime) {
+    const dayClose = daysApart(dayFirst.start, context.referenceTime) <= AMBIGUITY_WINDOW_DAYS;
+    const monthClose = daysApart(monthFirst.start, context.referenceTime) <= AMBIGUITY_WINDOW_DAYS;
+    if (dayClose !== monthClose) return [dayClose ? dayFirst : monthFirst];
+  }
+  return [dayFirst, monthFirst];
+}
+function dedupeRanges(ranges) {
+  const seen = /* @__PURE__ */ new Set();
+  const unique = [];
+  for (const range of ranges) {
+    const key = `${range.start}/${range.end}`;
+    if (!seen.has(key)) {
+      seen.add(key);
+      unique.push(range);
+    }
+  }
+  return unique;
+}
+function extractDates(text, context = {}) {
+  const found = [];
+  const overlaps = (start, end) => found.some((f) => start < f.end && end > f.start);
+  for (const rule of RULES) {
+    if (rule.fileNameOnly && !context.fileName) continue;
+    for (const match of text.matchAll(rule.regex)) {
+      const start = match.index ?? 0;
+      const end = start + match[0].length;
+      if (overlaps(start, end)) continue;
+      const ranges = rule.toRanges(match, context);
+      if (ranges.length > 0) found.push({ start, end, ranges });
+    }
+  }
+  found.sort((a, b) => a.start - b.start);
+  return dedupeRanges(found.flatMap((f) => f.ranges));
+}
+function detectDayMonthOrder(text) {
+  const seen = /* @__PURE__ */ new Set();
+  for (const match of text.matchAll(NUMERIC_DATE)) {
+    const first = Number(match[1]);
+    const second = Number(match[3]);
+    if (first > 12 && second <= 12) seen.add("day-first");
+    else if (second > 12 && first <= 12) seen.add("month-first");
+  }
+  return seen.size === 1 ? [...seen][0] : void 0;
+}
+function dayRangeOf(date) {
+  const iso = `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
+  return { start: iso, end: iso };
+}
+function documentPostedDate(markdown, fileName, fileModifiedTime) {
+  const context = { order: detectDayMonthOrder(markdown), referenceTime: fileModifiedTime };
+  const opening = markdown.split(/\s+/).filter(Boolean).slice(0, POSTED_DATE_WORD_WINDOW).join(" ");
+  const fromText = extractDates(opening, context)[0];
+  if (fromText) return fromText;
+  const baseName = fileName.replace(/\.[^.]+$/, "").replace(/_+/g, " ");
+  const fromName = extractDates(baseName, { ...context, fileName: true })[0];
+  if (fromName) return fromName;
+  return dayRangeOf(fileModifiedTime);
+}
+function formatDateRange(range) {
+  return range.start === range.end ? range.start : `${range.start}\u2013${range.end}`;
+}
+var MONTH_PATTERN, MONTH_KEYS, AMBIGUITY_WINDOW_DAYS, POSTED_DATE_WORD_WINDOW, DAY_MS, NUMERIC_DATE, RULES;
+var init_dates = __esm({
+  "src/metadata/dates.ts"() {
+    "use strict";
+    MONTH_PATTERN = "jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|june?|july?|aug(?:ust)?|sep(?:t(?:ember)?)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?";
+    MONTH_KEYS = ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"];
+    AMBIGUITY_WINDOW_DAYS = 45;
+    POSTED_DATE_WORD_WINDOW = 300;
+    DAY_MS = 864e5;
+    NUMERIC_DATE = /(?<![\w.\/$-])(\d{1,2})([\/.\-])(\d{1,2})\2(\d{4})(?![\w%]|[.\/-]\d)/g;
+    RULES = [
+      {
+        regex: /(?<![\w.\/-])(\d{4})[-\/](\d{1,2})[-\/](\d{1,2})(?![\w%]|[.\/-]\d)/g,
+        toRanges: (m) => present([singleDay(Number(m[1]), Number(m[2]), Number(m[3]))])
+      },
+      {
+        regex: /(?<!\d)((?:19|20)\d{2})(\d{2})(\d{2})(?!\d)/g,
+        fileNameOnly: true,
+        toRanges: (m) => present([singleDay(Number(m[1]), Number(m[2]), Number(m[3]))])
+      },
+      {
+        regex: NUMERIC_DATE,
+        toRanges: (m, context) => resolveNumeric(Number(m[1]), Number(m[3]), Number(m[4]), context)
+      },
+      {
+        regex: /(?<![\w])(?:Q([1-4])[\s-]*(\d{4})|(\d{4})[\s-]*Q([1-4]))(?![\w])/gi,
+        toRanges: (m) => [quarterRange(Number(m[2] ?? m[3]), Number(m[1] ?? m[4]))]
+      },
+      {
+        regex: new RegExp(
+          `(?<![\\w])(\\d{1,2})(?:st|nd|rd|th)?[\\s-]+(${MONTH_PATTERN})\\.?(?:,?\\s+(\\d{4})|-(\\d{2}))?(?![\\w])`,
+          "gi"
+        ),
+        toRanges: (m, context) => {
+          const year = m[3] ? Number(m[3]) : m[4] ? expandTwoDigitYear(m[4]) : context.defaultYear;
+          if (year === void 0) return [];
+          if (!m[3] && !m[4] && !capitalised(m[2])) return [];
+          return present([singleDay(year, monthIndex(m[2]), Number(m[1]))]);
+        }
+      },
+      {
+        regex: new RegExp(`(?<![\\w])(${MONTH_PATTERN})\\.?\\s+(\\d{1,2})(?:st|nd|rd|th)?(?:,?\\s+(\\d{4}))?(?![\\w])`, "gi"),
+        toRanges: (m, context) => {
+          const year = m[3] ? Number(m[3]) : context.defaultYear;
+          if (year === void 0) return [];
+          if (!m[3] && !capitalised(m[1])) return [];
+          return present([singleDay(year, monthIndex(m[1]), Number(m[2]))]);
+        }
+      },
+      {
+        regex: new RegExp(`(?<![\\w])(${MONTH_PATTERN})\\.?,?\\s+(\\d{4})(?![\\w])`, "gi"),
+        toRanges: (m) => [monthRange(Number(m[2]), monthIndex(m[1]))]
+      }
+    ];
+  }
+});
+
+// src/chunking/sections.ts
+function parseBlocks(markdown) {
+  const blocks = [];
+  let paragraph = [];
+  let lastWasListItem = false;
+  const flushParagraph = () => {
+    if (paragraph.length > 0) {
+      blocks.push({ kind: "paragraph", text: paragraph.join(" "), level: 0 });
+      paragraph = [];
+    }
+  };
+  for (const rawLine of markdown.replace(/\r\n?/g, "\n").split("\n")) {
+    const line = rawLine.replace(/\s+$/, "");
+    const trimmed = line.trim();
+    if (trimmed === "") {
+      flushParagraph();
+      lastWasListItem = false;
+      continue;
+    }
+    const heading = HEADING.exec(trimmed);
+    if (heading) {
+      flushParagraph();
+      blocks.push({ kind: "heading", text: heading[2], level: heading[1].length });
+      lastWasListItem = false;
+      continue;
+    }
+    const list = LIST_ITEM2.exec(line);
+    if (list) {
+      flushParagraph();
+      blocks.push({ kind: "listItem", text: trimmed, level: Math.floor(list[1].length / 2) });
+      lastWasListItem = true;
+      continue;
+    }
+    if (trimmed.includes(" | ")) {
+      flushParagraph();
+      blocks.push({ kind: "tableRow", text: trimmed, level: 0 });
+      lastWasListItem = false;
+      continue;
+    }
+    if (lastWasListItem) {
+      const last = blocks[blocks.length - 1];
+      last.text = `${last.text} ${trimmed}`;
+      continue;
+    }
+    paragraph.push(trimmed);
+  }
+  flushParagraph();
+  return blocks;
+}
+function renderBlock(block) {
+  if (block.kind === "heading") return `${"#".repeat(block.level)} ${block.text}`;
+  if (block.kind === "listItem") return `${"  ".repeat(block.level)}${block.text}`;
+  return block.text;
+}
+function leadingText(text) {
+  return text.length > MAX_TITLE_CHARS ? text.slice(0, MAX_TITLE_CHARS).trimEnd() : text;
+}
+function buildSections(markdown, context, withDates = true) {
+  const datesOf = (text) => withDates ? extractDates(leadingText(text), context) : [];
+  const sections = [];
+  const headingStack = [];
+  const state = {
+    current: null,
+    isHeading: false,
+    hasOwnDates: false
+  };
+  const inheritedDates = () => headingStack.length > 0 ? headingStack[headingStack.length - 1].dates : [];
+  const startSection = (section, isHeading, hasOwnDates) => {
+    if (state.current && state.current.blocks.length > 0) sections.push(state.current);
+    state.current = section;
+    state.isHeading = isHeading;
+    state.hasOwnDates = hasOwnDates;
+  };
+  for (const block of parseBlocks(markdown)) {
+    if (block.kind === "heading") {
+      while (headingStack.length > 0 && headingStack[headingStack.length - 1].level >= block.level) {
+        headingStack.pop();
+      }
+      const own = datesOf(block.text);
+      const dates = own.length > 0 ? own : inheritedDates();
+      headingStack.push({ level: block.level, title: block.text, dates });
+      startSection({ path: headingStack.map((h) => h.title), dates, blocks: [block] }, true, own.length > 0);
+      continue;
+    }
+    if (block.kind === "listItem" && block.level === 0) {
+      const own = datesOf(block.text);
+      startSection(
+        {
+          path: [...headingStack.map((h) => h.title), leadingText(block.text)],
+          dates: own.length > 0 ? own : inheritedDates(),
+          blocks: [block]
+        },
+        false,
+        true
+      );
+      continue;
+    }
+    if (!state.current) {
+      startSection({ path: [], dates: [], blocks: [] }, false, false);
+    }
+    const current = state.current;
+    if (state.isHeading && !state.hasOwnDates && current.blocks.length === 1) {
+      const own = datesOf(block.text);
+      if (own.length > 0) {
+        current.dates = own;
+        headingStack[headingStack.length - 1].dates = own;
+        state.hasOwnDates = true;
+      }
+    }
+    current.blocks.push(block);
+  }
+  if (state.current && state.current.blocks.length > 0) sections.push(state.current);
+  return sections;
+}
+var MAX_TITLE_CHARS, HEADING, LIST_ITEM2;
+var init_sections = __esm({
+  "src/chunking/sections.ts"() {
+    "use strict";
+    init_dates();
+    MAX_TITLE_CHARS = 80;
+    HEADING = /^(#{1,6})\s+(.*\S)\s*$/;
+    LIST_ITEM2 = /^([ \t]*)(?:-|\d{1,3}\.|[a-z]\.)[ \t]+\S/;
+  }
+});
+
+// src/chunking/structuredChunker.ts
+function wordCount(text) {
+  return text.split(/\s+/).filter(Boolean).length;
+}
+function buildContextHeader(fileName, postedDate, sectionPath, dates) {
+  const parts = [`File: ${fileName}`, `Posted: ${formatDateRange(postedDate)}`];
+  if (sectionPath) parts.push(`Section: ${sectionPath}`);
+  if (dates.length > 0) parts.push(`Dates: ${dates.map(formatDateRange).join(", ")}`);
+  return `[${parts.join(" | ")}]`;
+}
+function mergeHeadingOnlySections(sections) {
+  const merged = [];
+  let pending = null;
+  for (const section of sections) {
+    const headingOnly = section.blocks.length === 1 && section.blocks[0].kind === "heading";
+    if (headingOnly) {
+      pending = pending ? { ...section, blocks: [...pending.blocks, ...section.blocks] } : section;
+      continue;
+    }
+    if (pending) {
+      const path9 = section.blocks[0]?.kind === "listItem" ? pending.path : section.path;
+      merged.push({ ...section, path: path9, blocks: [...pending.blocks, ...section.blocks] });
+    } else {
+      merged.push(section);
+    }
+    pending = null;
+  }
+  if (pending) merged.push(pending);
+  return merged;
+}
+function tokenizeSection(section, offset) {
+  const tokens = [];
+  const blockEnds = [];
+  const headingEnds = [];
+  let headingEnd = 0;
+  let inLeadingHeadingRun = true;
+  section.blocks.forEach((block) => {
+    const blockWords = renderBlock(block).split(/\s+/).filter(Boolean);
+    blockWords.forEach((word, i) => tokens.push({ word, separator: i === blockWords.length - 1 ? "\n" : " " }));
+    if (block.kind === "heading") {
+      headingEnds.push(tokens.length);
+      if (inLeadingHeadingRun) headingEnd = tokens.length;
+    } else {
+      inLeadingHeadingRun = false;
+      blockEnds.push(tokens.length);
+    }
+  });
+  return { section, tokens, offset, blockEnds, headingEnd, headingEnds };
+}
+function tokensToText(tokens) {
+  return tokens.map((token, i) => i === tokens.length - 1 ? token.word : token.word + token.separator).join("");
+}
+function sentenceEnds(tokens) {
+  const ends = [];
+  tokens.forEach((token, i) => {
+    if (/[.!?]["')\]]*$/.test(token.word)) ends.push(i + 1);
+  });
+  return ends;
+}
+function lastBoundary(bounds, lowerExclusive, upperInclusive) {
+  let best;
+  for (const bound of bounds) {
+    if (bound > lowerExclusive && bound <= upperInclusive) best = bound;
+  }
+  return best;
+}
+async function chunkStructured(markdown, options) {
+  const withDates = options.extractDates !== false;
+  const sections = mergeHeadingOnlySections(buildSections(markdown, options.dateContext, withDates));
+  if (sections.length === 0) return [];
+  const totalWords = wordCount(markdown);
+  const totalTokens = await options.countTokens(markdown);
+  const tokensPerWord = totalTokens > 0 && totalWords > 0 ? totalTokens / totalWords : 1;
+  const budgetWords = Math.max(1, Math.round(options.chunkSize / tokensPerWord));
+  const overlapWords = Math.max(0, Math.min(budgetWords - 1, Math.round(options.chunkOverlap / tokensPerWord)));
+  const textDates = (text) => withDates ? extractDates(text, options.dateContext) : [];
+  const describe = (group, text) => {
+    const [first, ...rest] = group;
+    const firstPath = first.path.join(" > ");
+    const extraTitles = rest.filter((s) => s.blocks[0]?.kind === "heading").map((s) => s.path[s.path.length - 1]).filter((title) => Boolean(title));
+    const sectionPath = [firstPath, ...extraTitles].filter(Boolean).join(" ; ");
+    const dates = dedupeRanges([...group.flatMap((s) => s.dates), ...textDates(text)]);
+    const contextHeader = buildContextHeader(options.fileName, options.postedDate, sectionPath, dates);
+    return { sectionPath, dates, contextHeader };
+  };
+  const firstHeader = describe([sections[0]], tokensToText(tokenizeSection(sections[0], 0).tokens)).contextHeader;
+  const firstHeaderWords = wordCount(firstHeader);
+  const firstHeaderTokens = await options.countTokens(firstHeader);
+  const headerTokensPerWord = firstHeaderTokens > 0 && firstHeaderWords > 0 ? firstHeaderTokens / firstHeaderWords : tokensPerWord;
+  const headerBudgetWords = (header) => Math.ceil(wordCount(header) * headerTokensPerWord / tokensPerWord);
+  const chunks = [];
+  const emit = (group, tokens, startIndex) => {
+    const text = tokensToText(tokens);
+    const { sectionPath, dates, contextHeader } = describe(group, text);
+    chunks.push({ text, contextHeader, sectionPath, dates, startIndex, endIndex: startIndex + tokens.length });
+  };
+  const fits = (items) => {
+    const tokens = items.flatMap((item) => item.tokens);
+    const { contextHeader } = describe(
+      items.map((item) => item.section),
+      tokensToText(tokens)
+    );
+    return headerBudgetWords(contextHeader) + tokens.length <= budgetWords;
+  };
+  const splitOversized = (item) => {
+    const wholeText = tokensToText(item.tokens);
+    const worstHeader = describe([item.section], wholeText).contextHeader;
+    const pieceBudget = Math.max(Math.ceil(budgetWords / 2), budgetWords - headerBudgetWords(worstHeader));
+    const sentences = sentenceEnds(item.tokens);
+    const total = item.tokens.length;
+    const headingEndSet = new Set(item.headingEnds);
+    const avoidHeadingEnd = (end, lower) => {
+      if (end >= total || !headingEndSet.has(end)) return end;
+      const previous = lastBoundary(item.blockEnds, lower, end - 1) ?? lastBoundary(sentences, lower, end - 1);
+      return previous !== void 0 && previous > lower ? previous : end + 1;
+    };
+    let start = 0;
+    while (start < total) {
+      const limit = Math.min(total, start + pieceBudget);
+      const lower = start === 0 ? Math.max(start, item.headingEnd) : start;
+      let end = limit;
+      if (limit < total) {
+        end = lastBoundary(item.blockEnds, lower, limit) ?? lastBoundary(sentences, lower, limit) ?? limit;
+      }
+      if (start === 0 && end <= item.headingEnd) {
+        end = Math.min(total, item.headingEnd + 1);
+      }
+      end = avoidHeadingEnd(end, lower);
+      emit([item.section], item.tokens.slice(start, end), item.offset + start);
+      if (end >= total) break;
+      start = Math.max(start + 1, end - overlapWords);
+    }
+  };
+  let packed = [];
+  const flushPacked = () => {
+    if (packed.length === 0) return;
+    emit(
+      packed.map((item) => item.section),
+      packed.flatMap((item) => item.tokens),
+      packed[0].offset
+    );
+    packed = [];
+  };
+  let offset = 0;
+  for (const section of sections) {
+    const item = tokenizeSection(section, offset);
+    offset += item.tokens.length;
+    if (packed.length > 0) {
+      const candidate = [...packed, item];
+      if (fits(candidate)) {
+        packed = candidate;
+        continue;
+      }
+      flushPacked();
+    }
+    if (fits([item])) {
+      packed = [item];
+      continue;
+    }
+    splitOversized(item);
+  }
+  flushPacked();
+  return chunks;
+}
+var init_structuredChunker = __esm({
+  "src/chunking/structuredChunker.ts"() {
+    "use strict";
+    init_dates();
+    init_sections();
+  }
+});
+
 // src/ingestion/indexManager.ts
 var import_p_queue, fs11, path7, EXCLUDE_PROGRESS_THROTTLE, IndexManager;
 var init_indexManager = __esm({
@@ -1852,9 +2620,12 @@ var init_indexManager = __esm({
     init_fileScanner();
     init_documentParser();
     init_textChunker();
+    init_normalizeMarkdown();
     init_fileHash();
     init_failedFileRegistry();
     init_coerceEmbedding();
+    init_structuredChunker();
+    init_dates();
     EXCLUDE_PROGRESS_THROTTLE = 40;
     IndexManager = class {
       constructor(options) {
@@ -2067,11 +2838,12 @@ var init_indexManager = __esm({
           const existingHashes = fileInventory.get(file.path);
           const hasSeenBefore = existingHashes !== void 0 && existingHashes.size > 0;
           const hasSameHash = existingHashes?.has(fileHash) ?? false;
-          if (autoReindex && hasSameHash) {
+          const skipUnchanged = autoReindex && !this.options.rebuildExistingFiles;
+          if (skipUnchanged && hasSameHash) {
             console.log(`File already indexed (skipped): ${file.name}`);
             return { type: "skipped" };
           }
-          if (autoReindex) {
+          if (skipUnchanged) {
             const previousFailure = await this.failedFileRegistry.getFailureReason(file.path, fileHash);
             if (previousFailure) {
               console.log(
@@ -2089,21 +2861,18 @@ var init_indexManager = __esm({
             if (fileHash) {
               await this.failedFileRegistry.recordFailure(file.path, fileHash, parsedResult.reason);
             }
+            await this.dropStaleChunksForRebuild(existingHashes);
             return { type: "failed" };
           }
           const parsed = parsedResult.document;
-          const chunks = await chunkText(
-            parsed.text,
-            chunkSize,
-            chunkOverlap,
-            (t) => embeddingModel.countTokens(t)
-          );
+          const chunks = this.options.structuredIndexing ? await this.prepareStructuredChunks(parsed.text, file) : await this.prepareLegacyChunks(parsed.text);
           if (chunks.length === 0) {
             console.log(`No chunks created from ${file.name}`);
-            this.recordFailure("index.chunk-empty", "chunkText produced 0 chunks", file);
+            this.recordFailure("index.chunk-empty", "chunking produced 0 chunks", file);
             if (fileHash) {
               await this.failedFileRegistry.recordFailure(file.path, fileHash, "index.chunk-empty");
             }
+            await this.dropStaleChunksForRebuild(existingHashes);
             return { type: "failed" };
           }
           const documentChunks = [];
@@ -2111,7 +2880,7 @@ var init_indexManager = __esm({
             const chunk = chunks[i];
             this.options.abortSignal?.throwIfAborted();
             try {
-              const embeddingResult = await embeddingModel.embed(chunk.text);
+              const embeddingResult = await embeddingModel.embed(chunk.embedText);
               const embedding = coerceEmbeddingVector(embeddingResult.embedding);
               documentChunks.push({
                 id: `${fileHash}-${i}`,
@@ -2126,7 +2895,8 @@ var init_indexManager = __esm({
                   size: file.size,
                   mtime: file.mtime.toISOString(),
                   startIndex: chunk.startIndex,
-                  endIndex: chunk.endIndex
+                  endIndex: chunk.endIndex,
+                  ...chunk.metadata
                 }
               });
             } catch (error) {
@@ -2142,9 +2912,11 @@ var init_indexManager = __esm({
             if (fileHash) {
               await this.failedFileRegistry.recordFailure(file.path, fileHash, "index.chunk-empty");
             }
+            await this.dropStaleChunksForRebuild(existingHashes);
             return { type: "failed" };
           }
           try {
+            await this.dropStaleChunksForRebuild(existingHashes);
             await vectorStore2.addChunks(documentChunks);
             console.log(`Indexed ${documentChunks.length} chunks from ${file.name}`);
             if (!existingHashes) {
@@ -2181,6 +2953,76 @@ var init_indexManager = __esm({
           }
           return { type: "failed" };
         }
+      }
+      /**
+       * When rebuilding because the index format changed, a file's old-format
+       * chunks must never survive the rebuild, even if the rebuild itself fails
+       * (parse failure, zero chunks, or every embedding failing) - otherwise the
+       * store ends up mixing formats and the stale chunks are never revisited.
+       */
+      async dropStaleChunksForRebuild(existingHashes) {
+        if (!this.options.rebuildExistingFiles || !existingHashes) {
+          return;
+        }
+        for (const oldHash of existingHashes) {
+          await this.options.vectorStore.deleteByFileHash(oldHash);
+        }
+        existingHashes.clear();
+      }
+      async prepareLegacyChunks(text) {
+        const chunks = await chunkText(
+          markdownToPlain(text),
+          this.options.chunkSize,
+          this.options.chunkOverlap,
+          (t) => this.options.embeddingModel.countTokens(t)
+        );
+        return chunks.map((chunk) => ({
+          text: chunk.text,
+          embedText: chunk.text,
+          startIndex: chunk.startIndex,
+          endIndex: chunk.endIndex,
+          metadata: { indexFormat: "legacy" }
+        }));
+      }
+      async prepareStructuredChunks(markdown, file) {
+        const base = {
+          fileName: file.name,
+          chunkSize: this.options.chunkSize,
+          chunkOverlap: this.options.chunkOverlap,
+          countTokens: (t) => this.options.embeddingModel.countTokens(t)
+        };
+        let postedDate;
+        let chunks;
+        try {
+          postedDate = documentPostedDate(markdown, file.name, file.mtime);
+          chunks = await chunkStructured(markdown, {
+            ...base,
+            postedDate,
+            dateContext: {
+              order: detectDayMonthOrder(markdown),
+              referenceTime: file.mtime,
+              defaultYear: Number(postedDate.start.slice(0, 4))
+            }
+          });
+        } catch (error) {
+          console.warn(`[BigRAG] Date extraction failed for ${file.name}; indexing without dates:`, error);
+          postedDate = dayRangeOf(file.mtime);
+          chunks = await chunkStructured(markdown, { ...base, postedDate, dateContext: {}, extractDates: false });
+        }
+        return chunks.map((chunk) => ({
+          text: chunk.text,
+          embedText: `${chunk.contextHeader}
+${chunk.text}`,
+          startIndex: chunk.startIndex,
+          endIndex: chunk.endIndex,
+          metadata: {
+            indexFormat: "structured-v1",
+            postedDate: JSON.stringify(postedDate),
+            dates: JSON.stringify(chunk.dates),
+            sectionPath: chunk.sectionPath,
+            contextHeader: chunk.contextHeader
+          }
+        }));
       }
       /**
        * Reindex a specific file (delete old chunks and reindex)
@@ -2257,6 +3099,7 @@ async function runIndexingJob({
   chunkOverlap,
   maxConcurrent,
   enableOCR,
+  structuredIndexing,
   autoReindex,
   parseDelayMs,
   excludePatterns = [],
@@ -2271,6 +3114,12 @@ async function runIndexingJob({
   }
   const resolvedModelId = resolveEmbeddingModelId(embeddingModelId);
   const embeddingModel = await client2.embedding.model(resolvedModelId, { signal: abortSignal });
+  const statsBefore = await vectorStore2.getStats();
+  const { indexFormat, rebuildExistingFiles } = await planIndexFormat(
+    vectorStoreDir,
+    statsBefore.totalChunks,
+    structuredIndexing
+  );
   const indexManager = new IndexManager({
     documentsDir,
     vectorStore: vectorStore2,
@@ -2281,19 +3130,27 @@ async function runIndexingJob({
     chunkOverlap,
     maxConcurrent,
     enableOCR,
-    autoReindex: forceReindex ? false : autoReindex,
+    autoReindex: forceReindex || rebuildExistingFiles ? false : autoReindex,
+    structuredIndexing,
+    rebuildExistingFiles,
     parseDelayMs,
     excludePatterns,
     abortSignal,
     onProgress
   });
-  const indexingResult = await indexManager.index();
+  let indexingResult;
+  try {
+    indexingResult = await indexManager.index();
+  } finally {
+    await vectorStore2.releaseShardCache();
+  }
   const stats = await vectorStore2.getStats();
   await syncEmbeddingManifestAfterIndexing(
     vectorStoreDir,
     stats.totalChunks,
     resolvedModelId,
-    embeddingModel
+    embeddingModel,
+    indexFormat
   );
   if (ownsVectorStore) {
     await vectorStore2.close();
@@ -2417,6 +3274,72 @@ var init_compactPassages = __esm({
   }
 });
 
+// src/retrieval/retrieve.ts
+async function compactResultsToBudget(results, queryEmbedding, deps, targetTokenBudget) {
+  const compacted = [];
+  let usedTokens = 0;
+  for (const result of results) {
+    const compactedText = await compactPassageText(result.text, queryEmbedding, deps.embedSentences);
+    const tokenCount = await deps.countTokens(compactedText);
+    if (compacted.length > 0 && usedTokens + tokenCount > targetTokenBudget) {
+      continue;
+    }
+    compacted.push({ ...result, text: compactedText });
+    usedTokens += tokenCount;
+  }
+  return compacted;
+}
+async function retrieve(query, deps, options) {
+  const now = deps.now ?? (() => performance.now());
+  const timings = [];
+  async function timed(stage, run) {
+    const start = now();
+    const value = await run();
+    timings.push({ stage, ms: now() - start });
+    return value;
+  }
+  const queryEmbedding = await timed("embedQuery", () => deps.embedQuery(query));
+  options.abortSignal?.throwIfAborted();
+  const searchLimit = options.enableContextCompaction ? options.retrievalLimit * CONTEXT_COMPACTION_POOL_MULTIPLIER : options.retrievalLimit;
+  const searched = await timed(
+    "vectorSearch",
+    () => deps.vectorStore.search(queryEmbedding, searchLimit, options.retrievalThreshold)
+  );
+  options.abortSignal?.throwIfAborted();
+  let passages = await timed("trimOverlap", async () => trimOverlappingChunks(searched));
+  if (options.enableContextCompaction && passages.length > 0) {
+    const targetTokenBudget = options.retrievalLimit * options.chunkSize;
+    const candidates = passages;
+    passages = await timed(
+      "compaction",
+      () => compactResultsToBudget(candidates, queryEmbedding, deps, targetTokenBudget)
+    );
+  }
+  const diagnosticPool = options.diagnosticPoolSize ? await deps.vectorStore.search(queryEmbedding, options.diagnosticPoolSize, Number.NEGATIVE_INFINITY) : [];
+  return { passages, diagnosticPool, timings };
+}
+var CONTEXT_COMPACTION_POOL_MULTIPLIER;
+var init_retrieve = __esm({
+  "src/retrieval/retrieve.ts"() {
+    "use strict";
+    init_trimOverlappingChunks();
+    init_compactPassages();
+    CONTEXT_COMPACTION_POOL_MULTIPLIER = 3;
+  }
+});
+
+// src/retrieval/renderPassage.ts
+function renderPassageForPrompt(result) {
+  const header = result.metadata?.contextHeader;
+  return typeof header === "string" && header.length > 0 ? `${header}
+${result.text}` : result.text;
+}
+var init_renderPassage = __esm({
+  "src/retrieval/renderPassage.ts"() {
+    "use strict";
+  }
+});
+
 // src/promptPreprocessor.ts
 function checkAbort(signal) {
   if (signal.aborted) {
@@ -2438,24 +3361,6 @@ function summarizeText(text, maxLines = 3, maxChars = 400) {
   }
   const needsEllipsis = lines.length > maxLines || text.length > clipped.length || clipped.length === maxChars && text.length > maxChars;
   return needsEllipsis ? `${clipped.trimEnd()}\u2026` : clipped;
-}
-async function compactResultsToBudget(results, queryEmbedding, embeddingModel, targetTokenBudget) {
-  const compacted = [];
-  let usedTokens = 0;
-  for (const result of results) {
-    const compactedText = await compactPassageText(
-      result.text,
-      queryEmbedding,
-      (sentences) => embeddingModel.embed(sentences)
-    );
-    const tokenCount = await embeddingModel.countTokens(compactedText);
-    if (compacted.length > 0 && usedTokens + tokenCount > targetTokenBudget) {
-      continue;
-    }
-    compacted.push({ ...result, text: compactedText });
-    usedTokens += tokenCount;
-  }
-  return compacted;
 }
 async function getCitationFileHandle(client2, filePath, fileHash) {
   const cached = citationFileHandleCache.get(filePath);
@@ -2545,6 +3450,7 @@ async function preprocess(ctl, userMessage) {
   const maxConcurrent = pluginConfig.get("maxConcurrentFiles");
   const enableOCR = pluginConfig.get("enableOCR");
   const enableContextCompaction = pluginConfig.get("enableContextCompaction");
+  const structuredIndexing = pluginConfig.get("structuredIndexing");
   const skipPreviouslyIndexed = pluginConfig.get("manualReindex.skipPreviouslyIndexed");
   const parseDelayMs = pluginConfig.get("parseDelayMs") ?? 0;
   const reindexRequested = pluginConfig.get("manualReindex.trigger");
@@ -2615,6 +3521,7 @@ async function preprocess(ctl, userMessage) {
       chunkOverlap,
       maxConcurrent,
       enableOCR,
+      structuredIndexing,
       parseDelayMs,
       reindexRequested,
       excludePatterns,
@@ -2642,6 +3549,7 @@ async function preprocess(ctl, userMessage) {
             chunkOverlap,
             maxConcurrent,
             enableOCR,
+            structuredIndexing,
             autoReindex: false,
             parseDelayMs,
             excludePatterns,
@@ -2733,29 +3641,38 @@ User Query:
 
 ${userPrompt}`;
     }
+    const store = vectorStore;
+    const formatMessage = await indexFormatStatusMessage(
+      vectorStoreDir,
+      structuredIndexing,
+      async () => (await store.getStats()).totalChunks
+    );
+    if (formatMessage) {
+      console.warn("[BigRAG]", formatMessage);
+      ctl.createStatus({ status: "error", text: formatMessage });
+    }
     retrievalStatus.setState({
       status: "loading",
       text: "Searching for relevant content..."
     });
-    const queryEmbeddingResult = await embeddingModel.embed(userPrompt);
-    checkAbort(ctl.abortSignal);
-    const queryEmbedding = queryEmbeddingResult.embedding;
-    const searchLimit = enableContextCompaction ? retrievalLimit * CONTEXT_COMPACTION_POOL_MULTIPLIER : retrievalLimit;
     const queryPreview = userPrompt.length > 160 ? `${userPrompt.slice(0, 160)}...` : userPrompt;
     console.info(
-      `[BigRAG] Executing vector search for "${queryPreview}" (limit=${searchLimit}, threshold=${retrievalThreshold})`
+      `[BigRAG] Executing retrieval for "${queryPreview}" (limit=${retrievalLimit}, threshold=${retrievalThreshold}, compaction=${enableContextCompaction})`
     );
-    let results = trimOverlappingChunks(
-      await vectorStore.search(queryEmbedding, searchLimit, retrievalThreshold)
+    const { passages: results, timings } = await retrieve(
+      userPrompt,
+      {
+        vectorStore,
+        embedQuery: async (text) => (await embeddingModel.embed(text)).embedding,
+        embedSentences: (sentences) => embeddingModel.embed(sentences),
+        countTokens: (text) => embeddingModel.countTokens(text)
+      },
+      { retrievalLimit, retrievalThreshold, chunkSize, enableContextCompaction, abortSignal: ctl.abortSignal }
     );
-    if (enableContextCompaction && results.length > 0) {
-      const targetTokenBudget = retrievalLimit * chunkSize;
-      results = await compactResultsToBudget(results, queryEmbedding, embeddingModel, targetTokenBudget);
-      console.info(
-        `[BigRAG] Context compaction: ${results.length} passages selected within a ~${targetTokenBudget}-token budget`
-      );
-    }
     checkAbort(ctl.abortSignal);
+    console.info(
+      `[BigRAG] Retrieval timings: ${timings.map((t) => `${t.stage}=${t.ms.toFixed(0)}ms`).join(" ")}`
+    );
     if (results.length > 0) {
       const topHit = results[0];
       console.info(
@@ -2795,12 +3712,13 @@ ${userPrompt}`;
     for (const result of results) {
       const fileName = path8.basename(result.filePath);
       const citationLabel = `Citation ${citationNumber} (from ${fileName}, score: ${result.score.toFixed(3)}): `;
+      const passage = renderPassageForPrompt(result);
       ragContextFull += `
-${citationLabel}"${result.text}"
+${citationLabel}"${passage}"
 
 `;
       ragContextPreview += `
-${citationLabel}"${summarizeText(result.text)}"
+${citationLabel}"${summarizeText(passage)}"
 
 `;
       citationNumber++;
@@ -2859,6 +3777,7 @@ async function maybeHandleConfigTriggeredReindex({
   chunkOverlap,
   maxConcurrent,
   enableOCR,
+  structuredIndexing,
   parseDelayMs,
   reindexRequested,
   excludePatterns,
@@ -2895,6 +3814,7 @@ async function maybeHandleConfigTriggeredReindex({
       chunkOverlap,
       maxConcurrent,
       enableOCR,
+      structuredIndexing,
       autoReindex: skipPreviouslyIndexed,
       parseDelayMs,
       excludePatterns,
@@ -2971,7 +3891,7 @@ async function notifyManualResetNeeded(ctl, embeddingModelId) {
     console.warn("[BigRAG] Unable to send notification about manual reindex reset:", error);
   }
 }
-var path8, CONTEXT_COMPACTION_POOL_MULTIPLIER, vectorStore, lastIndexedDir, sanityChecksPassed, citationFileHandleCache, RAG_CONTEXT_MACRO, USER_QUERY_MACRO;
+var path8, vectorStore, lastIndexedDir, sanityChecksPassed, citationFileHandleCache, RAG_CONTEXT_MACRO, USER_QUERY_MACRO;
 var init_promptPreprocessor = __esm({
   "src/promptPreprocessor.ts"() {
     "use strict";
@@ -2983,9 +3903,8 @@ var init_promptPreprocessor = __esm({
     path8 = __toESM(require("path"));
     init_runIndexing();
     init_fileExcludePatterns();
-    init_trimOverlappingChunks();
-    init_compactPassages();
-    CONTEXT_COMPACTION_POOL_MULTIPLIER = 3;
+    init_retrieve();
+    init_renderPassage();
     vectorStore = null;
     lastIndexedDir = "";
     sanityChecksPassed = false;

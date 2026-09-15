@@ -3,7 +3,7 @@
   "runner": "node",
   "owner": "saic",
   "name": "big-rag",
-  "revision": 3,
+  "revision": 4,
   "description": "Hosted at https://github.com/Tedyang2003/big-rag"
 }
 
