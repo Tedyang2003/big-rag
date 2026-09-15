@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import * as assert from "node:assert/strict";
-import { readRetrievalSettings } from "../eval/settings";
+import { readGenerationSettings, readRetrievalSettings } from "../eval/settings";
 
 test("readRetrievalSettings uses the plugin config defaults when env vars are unset", () => {
   assert.deepEqual(readRetrievalSettings({}), {
@@ -25,4 +25,15 @@ test("readRetrievalSettings reads overrides from env vars", () => {
 
 test("readRetrievalSettings rejects non-numeric values", () => {
   assert.throws(() => readRetrievalSettings({ BIG_RAG_RETRIEVAL_LIMIT: "five" }), /BIG_RAG_RETRIEVAL_LIMIT/);
+});
+
+test("readGenerationSettings defaults to 30 questions and seed 42", () => {
+  assert.deepEqual(readGenerationSettings({}), { count: 30, seed: 42 });
+});
+
+test("readGenerationSettings rejects invalid count and seed values", () => {
+  assert.throws(() => readGenerationSettings({ BIG_RAG_EVAL_COUNT: "abc" }), /BIG_RAG_EVAL_COUNT/);
+  assert.throws(() => readGenerationSettings({ BIG_RAG_EVAL_COUNT: "0" }), /BIG_RAG_EVAL_COUNT/);
+  assert.throws(() => readGenerationSettings({ BIG_RAG_EVAL_COUNT: "2.5" }), /BIG_RAG_EVAL_COUNT/);
+  assert.throws(() => readGenerationSettings({ BIG_RAG_EVAL_SEED: "x" }), /BIG_RAG_EVAL_SEED/);
 });

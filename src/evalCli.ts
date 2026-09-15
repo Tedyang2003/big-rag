@@ -10,7 +10,7 @@ import {
 import { buildQuestionPrompt, generateQuestions, QUESTION_JSON_SCHEMA } from "./eval/generateQuestions";
 import { loadQuestionSet, toRelativeSourcePath, writeNewFile } from "./eval/questionSet";
 import { formatMetricsTable, runEval } from "./eval/runEval";
-import { readRetrievalSettings } from "./eval/settings";
+import { readGenerationSettings, readRetrievalSettings } from "./eval/settings";
 import { isPathIgnored } from "./eval/gitIgnore";
 
 const USAGE =
@@ -22,6 +22,8 @@ const EVAL_DIR = path.resolve(process.cwd(), "eval");
 const DIAGNOSTIC_POOL_SIZE = 50;
 
 async function runGenerate(client: LMStudioClient, vectorStore: VectorStore, documentsDir: string) {
+  const { count, seed } = readGenerationSettings(process.env);
+
   const modelKey = process.env.BIG_RAG_EVAL_LLM;
   const llm = await (modelKey ? client.llm.model(modelKey) : client.llm.model()).catch((error: unknown) => {
     throw new Error(
@@ -30,8 +32,6 @@ async function runGenerate(client: LMStudioClient, vectorStore: VectorStore, doc
     );
   });
   const modelName = (await llm.getModelInfo()).identifier;
-  const count = Number(process.env.BIG_RAG_EVAL_COUNT ?? "30");
-  const seed = Number(process.env.BIG_RAG_EVAL_SEED ?? "42");
 
   console.log(`[BigRAG Eval] Generating up to ${count} questions with ${modelName} (seed ${seed})...`);
 
@@ -128,9 +128,9 @@ async function main() {
 
   const client = new LMStudioClient();
   const vectorStore = new VectorStore(vectorStoreDir);
-  await vectorStore.initialize();
 
   try {
+    await vectorStore.initialize();
     if (subcommand === "generate") {
       await runGenerate(client, vectorStore, documentsDir);
     } else {
