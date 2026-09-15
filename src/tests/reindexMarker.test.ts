@@ -30,8 +30,8 @@ test("decideReindex covers every row of the decision table", () => {
   assert.equal(decideReindex("rebuild", null), "run");
   assert.equal(decideReindex("changed", marker("changed")), "skip");
   assert.equal(decideReindex("rebuild", marker("rebuild")), "skip");
-  assert.equal(decideReindex("rebuild", marker("changed")), "run");
-  assert.equal(decideReindex("changed", marker("rebuild")), "run");
+  assert.equal(decideReindex("rebuild", marker("changed")), "skip");
+  assert.equal(decideReindex("changed", marker("rebuild")), "skip");
 });
 
 test("marker round-trips and malformed files read as no marker", async () => {

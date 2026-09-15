@@ -18,7 +18,7 @@ function markerPath(vectorStoreDir: string): string {
 
 export function decideReindex(mode: ReindexMode, marker: ReindexMarker | null): ReindexDecision {
   if (mode === "off") return marker ? "clear" : "none";
-  if (marker && marker.mode === mode) return "skip";
+  if (marker) return "skip";
   return "run";
 }
 
