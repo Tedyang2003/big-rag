@@ -34,6 +34,7 @@ interface SectionTokens {
   offset: number;
   blockEnds: number[];
   headingEnd: number;
+  headingEnds: number[];
 }
 
 function wordCount(text: string): number {
@@ -72,17 +73,24 @@ function mergeHeadingOnlySections(sections: Section[]): Section[] {
 function tokenizeSection(section: Section, offset: number): SectionTokens {
   const tokens: Token[] = [];
   const blockEnds: number[] = [];
+  const headingEnds: number[] = [];
   let headingEnd = 0;
-  section.blocks.forEach((block, index) => {
+  let inLeadingHeadingRun = true;
+  section.blocks.forEach((block) => {
     const blockWords = renderBlock(block).split(/\s+/).filter(Boolean);
     blockWords.forEach((word, i) => tokens.push({ word, separator: i === blockWords.length - 1 ? "\n" : " " }));
-    if (index === 0 && block.kind === "heading") {
-      headingEnd = tokens.length;
+    if (block.kind === "heading") {
+      // Every heading's end is tracked separately so it never becomes a split
+      // boundary; the leading run of consecutive headings also advances
+      // headingEnd so the first piece is forced past all of them at once.
+      headingEnds.push(tokens.length);
+      if (inLeadingHeadingRun) headingEnd = tokens.length;
     } else {
+      inLeadingHeadingRun = false;
       blockEnds.push(tokens.length);
     }
   });
-  return { section, tokens, offset, blockEnds, headingEnd };
+  return { section, tokens, offset, blockEnds, headingEnd, headingEnds };
 }
 
 function tokensToText(tokens: Token[]): string {
@@ -147,9 +155,19 @@ export async function chunkStructured(markdown: string, options: StructuredChunk
   const splitOversized = (item: SectionTokens) => {
     const wholeText = tokensToText(item.tokens);
     const worstHeader = describe([item.section], wholeText).contextHeader;
-    const pieceBudget = Math.max(1, budgetWords - wordCount(worstHeader));
+    // A header can itself approach or exceed the budget; floor the piece budget
+    // at half the budget instead of shrinking pieces to nothing. Chunks whose
+    // header is unusually large may then exceed the nominal token budget.
+    const pieceBudget = Math.max(Math.ceil(budgetWords / 2), budgetWords - wordCount(worstHeader));
     const sentences = sentenceEnds(item.tokens);
     const total = item.tokens.length;
+    const headingEndSet = new Set(item.headingEnds);
+
+    const avoidHeadingEnd = (end: number, lower: number): number => {
+      if (end >= total || !headingEndSet.has(end)) return end;
+      const previous = lastBoundary(item.blockEnds, lower, end - 1) ?? lastBoundary(sentences, lower, end - 1);
+      return previous !== undefined && previous > lower ? previous : end + 1;
+    };
 
     let start = 0;
     while (start < total) {
@@ -162,6 +180,7 @@ export async function chunkStructured(markdown: string, options: StructuredChunk
       if (start === 0 && end <= item.headingEnd) {
         end = Math.min(total, item.headingEnd + 1);
       }
+      end = avoidHeadingEnd(end, lower);
       emit([item.section], item.tokens.slice(start, end), item.offset + start);
       if (end >= total) break;
       start = Math.max(start + 1, end - overlapWords);

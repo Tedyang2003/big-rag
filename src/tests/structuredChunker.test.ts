@@ -70,6 +70,24 @@ test("chunkStructured never ends a chunk with a heading", async () => {
   }
 });
 
+test("chunkStructured never ends a chunk with stacked leading headings", async () => {
+  const body = Array.from({ length: 200 }, (_, i) => `word${i}`).join(" ");
+  const markdown = `# Title Heading\n\n## Sub Heading Immediately After\n\n${body}`;
+  const chunks = await chunkStructured(markdown, options({ chunkSize: 40 }));
+  for (const chunk of chunks) {
+    const lastLine = chunk.text.trim().split("\n").pop()!;
+    assert.ok(!lastLine.startsWith("#"), `chunk ends with a heading: ${JSON.stringify(chunk.text)}`);
+  }
+});
+
+test("chunkStructured does not shred a section when the header exceeds the budget", async () => {
+  const heading = Array.from({ length: 15 }, (_, i) => `Heading${i}`).join(" ");
+  const body = Array.from({ length: 50 }, (_, i) => `word${i}`).join(" ");
+  const chunks = await chunkStructured(`# ${heading}\n\n${body}`, options({ chunkSize: 20 }));
+  assert.ok(chunks.length <= 8, `expected a handful of chunks, got ${chunks.length}`);
+  assert.equal(chunks.map((c) => c.text).join(" ").includes("word49"), true);
+});
+
 test("chunkStructured overlaps only pieces of an oversized section", async () => {
   const chunks = await chunkStructured(ROUNDUP, options({ chunkOverlap: 10 }));
   assert.equal(chunks[1].startIndex, chunks[0].endIndex, "packed chunk and first piece do not overlap");
