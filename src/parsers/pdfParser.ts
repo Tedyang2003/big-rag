@@ -2,6 +2,8 @@ import { type LMStudioClient } from "@lmstudio/sdk";
 import * as fs from "fs";
 import pdfParse from "pdf-parse";
 import { createWorker } from "tesseract.js";
+import { inferStructure } from "./markdown/inferStructure";
+import { formatOcrPage } from "./markdown/ocrPages";
 
 // mupdf is an ESM module with top-level await — it cannot be require()'d.
 // We load it lazily via dynamic import() so the CJS host doesn't choke on it.
@@ -45,13 +47,6 @@ export interface PdfParserFailure {
 
 export type PdfParserResult = PdfParserSuccess | PdfParserFailure;
 
-function cleanText(text: string): string {
-  return text
-    .replace(/\s+/g, " ")
-    .replace(/\n+/g, "\n")
-    .trim();
-}
-
 type StageResult = PdfParserSuccess | PdfParserFailure;
 
 async function tryLmStudioParser(filePath: string, client: LMStudioClient): Promise<StageResult> {
@@ -71,7 +66,7 @@ async function tryLmStudioParser(filePath: string, client: LMStudioClient): Prom
         },
       });
 
-      const cleaned = cleanText(result.content);
+      const cleaned = inferStructure(result.content);
       if (cleaned.length >= MIN_TEXT_LENGTH) {
         return { success: true, text: cleaned, stage: "lmstudio" };
       }
@@ -118,7 +113,7 @@ async function tryPdfParse(filePath: string): Promise<StageResult> {
   try {
     const buffer = await fs.promises.readFile(filePath);
     const result = await pdfParse(buffer);
-    const cleaned = cleanText(result.text || "");
+    const cleaned = inferStructure(result.text || "");
 
     if (cleaned.length >= MIN_TEXT_LENGTH) {
       console.log(`[PDF Parser] (pdf-parse) Successfully extracted text from ${fileName}`);
@@ -187,6 +182,7 @@ async function tryOcrWithMuPdf(filePath: string): Promise<StageResult> {
 
     worker = await createWorker("eng");
     const textParts: string[] = [];
+    let contentLength = 0;
     let renderErrors = 0;
     type MupdfPage = ReturnType<typeof doc.loadPage>;
     type MupdfPixmap = ReturnType<MupdfPage["toPixmap"]>;
@@ -214,9 +210,10 @@ async function tryOcrWithMuPdf(filePath: string): Promise<StageResult> {
 
         try {
           const { data: { text } } = await worker.recognize(Buffer.from(pngBuffer));
-          const cleaned = cleanText(text || "");
-          if (cleaned.length > 0) {
-            textParts.push(cleaned);
+          const page = formatOcrPage(pageNum + 1, text || "");
+          if (page) {
+            textParts.push(page.markdown);
+            contentLength += page.contentLength;
           }
         } catch (recognizeError) {
           renderErrors++;
@@ -275,8 +272,8 @@ async function tryOcrWithMuPdf(filePath: string): Promise<StageResult> {
       );
     }
 
-    const fullText = cleanText(textParts.join("\n\n"));
-    if (fullText.length >= MIN_TEXT_LENGTH) {
+    const fullText = textParts.join("\n\n");
+    if (contentLength >= MIN_TEXT_LENGTH) {
       return { success: true, text: fullText, stage: "ocr" };
     }
 
