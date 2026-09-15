@@ -117,3 +117,25 @@ test("retrieve collects an unthresholded diagnostic pool when requested", async 
   assert.deepEqual(output.diagnosticPool.map((p) => p.text), ["One."]);
   assert.equal(output.timings.length, 3, "diagnostic search is not a user-facing stage");
 });
+
+test("retrieve stops before searching when aborted after embedding the query", async () => {
+  const { deps, searchCalls } = makeDeps([makeResult({ text: "One.", chunkIndex: 0 })]);
+  const controller = new AbortController();
+  deps.embedQuery = async () => {
+    controller.abort();
+    return [1, 0];
+  };
+
+  await assert.rejects(
+    () =>
+      retrieve("question", deps, {
+        retrievalLimit: 5,
+        retrievalThreshold: 0.5,
+        chunkSize: 512,
+        enableContextCompaction: false,
+        abortSignal: controller.signal,
+      }),
+    (error: unknown) => error instanceof Error && error.name === "AbortError",
+  );
+  assert.equal(searchCalls.length, 0);
+});

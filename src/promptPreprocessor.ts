@@ -438,7 +438,7 @@ export async function preprocess(
         embedSentences: (sentences) => embeddingModel.embed(sentences),
         countTokens: (text) => embeddingModel.countTokens(text),
       },
-      { retrievalLimit, retrievalThreshold, chunkSize, enableContextCompaction },
+      { retrievalLimit, retrievalThreshold, chunkSize, enableContextCompaction, abortSignal: ctl.abortSignal },
     );
     checkAbort(ctl.abortSignal);
     console.info(

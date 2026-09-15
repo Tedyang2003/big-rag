@@ -28,6 +28,8 @@ export interface RetrieveOptions {
   enableContextCompaction: boolean;
   /** When set, also return the top-N vector matches with no threshold, for evaluation diagnostics. */
   diagnosticPoolSize?: number;
+  /** Checked between stages so a cancelled request stops before doing more work. */
+  abortSignal?: AbortSignal;
 }
 
 export interface RetrieveResult {
@@ -82,6 +84,7 @@ export async function retrieve(
   }
 
   const queryEmbedding = await timed("embedQuery", () => deps.embedQuery(query));
+  options.abortSignal?.throwIfAborted();
 
   // Compaction shrinks passages, so it needs a larger candidate pool to choose from.
   const searchLimit = options.enableContextCompaction
@@ -91,6 +94,7 @@ export async function retrieve(
   const searched = await timed("vectorSearch", () =>
     deps.vectorStore.search(queryEmbedding, searchLimit, options.retrievalThreshold),
   );
+  options.abortSignal?.throwIfAborted();
 
   let passages = await timed("trimOverlap", async () => trimOverlappingChunks(searched));
 
