@@ -116,3 +116,12 @@ test("dayRangeOf and formatDateRange", () => {
   assert.equal(formatDateRange(day("2026-09-05")), "2026-09-05");
   assert.equal(formatDateRange({ start: "2026-07-01", end: "2026-09-30" }), "2026-07-01–2026-09-30");
 });
+
+test("year-less month forms need a capitalised month name", () => {
+  assert.deepEqual(extractDates("costs 5 may rise", { defaultYear: 2026 }), []);
+  assert.deepEqual(extractDates("prices may 5 times", { defaultYear: 2026 }), []);
+  assert.deepEqual(extractDates("due 5 May", { defaultYear: 2026 }), [day("2026-05-05")]);
+  assert.deepEqual(extractDates("due May 5", { defaultYear: 2026 }), [day("2026-05-05")]);
+  assert.deepEqual(extractDates("due 15 sep 2026"), [day("2026-09-15")]);
+  assert.deepEqual(extractDates("due sep 15, 2026"), [day("2026-09-15")]);
+});

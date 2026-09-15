@@ -29,6 +29,11 @@ function pad(value: number): string {
   return String(value).padStart(2, "0");
 }
 
+/** Year-less forms ("5 May", "May 5") only count with a capitalised month, so "costs 5 may rise" is no date. */
+function capitalised(monthName: string): boolean {
+  return /^[A-Z]/.test(monthName);
+}
+
 function monthIndex(name: string): number {
   return MONTH_KEYS.indexOf(name.slice(0, 3).toLowerCase()) + 1;
 }
@@ -116,6 +121,7 @@ const RULES: PatternRule[] = [
     toRanges: (m, context) => {
       const year = m[3] ? Number(m[3]) : m[4] ? expandTwoDigitYear(m[4]) : context.defaultYear;
       if (year === undefined) return [];
+      if (!m[3] && !m[4] && !capitalised(m[2])) return [];
       return present([singleDay(year, monthIndex(m[2]), Number(m[1]))]);
     },
   },
@@ -124,6 +130,7 @@ const RULES: PatternRule[] = [
     toRanges: (m, context) => {
       const year = m[3] ? Number(m[3]) : context.defaultYear;
       if (year === undefined) return [];
+      if (!m[3] && !capitalised(m[1])) return [];
       return present([singleDay(year, monthIndex(m[1]), Number(m[2]))]);
     },
   },
