@@ -21,7 +21,7 @@ Project order:
 - Show end users only what they need: set-once setup in global settings, one per-chat action.
 - Keep maintainer tuning available through one defaults module and existing env vars.
 - Make a reindex request run once instead of on every message.
-- Let existing users upgrade without losing their configured directories.
+- Tell users plainly when Big RAG is not configured, and exactly what to set.
 - No change to retrieval or indexing behaviour.
 
 ## Non-Goals
@@ -29,6 +29,7 @@ Project order:
 - Retrieval Depth (project 2).
 - Removing the context compaction code.
 - Changing any retrieval, chunking, or parsing behaviour.
+- Migrating old per-chat setting values. After upgrading, users enter their settings once in global settings.
 
 ## Settings Layout
 
@@ -72,7 +73,7 @@ The plugin itself does not read env vars for these; only the CLI indexer and eva
 
 ## Resolving Settings
 
-`src/settings/resolveSettings.ts` exports `resolveSettings(globalConfig, chatConfig, legacyConfig)` returning:
+`src/settings/resolveSettings.ts` exports `resolveSettings(globalConfig, chatConfig)` returning:
 
 ```ts
 type ReindexMode = "off" | "changed" | "rebuild";
@@ -93,23 +94,17 @@ interface ResolvedSettings {
   enableOCR: boolean;
   structuredIndexing: boolean;
   enableContextCompaction: boolean;
-  /** Moved fields whose value came from the old per-chat settings. */
-  legacyFieldsUsed: string[];
+  /** Required global settings that are empty, by display name (e.g. "Documents Directory"). */
+  missingRequired: string[];
 }
 ```
 
-The three config arguments are objects with a `get(key)` method, so tests can pass stubs. `src/promptPreprocessor.ts` calls `resolveSettings` once per message and reads nothing from config directly. Project 2 adds its depth setting here.
+The two config arguments are objects with a `get(key)` method, so tests can pass stubs. Empty or whitespace-only strings count as not set; optional fields that are empty fall back to their defaults. `src/promptPreprocessor.ts` calls `resolveSettings` once per message and reads nothing from config directly. Project 2 adds its depth setting here.
 
-### Upgrade fallback (one release)
+### Not configured
 
-- For each moved field (Documents Directory, Vector Store Directory, Embedding Model, Exclude filename patterns, Prompt Template): use the global value when it is non-empty.
-- Otherwise read the old per-chat key through `legacyConfigSchematics`, a schema holding the old keys (`documentsDirectory`, `vectorStoreDirectory`, `embeddingModel`, `excludeFilenamePatterns`, `promptTemplate`) that is never registered with the plugin context. If it returns a non-empty value, use it and add the field name to `legacyFieldsUsed`.
-- If reading legacy values throws or returns nothing, use the global default.
-- When `legacyFieldsUsed` is non-empty, the preprocessor shows one status: "Big RAG settings moved: copy <field names> into Big RAG's global settings. Old per-chat values are used for now."
-- When the Documents Directory or Vector Store Directory is still empty, the preprocessor shows "Set Documents Directory and Vector Store Directory in Big RAG's global settings." and skips retrieval for that message, matching today's behaviour for empty directories.
-- Old per-chat values for removed tuning settings are ignored.
-- Whether LM Studio still supplies stored values for keys absent from the registered schema is verified during live acceptance. If it does not, the fallback simply finds nothing and the "set directories" status applies.
-- The fallback is removed in the following release; the release notes say so.
+- No values are migrated from the old per-chat settings; after upgrading, global settings start at their defaults and old per-chat values are ignored.
+- When `missingRequired` is non-empty, the preprocessor shows one status naming exactly what to set, for example: "Big RAG is not in use: set Documents Directory and Vector Store Directory in Big RAG's global settings." It then returns the user's message unchanged (no retrieval, no indexing, no reindex handling), as today when directories are empty.
 
 ## Reindex Once Per Request
 
@@ -145,9 +140,7 @@ The Reindex setting is per chat but the marker belongs to the index. If one chat
 
 | Situation | Behaviour |
 |---|---|
-| Directories not configured (global or legacy) | Status asks to set them in global settings; retrieval skipped |
-| Legacy values used | One status naming the fields to copy |
-| Legacy read throws | Treated as no legacy value |
+| Required global settings empty | Status "Big RAG is not in use: set <names> in Big RAG's global settings."; message passed through unchanged |
 | Marker file unreadable or malformed | Treated as no marker (reindex runs); marker rewritten after success |
 | Marker write fails | Warning logged; reindex result unaffected (next message may run again) |
 
@@ -155,7 +148,8 @@ The Reindex setting is per chat but the marker belongs to the index. If one chat
 
 Unit tests, no LM Studio required:
 
-- `resolveSettings`: global wins; legacy used when global empty, and listed in `legacyFieldsUsed`; missing directories resolve to `""`; fixed defaults always match `defaults.ts`; old tuning keys ignored; legacy `get` throwing is tolerated.
+- `resolveSettings`: global values used; empty or whitespace-only directories resolve to `""` and are listed in `missingRequired` by display name; empty optional fields fall back to defaults; fixed defaults always match `defaults.ts`; reindex mode read from the chat config.
+- Preprocessor not-configured path: with a directory missing, the status names the missing settings and the message is returned unchanged (controller faked).
 - `decideReindex`: every row of the decision table.
 - Marker I/O: read/write round trip; malformed file reads as null; the marker is written only after a completed run (the reindex runner is faked).
 - Defaults: CLI and eval settings with no env vars resolve to the `defaults.ts` values.
@@ -163,8 +157,8 @@ Unit tests, no LM Studio required:
 
 ### Live acceptance
 
-1. On an existing 1.3 install, open a chat: note whether old per-chat directories are picked up with the "settings moved" status.
-2. Fill in global settings: the status disappears and retrieval works.
+1. On an existing 1.3 install, open a chat: the "Big RAG is not in use" status names the settings to fill in.
+2. Fill in global settings: the status disappears and retrieval works against the existing index.
 3. Set Reindex to New & changed files: it runs once; the next message shows "already done".
 4. Set Reindex to Off, send a message, choose it again: it runs again.
 5. The chat sidebar shows only Reindex.
@@ -172,4 +166,4 @@ Unit tests, no LM Studio required:
 ## Documentation and Release
 
 - README configuration section rewritten around global settings and the Reindex choice, plus a "Maintainer defaults" table (value, fixed default, env override) and an "Upgrading from 1.3" note.
-- Minor release 1.4.0; release notes explain the move to global settings and that the per-chat fallback will be removed in the next release.
+- Minor release 1.4.0; release notes explain the move to global settings and that users must enter their directories (and any custom embedding model, exclude patterns, or prompt template) once in global settings after upgrading. Pointing Vector Store Directory at the existing folder keeps the existing index.
