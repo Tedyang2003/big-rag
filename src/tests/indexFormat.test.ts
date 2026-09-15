@@ -7,6 +7,7 @@ import {
   desiredIndexFormat,
   getEmbeddingManifestPath,
   indexFormatMismatchMessage,
+  indexFormatStatusMessage,
   planIndexFormat,
   readEmbeddingIndexManifest,
   writeEmbeddingIndexManifest,
@@ -50,4 +51,34 @@ test("indexFormatMismatchMessage describes the needed reindex", () => {
     indexFormatMismatchMessage("structured-v1", "legacy"),
     "Reindex required to switch back to standard indexing.",
   );
+});
+
+test("indexFormatStatusMessage treats a store without a manifest as legacy", async () => {
+  const dir = await tempDir();
+  try {
+    let statsCalls = 0;
+    const totalChunks = (count: number) => async () => {
+      statsCalls++;
+      return count;
+    };
+
+    assert.equal(
+      await indexFormatStatusMessage(dir, true, totalChunks(10)),
+      "Reindex required to apply structured indexing.",
+    );
+    assert.equal(await indexFormatStatusMessage(dir, false, totalChunks(10)), null);
+    assert.equal(await indexFormatStatusMessage(dir, true, totalChunks(0)), null);
+    assert.equal(statsCalls, 3);
+
+    await writeEmbeddingIndexManifest(dir, { embeddingModelId: "m", dimensions: 3, indexFormat: "structured-v1" });
+    statsCalls = 0;
+    assert.equal(
+      await indexFormatStatusMessage(dir, false, totalChunks(10)),
+      "Reindex required to switch back to standard indexing.",
+    );
+    assert.equal(await indexFormatStatusMessage(dir, true, totalChunks(10)), null);
+    assert.equal(statsCalls, 0, "stats are only read when the manifest is missing");
+  } finally {
+    await fs.rm(dir, { recursive: true, force: true });
+  }
 });

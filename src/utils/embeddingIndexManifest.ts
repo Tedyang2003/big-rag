@@ -176,6 +176,27 @@ export async function planIndexFormat(
   return { indexFormat, rebuildExistingFiles: (manifest?.indexFormat ?? "legacy") !== indexFormat };
 }
 
+/**
+ * Status message when the stored index format differs from the configured one. A store with
+ * chunks but no manifest was built before manifests recorded a format, so it counts as legacy
+ * (as in planIndexFormat). The chunk count is only read when the manifest is missing.
+ */
+export async function indexFormatStatusMessage(
+  vectorStoreDir: string,
+  structuredIndexing: boolean,
+  getTotalChunks: () => Promise<number>,
+): Promise<string | null> {
+  const manifest = await readEmbeddingIndexManifest(vectorStoreDir);
+  let indexed: IndexFormat;
+  if (manifest) {
+    indexed = manifest.indexFormat;
+  } else {
+    if ((await getTotalChunks()) === 0) return null;
+    indexed = "legacy";
+  }
+  return indexFormatMismatchMessage(indexed, desiredIndexFormat(structuredIndexing));
+}
+
 export function indexFormatMismatchMessage(indexed: IndexFormat, desired: IndexFormat): string | null {
   if (indexed === desired) return null;
   return desired === "structured-v1"

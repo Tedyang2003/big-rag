@@ -12,9 +12,7 @@ import { tryStartIndexing, finishIndexing } from "./utils/indexingLock";
 import {
   checkEmbeddingModelForRetrieval,
   deleteEmbeddingIndexManifest,
-  readEmbeddingIndexManifest,
-  desiredIndexFormat,
-  indexFormatMismatchMessage,
+  indexFormatStatusMessage,
 } from "./utils/embeddingIndexManifest";
 import * as path from "path";
 import { runIndexingJob } from "./ingestion/runIndexing";
@@ -427,10 +425,12 @@ export async function preprocess(
       return compatibility.userMessage + `\n\nUser Query:\n\n${userPrompt}`;
     }
 
-    const indexManifest = await readEmbeddingIndexManifest(vectorStoreDir);
-    const formatMessage = indexManifest
-      ? indexFormatMismatchMessage(indexManifest.indexFormat, desiredIndexFormat(structuredIndexing))
-      : null;
+    const store = vectorStore;
+    const formatMessage = await indexFormatStatusMessage(
+      vectorStoreDir,
+      structuredIndexing,
+      async () => (await store.getStats()).totalChunks,
+    );
     if (formatMessage) {
       console.warn("[BigRAG]", formatMessage);
       ctl.createStatus({ status: "error", text: formatMessage });
