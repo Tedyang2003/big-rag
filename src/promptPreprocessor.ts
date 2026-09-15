@@ -65,6 +65,7 @@ function summarizeText(text: string, maxLines: number = 3, maxChars: number = 40
 let vectorStore: VectorStore | null = null;
 let lastIndexedDir = "";
 let sanityChecksPassed = false;
+let lastSanityCheckedDirs = "";
 
 // Cache of FileHandles prepared for citations, keyed by file path (persists
 // across requests like the state above). Keyed by fileHash too so a
@@ -212,7 +213,8 @@ export async function preprocess(
     // - merged into a single status so a fresh session shows one "Using Big
     // RAG" line instead of two separate ones, and steady-state turns (once
     // both are already done) show nothing extra at all.
-    const needsSanityCheck = !sanityChecksPassed;
+    const currentDirsKey = `${documentsDir}\n${vectorStoreDir}`;
+    const needsSanityCheck = !sanityChecksPassed || lastSanityCheckedDirs !== currentDirsKey;
     const needsVectorStoreInit = !vectorStore || lastIndexedDir !== vectorStoreDir;
 
     if (needsSanityCheck || needsVectorStoreInit) {
@@ -247,6 +249,7 @@ export async function preprocess(
         }
 
         sanityChecksPassed = true;
+        lastSanityCheckedDirs = currentDirsKey;
       }
 
       checkAbort(ctl.abortSignal);
@@ -652,6 +655,14 @@ async function runRequestedReindex(
         }
       },
     });
+
+    if (ctl.abortSignal.aborted) {
+      status.setState({
+        status: "canceled",
+        text: "Reindex cancelled.",
+      });
+      return false;
+    }
 
     status.setState({
       status: "done",
