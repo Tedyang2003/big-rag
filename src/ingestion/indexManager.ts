@@ -368,6 +368,7 @@ export class IndexManager {
         if (fileHash) {
           await this.failedFileRegistry.recordFailure(file.path, fileHash, parsedResult.reason);
         }
+        await this.dropStaleChunksForRebuild(existingHashes);
         return { type: "failed" };
       }
       const parsed = parsedResult.document;
@@ -381,6 +382,7 @@ export class IndexManager {
         if (fileHash) {
           await this.failedFileRegistry.recordFailure(file.path, fileHash, "index.chunk-empty");
         }
+        await this.dropStaleChunksForRebuild(existingHashes);
         return { type: "failed" };
       }
 
@@ -430,16 +432,12 @@ export class IndexManager {
         if (fileHash) {
           await this.failedFileRegistry.recordFailure(file.path, fileHash, "index.chunk-empty");
         }
+        await this.dropStaleChunksForRebuild(existingHashes);
         return { type: "failed" };
       }
 
       try {
-        if (this.options.rebuildExistingFiles && existingHashes) {
-          for (const oldHash of existingHashes) {
-            await vectorStore.deleteByFileHash(oldHash);
-          }
-          existingHashes.clear();
-        }
+        await this.dropStaleChunksForRebuild(existingHashes);
         await vectorStore.addChunks(documentChunks);
         console.log(`Indexed ${documentChunks.length} chunks from ${file.name}`);
         if (!existingHashes) {
@@ -476,6 +474,22 @@ export class IndexManager {
       }
       return { type: "failed" }; // Failed
     }
+  }
+
+  /**
+   * When rebuilding because the index format changed, a file's old-format
+   * chunks must never survive the rebuild, even if the rebuild itself fails
+   * (parse failure, zero chunks, or every embedding failing) - otherwise the
+   * store ends up mixing formats and the stale chunks are never revisited.
+   */
+  private async dropStaleChunksForRebuild(existingHashes: Set<string> | undefined): Promise<void> {
+    if (!this.options.rebuildExistingFiles || !existingHashes) {
+      return;
+    }
+    for (const oldHash of existingHashes) {
+      await this.options.vectorStore.deleteByFileHash(oldHash);
+    }
+    existingHashes.clear();
   }
 
   private async prepareLegacyChunks(text: string): Promise<PreparedChunk[]> {

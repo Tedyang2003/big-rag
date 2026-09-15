@@ -70,3 +70,68 @@ test("IndexManager stores structured chunks with headers and rebuilds legacy chu
     await fs.rm(dbDir, { recursive: true, force: true });
   }
 });
+
+test("a failed format rebuild does not strand the file's old-format chunks", async () => {
+  const docsDir = await fs.mkdtemp(path.join(os.tmpdir(), "big-rag-docs-"));
+  const dbDir = await fs.mkdtemp(path.join(os.tmpdir(), "big-rag-db-"));
+  try {
+    await fs.writeFile(path.join(docsDir, "incident_roundup.txt"), ROUNDUP_TEXT);
+    const store = new VectorStore(dbDir);
+    await store.initialize();
+
+    const workingEmbeddingModel = {
+      embed: async (_text: string) => ({ embedding: [1, 0, 0] }),
+      countTokens: async (text: string) => text.split(/\s+/).filter(Boolean).length,
+    } as unknown as EmbeddingDynamicHandle;
+
+    const base = {
+      documentsDir: docsDir,
+      vectorStore: store,
+      vectorStoreDir: dbDir,
+      client: {} as LMStudioClient,
+      chunkSize: 200,
+      chunkOverlap: 0,
+      maxConcurrent: 1,
+      enableOCR: false,
+      autoReindex: true,
+      parseDelayMs: 0,
+    };
+
+    await new IndexManager({
+      ...base,
+      embeddingModel: workingEmbeddingModel,
+      structuredIndexing: false,
+      rebuildExistingFiles: false,
+    }).index();
+    const legacy = await store.listChunks();
+    assert.ok(legacy.length > 0);
+    assert.ok(legacy.every((chunk) => chunk.metadata.indexFormat === "legacy"));
+
+    const failingEmbeddingModel = {
+      embed: async (text: string) => {
+        if (text.startsWith("[File:")) {
+          throw new Error("embedding failed");
+        }
+        return { embedding: [1, 0, 0] };
+      },
+      countTokens: async (text: string) => text.split(/\s+/).filter(Boolean).length,
+    } as unknown as EmbeddingDynamicHandle;
+
+    await new IndexManager({
+      ...base,
+      embeddingModel: failingEmbeddingModel,
+      structuredIndexing: true,
+      rebuildExistingFiles: true,
+    }).index();
+
+    const afterFailedRebuild = await store.listChunks();
+    assert.ok(
+      afterFailedRebuild.every((chunk) => chunk.metadata.indexFormat !== "legacy"),
+      "no legacy chunks should survive a failed format rebuild",
+    );
+    assert.equal(afterFailedRebuild.length, 0, "store should be empty for the file after the failed rebuild");
+  } finally {
+    await fs.rm(docsDir, { recursive: true, force: true });
+    await fs.rm(dbDir, { recursive: true, force: true });
+  }
+});
