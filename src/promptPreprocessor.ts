@@ -5,7 +5,8 @@ import {
   type PromptPreprocessorController,
   type RetrievalResultEntry,
 } from "@lmstudio/sdk";
-import { configSchematics, DEFAULT_PROMPT_TEMPLATE, resolveEmbeddingModelId } from "./config";
+import { configSchematics, DEFAULT_PROMPT_TEMPLATE, globalConfigSchematics } from "./config";
+import { asConfigReader, notConfiguredMessage, resolveSettings } from "./settings/resolveSettings";
 import { VectorStore } from "./vectorstore/vectorStore";
 import { performSanityChecks } from "./utils/sanityChecks";
 import { tryStartIndexing, finishIndexing } from "./utils/indexingLock";
@@ -16,7 +17,6 @@ import {
 } from "./utils/embeddingIndexManifest";
 import * as path from "path";
 import { runIndexingJob } from "./ingestion/runIndexing";
-import { parseExcludePatternsBlock } from "./utils/fileExcludePatterns";
 import { retrieve } from "./retrieval/retrieve";
 import { renderPassageForPrompt } from "./retrieval/renderPassage";
 
@@ -171,35 +171,34 @@ export async function preprocess(
   userMessage: ChatMessage,
 ): Promise<ChatMessage | string> {
   const userPrompt = userMessage.getText();
-  const pluginConfig = ctl.getPluginConfig(configSchematics);
+  const settings = resolveSettings(
+    asConfigReader(ctl.getGlobalPluginConfig(globalConfigSchematics)),
+    asConfigReader(ctl.getPluginConfig(configSchematics)),
+  );
 
-  // Get configuration
-  const documentsDir = pluginConfig.get("documentsDirectory");
-  const vectorStoreDir = pluginConfig.get("vectorStoreDirectory");
-  const retrievalLimit = pluginConfig.get("retrievalLimit");
-  const retrievalThreshold = pluginConfig.get("retrievalAffinityThreshold");
-  const chunkSize = pluginConfig.get("chunkSize");
-  const chunkOverlap = pluginConfig.get("chunkOverlap");
-  const maxConcurrent = pluginConfig.get("maxConcurrentFiles");
-  const enableOCR = pluginConfig.get("enableOCR");
-  const enableContextCompaction = pluginConfig.get("enableContextCompaction");
-  const structuredIndexing = pluginConfig.get("structuredIndexing");
-  const skipPreviouslyIndexed = pluginConfig.get("manualReindex.skipPreviouslyIndexed");
-  const parseDelayMs = pluginConfig.get("parseDelayMs") ?? 0;
-  const reindexRequested = pluginConfig.get("manualReindex.trigger");
-  const resolvedEmbeddingModelId = resolveEmbeddingModelId(pluginConfig.get("embeddingModel"));
-  const excludePatterns = parseExcludePatternsBlock(pluginConfig.get("excludeFilenamePatterns") ?? "");
-
-  // Validate configuration
-  if (!documentsDir || documentsDir === "") {
-    console.warn("[BigRAG] Documents directory not configured. Please set it in plugin settings.");
+  if (settings.missingRequired.length > 0) {
+    const text = notConfiguredMessage(settings.missingRequired);
+    console.warn(`[BigRAG] ${text}`);
+    ctl.createStatus({ status: "canceled", text });
     return userMessage;
   }
 
-  if (!vectorStoreDir || vectorStoreDir === "") {
-    console.warn("[BigRAG] Vector store directory not configured. Please set it in plugin settings.");
-    return userMessage;
-  }
+  const {
+    documentsDirectory: documentsDir,
+    vectorStoreDirectory: vectorStoreDir,
+    embeddingModelId: resolvedEmbeddingModelId,
+    excludePatterns,
+    retrievalLimit,
+    retrievalThreshold,
+    chunkSize,
+    chunkOverlap,
+    maxConcurrentFiles: maxConcurrent,
+    parseDelayMs,
+    enableOCR,
+    structuredIndexing,
+    enableContextCompaction,
+    reindexMode,
+  } = settings;
 
   try {
     // Sanity checks and vector store init are one-time setup (guarded below)
@@ -285,9 +284,9 @@ export async function preprocess(
       enableOCR,
       structuredIndexing,
       parseDelayMs,
-      reindexRequested,
+      reindexRequested: reindexMode !== "off",
       excludePatterns,
-      skipPreviouslyIndexed: pluginConfig.get("manualReindex.skipPreviouslyIndexed"),
+      skipPreviouslyIndexed: reindexMode === "changed",
     });
 
     checkAbort(ctl.abortSignal);
@@ -373,16 +372,7 @@ export async function preprocess(
 
     checkAbort(ctl.abortSignal);
 
-    // Log manual reindex toggle states for visibility on each chat
-    const toggleStatusText =
-      `Manual Reindex Trigger: ${reindexRequested ? "ON" : "OFF"} | ` +
-      `Skip Previously Indexed: ${skipPreviouslyIndexed ? "ON" : "OFF"} | ` +
-      `Embedding model: ${resolvedEmbeddingModelId}`;
-    console.info(`[BigRAG] ${toggleStatusText}`);
-    ctl.createStatus({
-      status: "done",
-      text: toggleStatusText,
-    });
+    console.info(`[BigRAG] Reindex: ${reindexMode} | Embedding model: ${resolvedEmbeddingModelId}`);
 
     const retrievalStats = await vectorStore.getStats();
     if (retrievalStats.totalChunks === 0) {
@@ -517,7 +507,7 @@ export async function preprocess(
       citationNumber++;
     }
 
-    const promptTemplate = normalizePromptTemplate(pluginConfig.get("promptTemplate"));
+    const promptTemplate = normalizePromptTemplate(settings.promptTemplate);
     const finalPrompt = fillPromptTemplate(promptTemplate, {
       [RAG_CONTEXT_MACRO]: ragContextFull.trimEnd(),
       [USER_QUERY_MACRO]: userPrompt,

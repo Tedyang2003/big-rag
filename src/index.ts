@@ -1,5 +1,5 @@
 import { type PluginContext } from "@lmstudio/sdk";
-import { configSchematics } from "./config";
+import { configSchematics, globalConfigSchematics } from "./config";
 import { preprocess } from "./promptPreprocessor";
 
 /**
@@ -7,9 +7,10 @@ import { preprocess } from "./promptPreprocessor";
  * This plugin indexes large document collections and provides RAG capabilities.
  */
 export async function main(context: PluginContext) {
-  // Register the configuration schematics
+  // Register the configuration schematics: global (set once) and per chat
+  context.withGlobalConfigSchematics(globalConfigSchematics);
   context.withConfigSchematics(configSchematics);
-  
+
   // Register the prompt preprocessor
   context.withPromptPreprocessor(preprocess);
   

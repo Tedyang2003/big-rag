@@ -16,7 +16,8 @@ User Query:
 
 {{user_query}}`;
 
-export const configSchematics = createConfigSchematics()
+/** Set once for the plugin in LM Studio's plugin settings; not shown per chat. */
+export const globalConfigSchematics = createConfigSchematics()
   .field(
     "documentsDirectory",
     "string",
@@ -49,147 +50,16 @@ export const configSchematics = createConfigSchematics()
     DEFAULT_EMBEDDING_MODEL_ID,
   )
   .field(
-    "retrievalLimit",
-    "numeric",
-    {
-      int: true,
-      min: 1,
-      max: 20,
-      displayName: "Retrieval Limit",
-      subtitle: "Maximum number of chunks to return during retrieval.",
-      slider: { min: 1, max: 20, step: 1 },
-    },
-    5,
-  )
-  .field(
-    "retrievalAffinityThreshold",
-    "numeric",
-    {
-      min: 0.0,
-      max: 1.0,
-      displayName: "Retrieval Affinity Threshold",
-      subtitle: "Minimum similarity score for a chunk to be considered relevant.",
-      slider: { min: 0.0, max: 1.0, step: 0.01 },
-    },
-    0.5,
-  )
-  .field(
-    "chunkSize",
-    "numeric",
-    {
-      int: true,
-      min: 128,
-      max: 2048,
-      displayName: "Chunk Size",
-      subtitle: "Size of text chunks for embedding (in tokens).",
-      slider: { min: 128, max: 2048, step: 128 },
-    },
-    512,
-  )
-  .field(
-    "chunkOverlap",
-    "numeric",
-    {
-      int: true,
-      min: 0,
-      max: 512,
-      displayName: "Chunk Overlap",
-      subtitle: "Overlap between consecutive chunks (in tokens).",
-      slider: { min: 0, max: 512, step: 32 },
-    },
-    100,
-  )
-  .field(
-    "maxConcurrentFiles",
-    "numeric",
-    {
-      int: true,
-      min: 1,
-      max: 10,
-      displayName: "Max Concurrent Files",
-      subtitle: "Maximum number of files to process concurrently during indexing. Recommend 1 for large PDF datasets.",
-      slider: { min: 1, max: 10, step: 1 },
-    },
-    1,
-  )
-  .field(
-    "parseDelayMs",
-    "numeric",
-    {
-      int: true,
-      min: 0,
-      max: 5000,
-      displayName: "Parser Delay (ms)",
-      subtitle: "Wait time before parsing each document (helps avoid WebSocket throttling).",
-      slider: { min: 0, max: 5000, step: 100 },
-    },
-    500,
-  )
-  .field(
-    "enableOCR",
-    "boolean",
-    {
-      displayName: "Enable OCR",
-      subtitle: "Enable OCR for image files and image-based PDFs using LM Studio's built-in document parser.",
-    },
-    true,
-  )
-  .field(
-    "enableContextCompaction",
-    "boolean",
-    {
-      displayName: "Enable Context Compaction",
-      subtitle:
-        "Retrieve a larger pool of candidate passages, then trim each one down to only the sentences relevant to the query (never rewritten - only selected) before filling the same overall token budget. Result: more, smaller, distinct passages instead of fewer full-size chunks. Adds embedding calls per query.",
-    },
-    false,
-  )
-  .field(
-    "structuredIndexing",
-    "boolean",
-    {
-      displayName: "Structured Indexing",
-      subtitle:
-        "Chunk documents by their headings, sections, and list items, record each chunk's dates, and give every chunk a header with its file, section, and dates. Turning this on or off requires a manual reindex, which rebuilds every file regardless of 'Skip Previously Indexed Files'.",
-    },
-    true,
-  )
-  .field(
     "excludeFilenamePatterns",
     "string",
     {
       displayName: "Exclude filename patterns",
       subtitle:
-        "Optional. One glob per line, matched against each file path relative to Documents Directory (use /). Lines starting with # are comments. Example: *.png excludes PNGs in any folder; archive/** excludes that subtree. Does not remove chunks already in the vector store—clear or reindex to drop old data.",
+        "Optional. One glob per line, matched against each file path relative to Documents Directory (use /). Lines starting with # are comments. Example: *.png excludes PNGs in any folder; archive/** excludes that subtree. Image files are always read with OCR, so exclude them here (e.g. *.png, *.jpg) to skip them. Does not remove chunks already in the vector store—reindex to drop old data.",
       placeholder: "*.png\n# *.jpg",
       isParagraph: true,
     },
     "",
-  )
-  .field(
-    "manualReindex.trigger",
-    "boolean",
-    {
-      displayName: "Manual Reindex Trigger",
-      subtitle:
-        "Toggle ON to request an immediate reindex. The plugin resets this after running. Use the “Skip Previously Indexed Files” option below to control whether unchanged files are skipped.",
-    },
-    false,
-  )
-  .field(
-    "manualReindex.skipPreviouslyIndexed",
-    "boolean",
-    {
-      displayName: "Skip Previously Indexed Files",
-      subtitle: "Skip unchanged files for faster manual runs. Only indexes new files or changed files.",
-      dependencies: [
-        {
-          key: "manualReindex.trigger",
-          condition: { type: "equals", value: true },
-        },
-      ],
-    },
-    true,
   )
   .field(
     "promptTemplate",
@@ -202,6 +72,25 @@ export const configSchematics = createConfigSchematics()
       isParagraph: true,
     },
     DEFAULT_PROMPT_TEMPLATE,
+  )
+  .build();
+
+/** Shown in each chat's sidebar. */
+export const configSchematics = createConfigSchematics()
+  .field(
+    "reindexMode",
+    "select",
+    {
+      displayName: "Reindex",
+      subtitle:
+        "Choose a mode and send a message to reindex once. 'New & changed files' skips unchanged files; 'Rebuild everything' re-processes every file. To run another reindex, set this to Off, send a message, then choose a mode again.",
+      options: [
+        { value: "off", displayName: "Off" },
+        { value: "changed", displayName: "New & changed files" },
+        { value: "rebuild", displayName: "Rebuild everything" },
+      ],
+    },
+    "off",
   )
   .build();
 
