@@ -128,6 +128,7 @@ async function main() {
     console.error("[BigRAG CLI] Error during indexing:", error);
     process.exitCode = 1;
   } finally {
+    await vectorStore.releaseShardCache();
     await vectorStore.close();
   }
 }

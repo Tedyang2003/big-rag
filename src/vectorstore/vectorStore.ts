@@ -2,7 +2,7 @@ import * as fs from "fs/promises";
 import * as path from "path";
 import { LocalIndex } from "vectra";
 
-const MAX_ITEMS_PER_SHARD = 10000;
+const DEFAULT_MAX_ITEMS_PER_SHARD = 10000;
 const SHARD_DIR_PREFIX = "shard_";
 const SHARD_DIR_REGEX = /^shard_(\d+)$/;
 
@@ -56,9 +56,21 @@ export class VectorStore {
    */
   private shardCache = new Map<string, LocalIndex>();
   private updateMutex: Promise<void> = Promise.resolve();
+  private readonly maxItemsPerShard: number;
 
-  constructor(dbPath: string) {
+  /**
+   * @param maxItemsPerShard Test seam only: overrides the shard rotation threshold so tests
+   * can force multiple shards without inserting thousands of chunks. Production callers should
+   * omit this and get the real default.
+   */
+  constructor(dbPath: string, maxItemsPerShard: number = DEFAULT_MAX_ITEMS_PER_SHARD) {
     this.dbPath = path.resolve(dbPath);
+    this.maxItemsPerShard = maxItemsPerShard;
+  }
+
+  /** Number of shards currently held in the write-through cache. Exposed for tests. */
+  get cachedShardCount(): number {
+    return this.shardCache.size;
   }
 
   /**
@@ -162,7 +174,7 @@ export class VectorStore {
       this.activeShardCount += chunks.length;
       console.log(`Added ${chunks.length} chunks to vector store`);
 
-      if (this.activeShardCount >= MAX_ITEMS_PER_SHARD) {
+      if (this.activeShardCount >= this.maxItemsPerShard) {
         const nextNum = this.shardDirs.length;
         const nextDir = `${SHARD_DIR_PREFIX}${String(nextNum).padStart(3, "0")}`;
         const fullPath = path.join(this.dbPath, nextDir);
@@ -330,6 +342,34 @@ export class VectorStore {
       }
     }
     return false;
+  }
+
+  /**
+   * Drop every cached shard except the active shard's entry. `cachedShard` (used by
+   * deleteByFileHash) caches every shard it touches, and vectra's LocalIndex keeps its entire
+   * parsed index.json - including every item's vector - in memory for the life of the
+   * instance. In a long-lived VectorStore that scan makes the whole index resident in RAM after
+   * the first delete of an indexing run. Everything cached here has already been flushed to
+   * disk (vectra writes on endUpdate), so dropping the entries loses nothing; a later read
+   * simply re-opens the shard fresh via `openShard`. Chained through updateMutex so it can't
+   * race an in-flight addChunks/deleteByFileHash.
+   */
+  async releaseShardCache(): Promise<void> {
+    this.updateMutex = this.updateMutex.then(() => {
+      let activeDir: string | undefined;
+      for (const [dir, shard] of this.shardCache) {
+        if (shard === this.activeShard) {
+          activeDir = dir;
+          break;
+        }
+      }
+      for (const dir of [...this.shardCache.keys()]) {
+        if (dir !== activeDir) {
+          this.shardCache.delete(dir);
+        }
+      }
+    });
+    return this.updateMutex;
   }
 
   /**

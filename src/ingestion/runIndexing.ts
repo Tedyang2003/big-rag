@@ -91,7 +91,12 @@ export async function runIndexingJob({
     onProgress,
   });
 
-  const indexingResult = await indexManager.index();
+  let indexingResult: IndexingResult;
+  try {
+    indexingResult = await indexManager.index();
+  } finally {
+    await vectorStore.releaseShardCache();
+  }
   const stats = await vectorStore.getStats();
 
   await syncEmbeddingManifestAfterIndexing(

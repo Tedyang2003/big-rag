@@ -91,6 +91,43 @@ test("deleted chunks stay deleted after another file is added", async () => {
   }
 });
 
+test("releaseShardCache drops every shard but the active one", async () => {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), "big-rag-vs-"));
+  try {
+    // Tiny shard limit forces rotation across several shards without inserting thousands of chunks.
+    const store = new VectorStore(dir, 1);
+    await store.initialize();
+    await store.addChunks([chunkFor("A", 0)]);
+    await store.addChunks([chunkFor("B", 0)]);
+    await store.addChunks([chunkFor("C", 0)]);
+
+    // deleteByFileHash scans every shard, caching each one it touches.
+    await store.deleteByFileHash("A");
+    assert.ok(store.cachedShardCount > 1, "expected deletion to cache multiple shards");
+
+    await store.releaseShardCache();
+    assert.equal(store.cachedShardCount, 1, "only the active shard should remain cached");
+
+    // Releasing must not lose or corrupt data: further deletes/adds and a fresh reopen still
+    // agree, and no previously-deleted item resurfaces.
+    await store.deleteByFileHash("B");
+    await store.addChunks([chunkFor("D", 0)]);
+
+    const reopened = new VectorStore(dir, 1);
+    await reopened.initialize();
+    const ids = (await reopened.listChunks())
+      .map((chunk) => `${chunk.metadata.fileHash}-${chunk.chunkIndex}`)
+      .sort();
+    assert.deepEqual(ids, ["C-0", "D-0"]);
+
+    const results = await store.search([1, 0, 0], 10, 0);
+    const resultHashes = results.map((r) => r.metadata.fileHash).sort();
+    assert.deepEqual(resultHashes, ["C", "D"]);
+  } finally {
+    await fs.rm(dir, { recursive: true, force: true });
+  }
+});
+
 test("repeated deletions reuse parsed shards instead of re-reading index.json", async () => {
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), "big-rag-vs-"));
   const fsModule = require("fs/promises") as { readFile: (...args: any[]) => Promise<any> };
