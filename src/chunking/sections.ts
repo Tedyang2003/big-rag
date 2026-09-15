@@ -18,7 +18,7 @@ export interface Section {
 export const MAX_TITLE_CHARS = 80;
 
 const HEADING = /^(#{1,6})\s+(.*\S)\s*$/;
-const LIST_ITEM = /^(\s*)(?:[-*]|\d{1,3}\.|[a-zA-Z]\.)\s+\S/;
+const LIST_ITEM = /^([ \t]*)(?:-|\d{1,3}\.|[a-z]\.)[ \t]+\S/;
 
 export function parseBlocks(markdown: string): Block[] {
   const blocks: Block[] = [];

@@ -88,3 +88,12 @@ test("buildSections keeps leading content without a heading as an unnamed sectio
   const sections = buildSections("Intro paragraph.\n\n## Next\n\nBody.", {});
   assert.deepEqual(sections.map((s) => s.path), [[], ["Next"]]);
 });
+
+test("parseBlocks does not treat prose starting with an initial as a list item", () => {
+  const markdown = "## Witness Accounts\n\nOfficers spoke to residents.\n\nA. Smith said the water rose quickly overnight.";
+  assert.deepEqual(
+    buildSections(markdown, {}).map((s) => s.path),
+    [["Witness Accounts"]],
+  );
+  assert.equal(parseBlocks(markdown)[2].kind, "paragraph");
+});
