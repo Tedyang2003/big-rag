@@ -70,7 +70,7 @@ If Documents Directory or Vector Store Directory is empty, chats show "Big RAG i
 
 ### Chat Sidebar: Reindex
 
-- **Reindex** (default: *Off*): Choose *New & changed files* (skips unchanged files and files that previously failed to parse) or *Rebuild everything* (re-processes every file), then send a message. The reindex runs once; later messages show "Reindex already done at …". To run another, set Reindex to *Off*, send a message, then choose a mode again.
+- **Reindex** (default: *Off*): Choose *New & changed files* (skips unchanged files and files that previously failed to parse) or *Rebuild everything* (re-processes every file), then send a message. The reindex runs once; later messages show "Reindex already done at …". To run another — including switching from one mode to the other — set Reindex to *Off*, send a message, then choose a mode again; switching modes directly does not run the new mode, since a completed run of either mode is still recorded as "done" until cleared.
 - **Automatic first run**: If the vector store is empty, the plugin indexes your documents the first time a message is processed.
 - **Indexing lock**: Only one indexing run can be active at a time; a request made while one is running is reported and skipped.
 - The "done" record is the file `.big-rag-reindex.json` in the Vector Store Directory. Because Reindex is set per chat, a message in another chat where Reindex is *Off* clears it.
@@ -334,7 +334,7 @@ Run all commands below from the repo root. `BIG_RAG_DOCS_DIR` must match the plu
    $env:BIG_RAG_DOCS_DIR="C:\path\to\docs"; $env:BIG_RAG_DB_DIR="C:\path\to\db"; npm run eval:run
    ```
 
-If your plugin settings differ from the defaults, set `BIG_RAG_RETRIEVAL_LIMIT`, `BIG_RAG_RETRIEVAL_THRESHOLD`, `BIG_RAG_CHUNK_SIZE`, and `BIG_RAG_ENABLE_COMPACTION` to match. If the plugin uses a non-default **Embedding Model**, also set `BIG_RAG_EMBEDDING_MODEL` to match it — otherwise `eval:run` fails the manifest compatibility check. Reports are written to `eval/reports/`. The `eval/` folder is gitignored because it contains excerpts from your documents.
+The plugin uses fixed defaults for retrieval limit, affinity threshold, chunk size, and context compaction (see [Maintainer Defaults](#maintainer-defaults)); `eval:run` uses the same defaults unless you set `BIG_RAG_RETRIEVAL_LIMIT`, `BIG_RAG_RETRIEVAL_THRESHOLD`, `BIG_RAG_CHUNK_SIZE`, or `BIG_RAG_ENABLE_COMPACTION` to evaluate different values. If the plugin uses a non-default **Embedding Model**, also set `BIG_RAG_EMBEDDING_MODEL` to match it — otherwise `eval:run` fails the manifest compatibility check. Reports are written to `eval/reports/`. The `eval/` folder is gitignored because it contains excerpts from your documents.
 
 Other environment variables:
 
