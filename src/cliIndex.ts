@@ -4,6 +4,7 @@ import { IndexManager } from "./ingestion/indexManager";
 import { resolveEmbeddingModelId } from "./config";
 import { planIndexFormat, syncEmbeddingManifestAfterIndexing } from "./utils/embeddingIndexManifest";
 import { parseExcludePatternsFromEnv } from "./utils/fileExcludePatterns";
+import { readCliIndexingSettings } from "./settings/cliSettings";
 
 async function main() {
   const documentsDir = process.env.BIG_RAG_DOCS_DIR ?? process.argv[2];
@@ -17,26 +18,12 @@ async function main() {
     process.exit(1);
   }
 
-  const chunkSize = process.env.BIG_RAG_CHUNK_SIZE
-    ? Number(process.env.BIG_RAG_CHUNK_SIZE)
-    : 512;
-  const chunkOverlap = process.env.BIG_RAG_CHUNK_OVERLAP
-    ? Number(process.env.BIG_RAG_CHUNK_OVERLAP)
-    : 100;
-  const maxConcurrent = process.env.BIG_RAG_MAX_CONCURRENT
-    ? Number(process.env.BIG_RAG_MAX_CONCURRENT)
-    : 1;
-  const enableOCR =
-    (process.env.BIG_RAG_ENABLE_OCR ?? "true").toLowerCase() === "true";
+  const { chunkSize, chunkOverlap, maxConcurrent, enableOCR, parseDelayMs, structuredIndexing } =
+    readCliIndexingSettings(process.env);
   const autoReindex =
     (process.env.BIG_RAG_FORCE_REINDEX ?? "false").toLowerCase() !== "true";
-  const parseDelayMs = process.env.BIG_RAG_PARSE_DELAY_MS
-    ? Number(process.env.BIG_RAG_PARSE_DELAY_MS)
-    : 500;
   const failureReportPath = process.env.BIG_RAG_FAILURE_REPORT_PATH;
   const excludePatterns = parseExcludePatternsFromEnv(process.env.BIG_RAG_EXCLUDE_PATTERNS);
-  const structuredIndexing =
-    (process.env.BIG_RAG_STRUCTURED_INDEXING ?? "true").toLowerCase() === "true";
 
   const resolvedEmbeddingModelId = resolveEmbeddingModelId(process.env.BIG_RAG_EMBEDDING_MODEL);
 

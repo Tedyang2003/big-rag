@@ -1,4 +1,5 @@
 import { DEFAULT_WORDING_LEAK_LIMIT } from "./wordingLeak";
+import { FIXED_DEFAULTS } from "../settings/defaults";
 
 export interface RetrievalSettings {
   retrievalLimit: number;
@@ -17,19 +18,19 @@ function readNumber(env: Record<string, string | undefined>, name: string, fallb
   return value;
 }
 
-/** Retrieval settings for evaluation runs. Defaults and ranges must match src/config.ts. */
+/** Retrieval settings for evaluation runs. Defaults come from src/settings/defaults.ts. */
 export function readRetrievalSettings(env: Record<string, string | undefined>): RetrievalSettings {
-  const retrievalLimit = readNumber(env, "BIG_RAG_RETRIEVAL_LIMIT", 5);
+  const retrievalLimit = readNumber(env, "BIG_RAG_RETRIEVAL_LIMIT", FIXED_DEFAULTS.retrievalLimit);
   if (!Number.isInteger(retrievalLimit) || retrievalLimit < 1 || retrievalLimit > 20) {
     throw new Error(`BIG_RAG_RETRIEVAL_LIMIT must be a whole number between 1 and 20, got "${env.BIG_RAG_RETRIEVAL_LIMIT}"`);
   }
 
-  const retrievalThreshold = readNumber(env, "BIG_RAG_RETRIEVAL_THRESHOLD", 0.5);
+  const retrievalThreshold = readNumber(env, "BIG_RAG_RETRIEVAL_THRESHOLD", FIXED_DEFAULTS.retrievalThreshold);
   if (retrievalThreshold < 0 || retrievalThreshold > 1) {
     throw new Error(`BIG_RAG_RETRIEVAL_THRESHOLD must be between 0 and 1, got "${env.BIG_RAG_RETRIEVAL_THRESHOLD}"`);
   }
 
-  const chunkSize = readNumber(env, "BIG_RAG_CHUNK_SIZE", 512);
+  const chunkSize = readNumber(env, "BIG_RAG_CHUNK_SIZE", FIXED_DEFAULTS.chunkSize);
   if (!Number.isInteger(chunkSize) || chunkSize < 128 || chunkSize > 2048) {
     throw new Error(`BIG_RAG_CHUNK_SIZE must be a whole number between 128 and 2048, got "${env.BIG_RAG_CHUNK_SIZE}"`);
   }
@@ -38,7 +39,7 @@ export function readRetrievalSettings(env: Record<string, string | undefined>): 
     retrievalLimit,
     retrievalThreshold,
     chunkSize,
-    enableContextCompaction: (env.BIG_RAG_ENABLE_COMPACTION ?? "false").trim().toLowerCase() === "true",
+    enableContextCompaction: (env.BIG_RAG_ENABLE_COMPACTION ?? String(FIXED_DEFAULTS.enableContextCompaction)).trim().toLowerCase() === "true",
   };
 }
 
