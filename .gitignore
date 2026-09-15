@@ -26,3 +26,6 @@ dist/
 .vscode/
 .idea/
 
+# Retrieval evaluation sets and reports (contain excerpts from indexed documents)
+/eval/
+

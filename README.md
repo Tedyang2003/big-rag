@@ -302,6 +302,26 @@ For end-to-end validation:
 3. Send a test query to verify retrieval works
 4. Check LM Studio logs for any errors
 
+### Evaluating Retrieval
+
+Measure whether retrieval actually finds the passages that answer questions about your documents.
+
+1. Generate candidate questions from your indexed documents (uses the LLM loaded in LM Studio, or `BIG_RAG_EVAL_LLM`):
+
+   ```bash
+   BIG_RAG_DOCS_DIR=/path/to/docs BIG_RAG_DB_DIR=/path/to/db npm run eval:generate
+   ```
+
+2. Open the `eval/candidates-*.json` file it writes, delete vague or incorrect questions, and save the result as `eval/questions.json`.
+
+3. Run the evaluation:
+
+   ```bash
+   BIG_RAG_DOCS_DIR=/path/to/docs BIG_RAG_DB_DIR=/path/to/db npm run eval:run
+   ```
+
+If your plugin settings differ from the defaults, set `BIG_RAG_RETRIEVAL_LIMIT`, `BIG_RAG_RETRIEVAL_THRESHOLD`, `BIG_RAG_CHUNK_SIZE`, and `BIG_RAG_ENABLE_COMPACTION` to match. Reports are written to `eval/reports/`. The `eval/` folder is gitignored because it contains excerpts from your documents.
+
 ### Contributing
 
 This plugin is based on the LM Studio plugin SDK. For more information:
