@@ -3,14 +3,6 @@ import * as path from "path";
 import JSZip from "jszip";
 import { extractImagesFromZip, loadZip, type EmbeddedImage } from "./embeddedImages";
 
-function cleanText(text: string): string {
-  return text
-    .replace(/[ \t]+/g, " ")
-    .replace(/[ \t]*\n[ \t]*/g, "\n")
-    .replace(/\n{2,}/g, "\n")
-    .trim();
-}
-
 /**
  * Extracts every <a:t> run from a slide XML string, in document order.
  * <a:t> is the DrawingML "text run" element - it holds the literal visible
@@ -79,24 +71,30 @@ function extractTableRows(tableXml: string): string[] {
   return rows;
 }
 
+interface SlideBlock {
+  kind: "paragraph" | "tableRow";
+  text: string;
+}
+
 /**
- * Extracts every text block from a slide/notes XML string, in document
- * order. <a:tbl> tables are handled separately from `extractParagraphs` so
- * each row becomes its own line - without this split, table cell paragraphs
- * would be picked up by the generic <a:p> scan too, losing which cells
- * belonged to the same row.
+ * Extracts text blocks from a slide/notes XML string in document order.
+ * <a:tbl> tables are handled separately from `extractParagraphs` so each row
+ * becomes its own block - otherwise table cell paragraphs would also be
+ * picked up by the generic <a:p> scan and lose their row grouping.
  */
-function extractContentBlocks(xml: string): string[] {
-  const blocks: string[] = [];
+function extractContentBlocks(xml: string): SlideBlock[] {
+  const blocks: SlideBlock[] = [];
+  const paragraphs = (fragment: string) =>
+    extractParagraphs(fragment).map((text): SlideBlock => ({ kind: "paragraph", text }));
   const tableRegex = /<a:tbl>([\s\S]*?)<\/a:tbl>/g;
   let lastIndex = 0;
   let match: RegExpExecArray | null;
   while ((match = tableRegex.exec(xml)) !== null) {
-    blocks.push(...extractParagraphs(xml.slice(lastIndex, match.index)));
-    blocks.push(...extractTableRows(match[1]));
+    blocks.push(...paragraphs(xml.slice(lastIndex, match.index)));
+    blocks.push(...extractTableRows(match[1]).map((text): SlideBlock => ({ kind: "tableRow", text })));
     lastIndex = tableRegex.lastIndex;
   }
-  blocks.push(...extractParagraphs(xml.slice(lastIndex)));
+  blocks.push(...paragraphs(xml.slice(lastIndex)));
   return blocks;
 }
 
@@ -229,33 +227,39 @@ export async function parsePPTX(
     return "";
   }
 
-  const parts: string[] = [];
+  const slides: string[] = [];
 
   for (let i = 0; i < slidePaths.length; i++) {
     const slidePath = slidePaths[i];
     const displayNumber = i + 1;
     const xml = await zip.files[slidePath].async("text");
-    const contentBlocks = extractContentBlocks(xml);
+    const blocks = extractContentBlocks(xml);
 
-    if (contentBlocks.length === 0 && !includeSpeakerNotes) continue;
+    if (blocks.length === 0 && !includeSpeakerNotes) continue;
 
-    parts.push(`[Slide ${displayNumber}]`);
-    parts.push(...contentBlocks);
+    const titleIndex = blocks.findIndex((block) => block.kind === "paragraph");
+    const title = titleIndex >= 0 ? blocks[titleIndex].text : "";
+    const lines = [`## Slide ${displayNumber}${title ? `: ${title}` : ""}`];
+    blocks.forEach((block, index) => {
+      if (index === titleIndex) return;
+      lines.push(block.kind === "tableRow" ? block.text : `- ${block.text}`);
+    });
 
     if (includeSpeakerNotes) {
       const notesPath = await getNotesPathForSlide(zip, slidePath);
       if (notesPath) {
         const notesXml = await zip.files[notesPath].async("text");
-        const notesParagraphs = extractContentBlocks(notesXml);
-        if (notesParagraphs.length > 0) {
-          parts.push(`[Slide ${displayNumber} notes]`);
-          parts.push(...notesParagraphs);
+        const notesBlocks = extractContentBlocks(notesXml);
+        if (notesBlocks.length > 0) {
+          lines.push("", "### Notes", ...notesBlocks.map((block) => block.text));
         }
       }
     }
+
+    slides.push(lines.join("\n"));
   }
 
-  return cleanText(parts.join("\n"));
+  return slides.join("\n\n");
 }
 
 /**

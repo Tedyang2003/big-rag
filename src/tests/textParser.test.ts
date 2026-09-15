@@ -16,9 +16,12 @@ test("parseDocument flattens Markdown formatting", async () => {
   }
 
   const text = result.document.text;
-  assert.ok(text.includes("Sample Markdown Title"));
+  assert.ok(text.includes("# Sample Markdown Title"));
+  assert.ok(text.includes("- Item one"));
+  assert.ok(text.includes("Block quotes should be flattened."));
   assert.ok(!text.includes("const block"));
   assert.ok(!text.includes("https://example.com"), "Markdown links should drop raw URLs");
+  assert.ok(!text.includes("**"));
 });
 
 // Test to see if plain text Parsing can extract text

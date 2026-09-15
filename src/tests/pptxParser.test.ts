@@ -16,8 +16,7 @@ test("parseDocument extracts slide text from PPTX files", async () => {
   }
 
   const text = result.document.text;
-  assert.ok(text.includes("[Slide 1]"));
-  assert.ok(text.includes("Sample PPTX Title"));
+  assert.ok(text.includes("## Slide 1: Sample PPTX Title"));
   assert.ok(text.includes("Second line of slide text"));
 });
 
@@ -53,31 +52,23 @@ test("parseDocument follows sldIdLst display order and per-slide notes rels, not
 
   // presentation.xml's sldIdLst lists slide2.xml before slide1.xml, so slide2's
   // content must be labeled "[Slide 1]" even though its filename says otherwise.
-  const slideOneIndex = text.indexOf("[Slide 1]");
+  const slideOneIndex = text.indexOf("## Slide 1");
   const slideTwoContentIndex = text.indexOf("Slide Two Content");
   const slideOneContentIndex = text.indexOf("Slide One Content");
-  const slideTwoIndex = text.indexOf("[Slide 2]");
+  const slideTwoIndex = text.indexOf("## Slide 2");
 
-  assert.ok(slideOneIndex >= 0 && slideTwoIndex >= 0, "Both slide markers should be present");
+  assert.ok(slideOneIndex >= 0 && slideTwoIndex >= 0, "Both slide headings should be present");
   assert.ok(
     slideOneIndex < slideTwoContentIndex && slideTwoContentIndex < slideTwoIndex,
-    "Slide 2.xml's content should appear under the [Slide 1] marker",
+    "Slide 2.xml's content should appear under the Slide 1 heading",
   );
-  assert.ok(
-    slideTwoIndex < slideOneContentIndex,
-    "Slide 1.xml's content should appear under the [Slide 2] marker",
-  );
+  assert.ok(slideTwoIndex < slideOneContentIndex, "Slide 1.xml's content should appear under the Slide 2 heading");
 
-  // Notes numbering is deliberately mismatched with slide numbering in the fixture;
-  // only following each slide's own relationship file resolves these correctly.
-  assert.ok(
-    text.includes("[Slide 1 notes]") && text.indexOf("Notes For Slide Two") > text.indexOf("[Slide 1 notes]"),
-    "Slide 1 (= slide2.xml) notes should resolve to notesSlide1.xml's content via slide2's own rels",
-  );
-  assert.ok(
-    text.includes("[Slide 2 notes]") && text.indexOf("Notes For Slide One") > text.indexOf("[Slide 2 notes]"),
-    "Slide 2 (= slide1.xml) notes should resolve to notesSlide2.xml's content via slide1's own rels",
-  );
+  const notesForSlideTwo = text.indexOf("Notes For Slide Two");
+  const notesForSlideOne = text.indexOf("Notes For Slide One");
+  assert.ok(slideOneIndex < notesForSlideTwo && notesForSlideTwo < slideTwoIndex, "slide2.xml notes belong to Slide 1");
+  assert.ok(slideTwoIndex < notesForSlideOne, "slide1.xml notes belong to Slide 2");
+  assert.ok(text.includes("### Notes"));
 });
 
 test("parseDocument still emits slide marker and notes for a visually blank slide", async () => {
@@ -90,8 +81,8 @@ test("parseDocument still emits slide marker and notes for a visually blank slid
   }
 
   const text = result.document.text;
-  assert.ok(text.includes("[Slide 1]"));
-  assert.ok(text.includes("[Slide 1 notes]"));
+  assert.ok(text.includes("## Slide 1"));
+  assert.ok(text.includes("### Notes"));
   assert.ok(text.includes("Speaker note for blank slide"));
 });
 

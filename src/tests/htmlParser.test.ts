@@ -15,6 +15,9 @@ test("parseDocument extracts clean text from HTML files", async () => {
     return;
   }
 
-  assert.ok(result.document.text.includes("Hello There"));
-  assert.ok(!result.document.text.includes("console.log"));
+  const text = result.document.text;
+  assert.ok(text.includes("# Hello There"));
+  assert.ok(text.includes("This is a sample HTML file created for tests."));
+  assert.ok(!text.includes("console.log"));
+  assert.ok(!text.includes("font-size"));
 });

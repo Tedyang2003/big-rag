@@ -1,5 +1,6 @@
 // @ts-ignore - epub2 doesn't have complete types
 import { EPub } from "epub2";
+import { htmlToMarkdown } from "./markdown/htmlToMarkdown";
 
 /**
  * Parse EPUB files and extract text content
@@ -14,8 +15,7 @@ export async function parseEPUB(filePath: string): Promise<string> {
         resolve("");
       });
       
-      const stripHtml = (input: string) =>
-        input.replace(/<[^>]*>/g, " ");
+      const stripHtml = (input: string) => htmlToMarkdown(input);
 
       const getManifestEntry = (chapterId: string) => {
         return (epub as unknown as { manifest?: Record<string, { [key: string]: string }> }).manifest?.[chapterId];
@@ -108,12 +108,7 @@ export async function parseEPUB(filePath: string): Promise<string> {
           }
           
           const fullText = textParts.join("\n\n");
-          resolve(
-            fullText
-              .replace(/\s+/g, " ")
-              .replace(/\n+/g, "\n")
-              .trim()
-          );
+          resolve(fullText.replace(/\n{3,}/g, "\n\n").trim());
         } catch (error) {
           console.error(`Error processing EPUB chapters:`, error);
           resolve("");

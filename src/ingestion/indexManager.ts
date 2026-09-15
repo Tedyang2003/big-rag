@@ -5,6 +5,7 @@ import { scanDirectory, type ScannedFile, type ExcludedFileInfo } from "./fileSc
 import { parseDocument, type ParseFailureReason } from "../parsers/documentParser";
 import { VectorStore, type DocumentChunk } from "../vectorstore/vectorStore";
 import { chunkText } from "../utils/textChunker";
+import { markdownToPlain } from "../parsers/markdown/normalizeMarkdown";
 import { calculateFileHash } from "../utils/fileHash";
 import { type EmbeddingDynamicHandle, type LMStudioClient } from "@lmstudio/sdk";
 import { FailedFileRegistry } from "../utils/failedFileRegistry";
@@ -357,7 +358,7 @@ export class IndexManager {
       const parsed = parsedResult.document;
 
       // Chunk text (sized against real embedding-model tokens, not words)
-      const chunks = await chunkText(parsed.text, chunkSize, chunkOverlap, (t) =>
+      const chunks = await chunkText(markdownToPlain(parsed.text), chunkSize, chunkOverlap, (t) =>
         embeddingModel.countTokens(t),
       );
       if (chunks.length === 0) {

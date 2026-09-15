@@ -12,7 +12,6 @@ import {
   isDocxExtension,
   isHtmlExtension,
   isMarkdownExtension,
-  isPlainTextExtension,
   isPptxExtension,
   isTextualExtension,
 } from "../utils/supportedExtensions";
@@ -169,10 +168,7 @@ export async function parseDocument(
     if (isTextualExtension(ext)) {
       return finish(
         await runParser(filePath, "Text", fileName, "text.empty", "text.error", () =>
-          parseText(filePath, {
-            stripMarkdown: isMarkdownExtension(ext),
-            preserveLineBreaks: isPlainTextExtension(ext),
-          }),
+          parseText(filePath, isMarkdownExtension(ext) ? "markdown" : "plain"),
         ),
       );
     }
