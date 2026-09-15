@@ -86,7 +86,7 @@ Anything after the parser (chunking, dates, headers) depends only on this contra
 | `docxParser.ts` | Map mammoth HTML through `htmlToMarkdown`; keep the existing table row format. |
 | `epubParser.ts` | Pass each chapter's XHTML through `htmlToMarkdown` instead of stripping tags; chapters separated by a blank line. |
 | `pptxParser.ts` | Each slide becomes `## Slide N: <title>` (title = first text paragraph of the slide); remaining paragraphs become list items; table rows keep `a \| b`; notes go under `### Notes`. |
-| `textParser.ts` | Markdown files are passed through unchanged (no stripping). Plain text goes through `inferStructure`. |
+| `textParser.ts` | Markdown files are normalized to the contract (headings and lists kept; link URLs, emphasis and inline-code markers, fenced code, and block-quote markers removed). Plain text goes through `inferStructure`. |
 | `pdfParser.ts` | All three stages stop collapsing whitespace into single spaces; they keep line and paragraph breaks and then run `inferStructure`. |
 | OCR (`pdfParser.ts` OCR stage, `imageParser.ts`) | Keep Tesseract's line and paragraph breaks; prefix each OCR'd page with `## Page N`; run `inferStructure`. |
 
@@ -139,6 +139,7 @@ A range (e.g. `Q3 2026`) is a valid posted date.
 - A top-level list item (not indented) is also a section, running until the next top-level list item or heading.
 - Each section records its `sectionPath` (titles from the root, joined with ` > `) and its **section dates**: dates found in its heading line or first line. A section without its own date inherits its parent section's dates. The inheritance ends where the section ends.
 - For a list-item section, its title is the item's first line, truncated to 80 characters.
+- A section's "first line" for date purposes is the first 80 characters of its heading, list item, or first content block.
 
 **Chunks.** Chunks are built in document order within a token budget:
 
@@ -190,6 +191,7 @@ If date extraction throws for a document, log a warning and store the document's
 - **New config field `structuredIndexing`** (boolean, default `false`). Subtitle: turning it on requires a manual reindex with "Skip Previously Indexed Files" off.
 - **Index manifest** (`.big-rag-embedding.json`) gains `indexFormat: "legacy" | "structured-v1"`. Manifests without the field are treated as `legacy`.
 - **Mismatch between config and manifest:** retrieval keeps working on the existing index. The plugin shows a status line: "Reindex required to apply structured indexing." Prompt rendering follows each chunk's stored metadata, not the config.
+- Switching the toggle back off shows "Reindex required to switch back to standard indexing."
 - **A manual reindex** where the configured format differs from the manifest rebuilds every file regardless of "Skip Previously Indexed Files", so an index never holds both formats.
 - The CLI indexer (`src/cliIndex.ts`) reads `BIG_RAG_STRUCTURED_INDEXING` (`true`/`false`, default `false`) with the same behavior.
 

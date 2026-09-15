@@ -12,11 +12,15 @@ import { tryStartIndexing, finishIndexing } from "./utils/indexingLock";
 import {
   checkEmbeddingModelForRetrieval,
   deleteEmbeddingIndexManifest,
+  readEmbeddingIndexManifest,
+  desiredIndexFormat,
+  indexFormatMismatchMessage,
 } from "./utils/embeddingIndexManifest";
 import * as path from "path";
 import { runIndexingJob } from "./ingestion/runIndexing";
 import { parseExcludePatternsBlock } from "./utils/fileExcludePatterns";
 import { retrieve } from "./retrieval/retrieve";
+import { renderPassageForPrompt } from "./retrieval/renderPassage";
 
 /**
  * Check the abort signal and throw if the request has been cancelled.
@@ -423,6 +427,15 @@ export async function preprocess(
       return compatibility.userMessage + `\n\nUser Query:\n\n${userPrompt}`;
     }
 
+    const indexManifest = await readEmbeddingIndexManifest(vectorStoreDir);
+    const formatMessage = indexManifest
+      ? indexFormatMismatchMessage(indexManifest.indexFormat, desiredIndexFormat(structuredIndexing))
+      : null;
+    if (formatMessage) {
+      console.warn("[BigRAG]", formatMessage);
+      ctl.createStatus({ status: "error", text: formatMessage });
+    }
+
     retrievalStatus.setState({
       status: "loading",
       text: "Searching for relevant content...",
@@ -498,8 +511,9 @@ export async function preprocess(
     for (const result of results) {
       const fileName = path.basename(result.filePath);
       const citationLabel = `Citation ${citationNumber} (from ${fileName}, score: ${result.score.toFixed(3)}): `;
-      ragContextFull += `\n${citationLabel}"${result.text}"\n\n`;
-      ragContextPreview += `\n${citationLabel}"${summarizeText(result.text)}"\n\n`;
+      const passage = renderPassageForPrompt(result);
+      ragContextFull += `\n${citationLabel}"${passage}"\n\n`;
+      ragContextPreview += `\n${citationLabel}"${summarizeText(passage)}"\n\n`;
       citationNumber++;
     }
 

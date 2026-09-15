@@ -92,6 +92,12 @@ The plugin provides the following configuration options in LM Studio:
 - **Automatic First-Run**: If the vector store is empty, the plugin automatically indexes the configured documents the first time any chat message is processed—no manual input is required.
 - **Indexing Lock**: Only one indexing run (automatic or manual) can be active at a time; if you trigger a manual reindex while one is already running, the plugin reports it and skips the new request instead of running two jobs concurrently.
 
+### Structured Indexing
+
+- **Structured Indexing** (default: off): Chunks documents by headings, sections, and list items instead of fixed word counts, records each chunk's posted date (from the first page, then the file name, then the file's modified time) and the dates of its sections, and adds a header such as `[File: report.pdf | Posted: 2026-09-20 | Section: Incidents > 2. Bus collision | Dates: 2026-09-08]`. The header is used for search and shown to the model; citations show only the original passage.
+- Turning it on or off requires a manual reindex with *Skip Previously Indexed Files* off. Until then, retrieval keeps using the existing index and a status line says a reindex is required.
+- For the CLI indexer, set `BIG_RAG_STRUCTURED_INDEXING=true`.
+
 ### Prompt Template
 
 - **Prompt Template** (plugin setting): Customize how the retrieved passages and user query are assembled into the final prompt sent to the model. Must contain the `{{rag_context}}` and `{{user_query}}` macros — if either is missing, the plugin logs a warning and inserts it automatically so retrieval still works. Default is a simple "use these citations if relevant" instruction followed by the user's query.
@@ -231,6 +237,7 @@ Configured entirely via environment variables:
 - `BIG_RAG_PARSE_DELAY_MS` (default: 500)
 - `BIG_RAG_EXCLUDE_PATTERNS`: semicolon-separated glob patterns (same syntax as the plugin's exclude filename patterns field)
 - `BIG_RAG_FAILURE_REPORT_PATH`: absolute path to write a JSON failure report to after indexing
+- `BIG_RAG_STRUCTURED_INDEXING`: `true` to build a structured index (default `false`); changing it rebuilds every file on the next run
 
 ### Failure Reason Reporting
 
