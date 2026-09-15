@@ -13,8 +13,9 @@ Project order:
 
 1. **Settings cleanup** (this spec)
 2. Hybrid retrieval with a Retrieval Depth setting (BM25, date lane, RRF, query rewriting, reranking)
-3. Date/period summarization
-4. Coverage evaluation
+3. Re-query tool: automatic retrieval stays the default on every message, and the plugin also offers a `search_documents(query, file?, dates?)` tool so the model can search again when the injected passages aren't enough (skips passages already shown, capped calls per message)
+4. Date/period summarization (revisit scope after project 3)
+5. Coverage evaluation
 
 ## Goals
 
