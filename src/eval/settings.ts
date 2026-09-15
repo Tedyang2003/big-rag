@@ -15,12 +15,27 @@ function readNumber(env: Record<string, string | undefined>, name: string, fallb
   return value;
 }
 
-/** Retrieval settings for evaluation runs. Defaults must match src/config.ts. */
+/** Retrieval settings for evaluation runs. Defaults and ranges must match src/config.ts. */
 export function readRetrievalSettings(env: Record<string, string | undefined>): RetrievalSettings {
+  const retrievalLimit = readNumber(env, "BIG_RAG_RETRIEVAL_LIMIT", 5);
+  if (!Number.isInteger(retrievalLimit) || retrievalLimit < 1 || retrievalLimit > 20) {
+    throw new Error(`BIG_RAG_RETRIEVAL_LIMIT must be a whole number between 1 and 20, got "${env.BIG_RAG_RETRIEVAL_LIMIT}"`);
+  }
+
+  const retrievalThreshold = readNumber(env, "BIG_RAG_RETRIEVAL_THRESHOLD", 0.5);
+  if (retrievalThreshold < 0 || retrievalThreshold > 1) {
+    throw new Error(`BIG_RAG_RETRIEVAL_THRESHOLD must be between 0 and 1, got "${env.BIG_RAG_RETRIEVAL_THRESHOLD}"`);
+  }
+
+  const chunkSize = readNumber(env, "BIG_RAG_CHUNK_SIZE", 512);
+  if (!Number.isInteger(chunkSize) || chunkSize < 128 || chunkSize > 2048) {
+    throw new Error(`BIG_RAG_CHUNK_SIZE must be a whole number between 128 and 2048, got "${env.BIG_RAG_CHUNK_SIZE}"`);
+  }
+
   return {
-    retrievalLimit: readNumber(env, "BIG_RAG_RETRIEVAL_LIMIT", 5),
-    retrievalThreshold: readNumber(env, "BIG_RAG_RETRIEVAL_THRESHOLD", 0.5),
-    chunkSize: readNumber(env, "BIG_RAG_CHUNK_SIZE", 512),
+    retrievalLimit,
+    retrievalThreshold,
+    chunkSize,
     enableContextCompaction: (env.BIG_RAG_ENABLE_COMPACTION ?? "false").trim().toLowerCase() === "true",
   };
 }

@@ -112,3 +112,22 @@ test("generateQuestions refuses to run when the output path is not gitignored", 
   assert.equal(writes.length, 0);
   assert.equal(askCalls.length, 0, "no LLM calls should be made");
 });
+
+test("generateQuestions drops chunks outside the documents dir and counts them", async () => {
+  const outside = path.resolve("/elsewhere/b.md");
+  const { deps } = makeDeps({
+    listChunks: async () => [chunk("research/a.md", 0), { text: CHUNK_TEXT, filePath: outside, fileName: "b.md", chunkIndex: 0, metadata: {} }],
+  });
+  const summary = await generateQuestions(deps, { ...OPTIONS, count: 30 });
+  assert.equal(summary.outsideDocumentsDir, 1);
+  assert.equal(summary.generated, 1);
+  assert.deepEqual(summary.questionsPerFile, { "research/a.md": 1 });
+});
+
+test("generateQuestions fails when every indexed chunk is outside the documents dir", async () => {
+  const outside = path.resolve("/elsewhere/b.md");
+  const { deps } = makeDeps({
+    listChunks: async () => [{ text: CHUNK_TEXT, filePath: outside, fileName: "b.md", chunkIndex: 0, metadata: {} }],
+  });
+  await assert.rejects(() => generateQuestions(deps, OPTIONS), /BIG_RAG_DOCS_DIR/);
+});

@@ -2,7 +2,7 @@ import * as path from "path";
 import { type IndexedChunk } from "../vectorstore/vectorStore";
 import { containsSnippet } from "./matchSnippet";
 import { isWordingLeak } from "./wordingLeak";
-import { toRelativeSourcePath, type EvalQuestion, type QuestionSet } from "./questionSet";
+import { isInsideDocumentsDir, toRelativeSourcePath, type EvalQuestion, type QuestionSet } from "./questionSet";
 import { sampleChunksAcrossFiles } from "./sampleChunks";
 
 export interface GeneratedQA {
@@ -79,14 +79,24 @@ export interface GenerateSummary {
   generated: number;
   dropped: Record<DropReason, number>;
   questionsPerFile: Record<string, number>;
+  outsideDocumentsDir: number;
 }
 
 const MAX_ATTEMPTS = 2;
 
 export async function generateQuestions(deps: GenerateDeps, options: GenerateOptions): Promise<GenerateSummary> {
-  const chunks = await deps.listChunks();
-  if (chunks.length === 0) {
+  const allChunks = await deps.listChunks();
+  if (allChunks.length === 0) {
     throw new Error("The index is empty. Run indexing before generating evaluation questions.");
+  }
+
+  const chunks = allChunks.filter((c) => isInsideDocumentsDir(toRelativeSourcePath(options.documentsDir, c.filePath)));
+  const outsideDocumentsDir = allChunks.length - chunks.length;
+  if (chunks.length === 0) {
+    throw new Error(
+      "None of the indexed files are inside the documents directory. Check that BIG_RAG_DOCS_DIR matches " +
+        "the plugin's Documents Directory.",
+    );
   }
 
   const generatedAt = deps.now().toISOString();
@@ -140,5 +150,5 @@ export async function generateQuestions(deps: GenerateDeps, options: GenerateOpt
   };
   await deps.writeNewFile(outputPath, `${JSON.stringify(set, null, 2)}\n`);
 
-  return { outputPath, generated: questions.length, dropped, questionsPerFile };
+  return { outputPath, generated: questions.length, dropped, questionsPerFile, outsideDocumentsDir };
 }

@@ -2,7 +2,7 @@ import { LMStudioClient } from "@lmstudio/sdk";
 import * as path from "path";
 import { resolveEmbeddingModelId } from "./config";
 import { VectorStore } from "./vectorstore/vectorStore";
-import { retrieve } from "./retrieval/retrieve";
+import { retrieve, CONTEXT_COMPACTION_POOL_MULTIPLIER } from "./retrieval/retrieve";
 import {
   checkEmbeddingModelForRetrieval,
   readEmbeddingIndexManifest,
@@ -19,7 +19,7 @@ const USAGE =
   "  BIG_RAG_DOCS_DIR=/path/to/docs BIG_RAG_DB_DIR=/path/to/db npm run eval:run\n";
 
 const EVAL_DIR = path.resolve(process.cwd(), "eval");
-const DIAGNOSTIC_POOL_SIZE = 50;
+const MIN_DIAGNOSTIC_POOL_SIZE = 50;
 
 async function runGenerate(client: LMStudioClient, vectorStore: VectorStore, documentsDir: string) {
   const { count, seed } = readGenerationSettings(process.env);
@@ -52,6 +52,12 @@ async function runGenerate(client: LMStudioClient, vectorStore: VectorStore, doc
   );
 
   console.log(`[BigRAG Eval] Wrote ${summary.generated} candidate questions to ${summary.outputPath}`);
+  if (summary.outsideDocumentsDir > 0) {
+    console.warn(
+      `[BigRAG Eval] Warning: ${summary.outsideDocumentsDir} indexed chunk(s) were outside BIG_RAG_DOCS_DIR and ` +
+        `were skipped. Check that BIG_RAG_DOCS_DIR matches the plugin's Documents Directory.`,
+    );
+  }
   console.log(`[BigRAG Eval] Dropped: ${JSON.stringify(summary.dropped)}`);
   console.log(`[BigRAG Eval] Questions per file: ${JSON.stringify(summary.questionsPerFile, null, 2)}`);
   console.log(
@@ -78,9 +84,13 @@ async function runRun(client: LMStudioClient, vectorStore: VectorStore, document
   }
 
   const settings = readRetrievalSettings(process.env);
+  const diagnosticPoolSize = Math.max(
+    MIN_DIAGNOSTIC_POOL_SIZE,
+    settings.retrievalLimit * (settings.enableContextCompaction ? CONTEXT_COMPACTION_POOL_MULTIPLIER : 1),
+  );
   const settingsSnapshot = {
     ...settings,
-    diagnosticPoolSize: DIAGNOSTIC_POOL_SIZE,
+    diagnosticPoolSize,
     embeddingModelId,
     indexManifest: await readEmbeddingIndexManifest(vectorStoreDir),
     totalChunks: stats.totalChunks,
@@ -102,7 +112,7 @@ async function runRun(client: LMStudioClient, vectorStore: VectorStore, document
             embedSentences: (sentences) => embeddingModel.embed(sentences),
             countTokens: (text) => embeddingModel.countTokens(text),
           },
-          { ...settings, diagnosticPoolSize: DIAGNOSTIC_POOL_SIZE },
+          { ...settings, diagnosticPoolSize },
         ),
       listIndexedFiles: async () =>
         new Set((await vectorStore.listChunks()).map((c) => toRelativeSourcePath(documentsDir, c.filePath))),
@@ -112,8 +122,14 @@ async function runRun(client: LMStudioClient, vectorStore: VectorStore, document
     { questionSet, documentsDir, reportsDir: path.join(EVAL_DIR, "reports"), settingsSnapshot },
   );
 
-  console.log(`\n${formatMetricsTable(report.metrics)}\n`);
+  console.log(`\n${formatMetricsTable(report.metrics, diagnosticPoolSize)}\n`);
   console.log(`[BigRAG Eval] Full report: ${reportPath}`);
+  if (report.metrics.unscorable > report.metrics.scored) {
+    console.warn(
+      `[BigRAG Eval] Warning: more questions were unscorable (${report.metrics.unscorable}) than scored ` +
+        `(${report.metrics.scored}). Check that BIG_RAG_DOCS_DIR matches the plugin's Documents Directory.`,
+    );
+  }
 }
 
 async function main() {

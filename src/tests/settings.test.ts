@@ -27,6 +27,23 @@ test("readRetrievalSettings rejects non-numeric values", () => {
   assert.throws(() => readRetrievalSettings({ BIG_RAG_RETRIEVAL_LIMIT: "five" }), /BIG_RAG_RETRIEVAL_LIMIT/);
 });
 
+test("readRetrievalSettings rejects an out-of-range retrieval limit", () => {
+  assert.throws(() => readRetrievalSettings({ BIG_RAG_RETRIEVAL_LIMIT: "0" }), /BIG_RAG_RETRIEVAL_LIMIT/);
+  assert.throws(() => readRetrievalSettings({ BIG_RAG_RETRIEVAL_LIMIT: "21" }), /BIG_RAG_RETRIEVAL_LIMIT/);
+  assert.throws(() => readRetrievalSettings({ BIG_RAG_RETRIEVAL_LIMIT: "2.5" }), /BIG_RAG_RETRIEVAL_LIMIT/);
+});
+
+test("readRetrievalSettings rejects an out-of-range retrieval threshold", () => {
+  assert.throws(() => readRetrievalSettings({ BIG_RAG_RETRIEVAL_THRESHOLD: "-0.1" }), /BIG_RAG_RETRIEVAL_THRESHOLD/);
+  assert.throws(() => readRetrievalSettings({ BIG_RAG_RETRIEVAL_THRESHOLD: "1.1" }), /BIG_RAG_RETRIEVAL_THRESHOLD/);
+});
+
+test("readRetrievalSettings rejects an out-of-range chunk size", () => {
+  assert.throws(() => readRetrievalSettings({ BIG_RAG_CHUNK_SIZE: "64" }), /BIG_RAG_CHUNK_SIZE/);
+  assert.throws(() => readRetrievalSettings({ BIG_RAG_CHUNK_SIZE: "4096" }), /BIG_RAG_CHUNK_SIZE/);
+  assert.throws(() => readRetrievalSettings({ BIG_RAG_CHUNK_SIZE: "128.5" }), /BIG_RAG_CHUNK_SIZE/);
+});
+
 test("readGenerationSettings defaults to 30 questions and seed 42", () => {
   assert.deepEqual(readGenerationSettings({}), { count: 30, seed: 42 });
 });

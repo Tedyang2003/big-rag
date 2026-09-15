@@ -36,11 +36,19 @@ export async function runEval(
     questions.push(scoreQuestion(question, retrieval, options.documentsDir, indexedFiles));
   }
 
+  const metrics = aggregateMetrics(questions);
+  if (questions.length > 0 && metrics.scored === 0) {
+    throw new Error(
+      "No questions could be scored because none of their source files are in the index. Check that " +
+        "BIG_RAG_DOCS_DIR matches the plugin's Documents Directory.",
+    );
+  }
+
   const generatedAt = deps.now().toISOString();
   const report: EvalReport = {
     generatedAt,
     settings: options.settingsSnapshot,
-    metrics: aggregateMetrics(questions),
+    metrics,
     questions,
   };
 
@@ -53,12 +61,12 @@ function percent(value: number): string {
   return `${(value * 100).toFixed(1)}%`;
 }
 
-export function formatMetricsTable(metrics: EvalMetrics): string {
+export function formatMetricsTable(metrics: EvalMetrics, diagnosticPoolSize = 50): string {
   const rows: Array<[string, string]> = [
     ["Questions scored", String(metrics.scored)],
     ["Unscorable (file not indexed)", String(metrics.unscorable)],
     ["Final hit rate", percent(metrics.finalHitRate)],
-    ["Pool hit rate (top 50)", percent(metrics.poolHitRate)],
+    [`Pool hit rate (top ${diagnosticPoolSize})`, percent(metrics.poolHitRate)],
     ["Filter loss", percent(metrics.filterLoss)],
     ["Right file, wrong passage", percent(metrics.rightFileWrongPassage)],
     ["Median answer rank in pool", metrics.medianPoolRank === null ? "n/a" : String(metrics.medianPoolRank)],

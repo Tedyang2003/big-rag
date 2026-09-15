@@ -4,6 +4,7 @@ import * as fs from "fs/promises";
 import * as os from "os";
 import * as path from "path";
 import {
+  isInsideDocumentsDir,
   loadQuestionSet,
   parseQuestionSet,
   toRelativeSourcePath,
@@ -65,4 +66,21 @@ test("toRelativeSourcePath uses forward slashes relative to the documents dir", 
   const docs = path.resolve("/docs");
   const file = path.join(docs, "research", "SOFI.md");
   assert.equal(toRelativeSourcePath(docs, file), "research/SOFI.md");
+});
+
+test("isInsideDocumentsDir accepts ordinary relative paths", () => {
+  assert.equal(isInsideDocumentsDir("research/SOFI.md"), true);
+  assert.equal(isInsideDocumentsDir("a.md"), true);
+});
+
+test("isInsideDocumentsDir rejects paths that escape the documents dir", () => {
+  assert.equal(isInsideDocumentsDir(".."), false);
+  assert.equal(isInsideDocumentsDir("../a.md"), false);
+  assert.equal(isInsideDocumentsDir("../../other/a.md"), false);
+});
+
+test("isInsideDocumentsDir rejects absolute paths", () => {
+  assert.equal(isInsideDocumentsDir("/etc/passwd"), false);
+  assert.equal(isInsideDocumentsDir("D:/other/a.md"), false);
+  assert.equal(isInsideDocumentsDir("C:/docs/a.md"), false);
 });

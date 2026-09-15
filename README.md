@@ -306,10 +306,16 @@ For end-to-end validation:
 
 Measure whether retrieval actually finds the passages that answer questions about your documents.
 
+Run all commands below from the repo root. `BIG_RAG_DOCS_DIR` must match the plugin's **Documents Directory** setting exactly — if it points somewhere else, the source paths recorded for each question won't match what's in the index, and generation/scoring will silently fail (or, for `run`, throw explaining the mismatch).
+
 1. Generate candidate questions from your indexed documents (uses the LLM loaded in LM Studio, or `BIG_RAG_EVAL_LLM`):
 
    ```bash
    BIG_RAG_DOCS_DIR=/path/to/docs BIG_RAG_DB_DIR=/path/to/db npm run eval:generate
+   ```
+
+   ```powershell
+   $env:BIG_RAG_DOCS_DIR="C:\path\to\docs"; $env:BIG_RAG_DB_DIR="C:\path\to\db"; npm run eval:generate
    ```
 
 2. Open the `eval/candidates-*.json` file it writes, delete vague or incorrect questions, and save the result as `eval/questions.json`.
@@ -320,7 +326,19 @@ Measure whether retrieval actually finds the passages that answer questions abou
    BIG_RAG_DOCS_DIR=/path/to/docs BIG_RAG_DB_DIR=/path/to/db npm run eval:run
    ```
 
-If your plugin settings differ from the defaults, set `BIG_RAG_RETRIEVAL_LIMIT`, `BIG_RAG_RETRIEVAL_THRESHOLD`, `BIG_RAG_CHUNK_SIZE`, and `BIG_RAG_ENABLE_COMPACTION` to match. Reports are written to `eval/reports/`. The `eval/` folder is gitignored because it contains excerpts from your documents.
+   ```powershell
+   $env:BIG_RAG_DOCS_DIR="C:\path\to\docs"; $env:BIG_RAG_DB_DIR="C:\path\to\db"; npm run eval:run
+   ```
+
+If your plugin settings differ from the defaults, set `BIG_RAG_RETRIEVAL_LIMIT`, `BIG_RAG_RETRIEVAL_THRESHOLD`, `BIG_RAG_CHUNK_SIZE`, and `BIG_RAG_ENABLE_COMPACTION` to match. If the plugin uses a non-default **Embedding Model**, also set `BIG_RAG_EMBEDDING_MODEL` to match it — otherwise `eval:run` fails the manifest compatibility check. Reports are written to `eval/reports/`. The `eval/` folder is gitignored because it contains excerpts from your documents.
+
+Other environment variables:
+
+- `BIG_RAG_EVAL_COUNT` — number of questions to generate (default `30`).
+- `BIG_RAG_EVAL_SEED` — seed for deterministic sampling of chunks (default `42`).
+- `BIG_RAG_EVAL_FILE` — path to the question set to run (default `eval/questions.json`).
+- `BIG_RAG_EVAL_LLM` — model key to use for question generation (default: the model already loaded in LM Studio).
+- `BIG_RAG_EMBEDDING_MODEL` — embedding model id to use for `eval:run`; required if the plugin's Embedding Model setting isn't the default.
 
 ### Contributing
 

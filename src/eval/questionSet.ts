@@ -80,3 +80,16 @@ export async function writeNewFile(filePath: string, content: string): Promise<v
 export function toRelativeSourcePath(documentsDir: string, filePath: string): string {
   return path.relative(path.resolve(documentsDir), path.resolve(filePath)).split(path.sep).join("/");
 }
+
+/**
+ * True if a relative source path (as produced by `toRelativeSourcePath`) actually points inside
+ * the documents dir it was computed against. False for paths that escaped it via `..` segments,
+ * or that ended up drive-absolute (a different Windows drive) or POSIX-absolute.
+ */
+export function isInsideDocumentsDir(relativeSourcePath: string): boolean {
+  if (relativeSourcePath === "..") return false;
+  if (relativeSourcePath.startsWith("../")) return false;
+  if (relativeSourcePath.startsWith("/")) return false;
+  if (/^[A-Za-z]:\//.test(relativeSourcePath)) return false;
+  return true;
+}

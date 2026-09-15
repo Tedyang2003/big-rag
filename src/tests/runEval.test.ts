@@ -61,6 +61,31 @@ test("runEval scores each question, writes a report with settings, and skips uns
   assert.equal(written.questions.find((q) => q.id === "q-002")?.unscorable, true);
 });
 
+test("runEval throws and writes nothing when no questions can be scored", async () => {
+  const writes: Array<{ filePath: string; content: string }> = [];
+  await assert.rejects(
+    () =>
+      runEval(
+        {
+          retrieve: async () => ({ passages: [], diagnosticPool: [], timings: [] }),
+          listIndexedFiles: async () => new Set<string>(),
+          writeNewFile: async (filePath, content) => {
+            writes.push({ filePath, content });
+          },
+          now: () => new Date("2026-09-15T10:00:00.000Z"),
+        },
+        {
+          questionSet: SET,
+          documentsDir: DOCS,
+          reportsDir: path.resolve("/repo/eval/reports"),
+          settingsSnapshot: { retrievalLimit: 5 },
+        },
+      ),
+    /BIG_RAG_DOCS_DIR/,
+  );
+  assert.equal(writes.length, 0);
+});
+
 test("formatMetricsTable includes the headline metrics", () => {
   const table = formatMetricsTable({
     scored: 4,
@@ -77,4 +102,22 @@ test("formatMetricsTable includes the headline metrics", () => {
   assert.match(table, /Pool hit rate \(top 50\)\s+50\.0%/);
   assert.match(table, /Filter loss\s+25\.0%/);
   assert.match(table, /vectorSearch\s+median 25ms\s+p95 40ms/);
+});
+
+test("formatMetricsTable labels the pool with a custom diagnostic pool size", () => {
+  const table = formatMetricsTable(
+    {
+      scored: 4,
+      unscorable: 1,
+      finalHitRate: 0.25,
+      poolHitRate: 0.5,
+      filterLoss: 0.25,
+      rightFileWrongPassage: 0.25,
+      medianPoolRank: 2.5,
+      meanReciprocalRank: 0.3125,
+      latency: { vectorSearch: { median: 25, p95: 40 } },
+    },
+    75,
+  );
+  assert.match(table, /Pool hit rate \(top 75\)\s+50\.0%/);
 });
