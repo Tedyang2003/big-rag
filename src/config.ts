@@ -44,7 +44,9 @@ export const globalConfigSchematics = createConfigSchematics()
     {
       displayName: "Embedding Model",
       subtitle:
-        "LM Studio accepts more than one spelling for the same model—for example mixedbread-ai/mxbai-embed-large-v1 (Hub / download) or text-embedding-mxbai-embed-large-v1 (as in lms ls). Both are valid; use one value consistently for indexing and chat so it matches .big-rag-embedding.json. Reindex after changing.",
+        "Model id used to index and search your documents. LM Studio lists some models under two names "
+        + "(e.g. mixedbread-ai/mxbai-embed-large-v1 and text-embedding-mxbai-embed-large-v1) — either works, but always use the same one. "
+        + "After changing this, select Rebuild everything under Reindex.",
       placeholder: DEFAULT_EMBEDDING_MODEL_ID,
     },
     DEFAULT_EMBEDDING_MODEL_ID,
