@@ -55,7 +55,8 @@ export const globalConfigSchematics = createConfigSchematics()
     {
       displayName: "Exclude filename patterns",
       subtitle:
-        "Optional. One glob per line, matched against each file path relative to Documents Directory (use /). Lines starting with # are comments. Example: *.png excludes PNGs in any folder; archive/** excludes that subtree. Image files are always read with OCR, so exclude them here (e.g. *.png, *.jpg) to skip them. Does not remove chunks already in the vector store—reindex to drop old data.",
+        "Optional. One glob per line to skip files, e.g. *.png or archive/**; # starts a comment. "
+        + "Images are always OCR'd, so exclude them here if you don't need them. Files already indexed stay until you rebuild.",
       placeholder: "*.png\n# *.jpg",
       isParagraph: true,
     },
