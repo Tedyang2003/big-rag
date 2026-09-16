@@ -16,7 +16,7 @@ export interface DateContext {
   fileName?: boolean;
 }
 
-const MONTH_PATTERN =
+export const MONTH_PATTERN =
   "jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|june?|july?|aug(?:ust)?|sep(?:t(?:ember)?)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?";
 const MONTH_KEYS = ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"];
 const AMBIGUITY_WINDOW_DAYS = 45;
