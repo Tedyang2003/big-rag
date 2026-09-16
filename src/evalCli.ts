@@ -111,7 +111,15 @@ async function runRun(client: LMStudioClient, vectorStore: VectorStore, document
             embedSentences: (sentences) => embeddingModel.embed(sentences),
             countTokens: (text) => embeddingModel.countTokens(text),
           },
-          { ...settings, diagnosticPoolSize },
+          {
+            ...settings,
+            diagnosticPoolSize,
+            // Depth is wired to the Retrieval Depth setting in a later task.
+            depth: "low",
+            laneCandidates: 30,
+            rrfConstant: 60,
+            laneWeights: { vector: 1, keyword: 1, date: 1 },
+          },
         ),
       listIndexedFiles: async () =>
         new Set((await vectorStore.listChunks()).map((c) => toRelativeSourcePath(documentsDir, c.filePath))),

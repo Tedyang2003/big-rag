@@ -439,7 +439,18 @@ export async function preprocess(
         embedSentences: (sentences) => embeddingModel.embed(sentences),
         countTokens: (text) => embeddingModel.countTokens(text),
       },
-      { retrievalLimit, retrievalThreshold, chunkSize, enableContextCompaction, abortSignal: ctl.abortSignal },
+      {
+        retrievalLimit,
+        retrievalThreshold,
+        chunkSize,
+        enableContextCompaction,
+        abortSignal: ctl.abortSignal,
+        // Depth is wired to the Retrieval Depth setting in a later task.
+        depth: "low",
+        laneCandidates: 30,
+        rrfConstant: 60,
+        laneWeights: { vector: 1, keyword: 1, date: 1 },
+      },
     );
     checkAbort(ctl.abortSignal);
     console.info(

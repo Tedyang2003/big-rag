@@ -20,7 +20,13 @@ function passage(file: string, text: string): SearchResult {
 }
 
 function retrieval(passages: SearchResult[], diagnosticPool: SearchResult[]): RetrieveResult {
-  return { passages, diagnosticPool, timings: [{ stage: "vectorSearch", ms: 10 }] };
+  return {
+    passages,
+    diagnosticPool,
+    timings: [{ stage: "vectorSearch", ms: 10 }],
+    laneCounts: { vector: passages.length, keyword: 0, date: 0 },
+    dayRanges: [],
+  };
 }
 
 test("scoreQuestion counts a final hit and its pool rank", () => {

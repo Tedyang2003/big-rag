@@ -35,7 +35,13 @@ test("runEval scores each question, writes a report with settings, and skips uns
     {
       retrieve: async (query) => {
         queries.push(query);
-        return { passages: [answer], diagnosticPool: [answer], timings: [{ stage: "vectorSearch", ms: 12 }] };
+        return {
+          passages: [answer],
+          diagnosticPool: [answer],
+          timings: [{ stage: "vectorSearch", ms: 12 }],
+          laneCounts: { vector: 1, keyword: 0, date: 0 },
+          dayRanges: [],
+        };
       },
       listIndexedFiles: async () => new Set(["a.md"]),
       writeNewFile: async (filePath, content) => {
@@ -68,7 +74,13 @@ test("runEval throws and writes nothing when no questions can be scored", async 
     () =>
       runEval(
         {
-          retrieve: async () => ({ passages: [], diagnosticPool: [], timings: [] }),
+          retrieve: async () => ({
+            passages: [],
+            diagnosticPool: [],
+            timings: [],
+            laneCounts: { vector: 0, keyword: 0, date: 0 },
+            dayRanges: [],
+          }),
           listIndexedFiles: async () => new Set<string>(),
           writeNewFile: async (filePath, content) => {
             writes.push({ filePath, content });
