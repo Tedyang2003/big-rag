@@ -425,10 +425,10 @@ export async function preprocess(
 
     let catalog = null as Awaited<ReturnType<typeof getCatalog>>["catalog"];
     if (retrievalDepth === "medium") {
-      const catalogStatus = ctl.createStatus({
-        status: "loading",
-        text: `Preparing search index… (${retrievalStats.totalChunks.toLocaleString()} chunks)`,
-      });
+      // No status is shown at all on a cache hit or a successful disk load — only an
+      // actual build, a failure, or the keyword-ceiling notice get a status line, and
+      // each of those is reported at most once per session (see reportFailure/reportCeiling).
+      let catalogStatus: ReturnType<typeof ctl.createStatus> | null = null;
       const outcome = await getCatalog(
         vectorStoreDir,
         store,
@@ -438,26 +438,35 @@ export async function preprocess(
           k1: settings.bm25K1,
           b: settings.bm25B,
         },
+        undefined,
+        () => {
+          catalogStatus = ctl.createStatus({
+            status: "loading",
+            text: `Preparing search index… (${retrievalStats.totalChunks.toLocaleString()} chunks)`,
+          });
+        },
       );
       catalog = outcome.catalog;
       if (outcome.error) {
-        catalogStatus.setState({
-          status: "error",
-          text: `Search index unavailable: ${outcome.error}. Using meaning-based search for now.`,
-        });
-        console.warn("[BigRAG] Catalog unavailable:", outcome.error);
+        if (outcome.reportFailure) {
+          const status = catalogStatus ?? ctl.createStatus({ status: "loading", text: "Preparing search index…" });
+          status.setState({
+            status: "error",
+            text: `Search index unavailable: ${outcome.error}. Using meaning-based search for now.`,
+          });
+          console.warn("[BigRAG] Catalog unavailable:", outcome.error);
+        }
       } else if (outcome.built) {
-        catalogStatus.setState({
+        const status = catalogStatus ?? ctl.createStatus({ status: "loading", text: "Preparing search index…" });
+        status.setState({
           status: "done",
           text: `Search index ready (${catalog?.chunkCount.toLocaleString()} chunks, ${(outcome.ms / 1000).toFixed(1)}s)`,
         });
         console.info(
           `[BigRAG] Catalog built: chunks=${catalog?.chunkCount} terms=${catalog?.termCount} ms=${outcome.ms}`,
         );
-      } else {
-        catalogStatus.setState({ status: "done", text: "Search index ready" });
       }
-      if (catalog && !catalog.hasWordTable) {
+      if (outcome.reportCeiling) {
         ctl.createStatus({
           status: "done",
           text: `Keyword search off: index is larger than ${settings.catalogMaxChunks.toLocaleString()} chunks. Using meaning and dates.`,

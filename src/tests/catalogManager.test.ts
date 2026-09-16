@@ -3,7 +3,7 @@ import * as assert from "node:assert/strict";
 import * as fs from "fs/promises";
 import * as os from "os";
 import * as path from "path";
-import { CatalogCache, getCatalog } from "../retrieval/catalogManager";
+import { CatalogCache, getCatalog, resetCatalogCache } from "../retrieval/catalogManager";
 import { CATALOG_FILENAME } from "../retrieval/chunkCatalog";
 import { type IndexedChunk } from "../vectorstore/vectorStore";
 
@@ -122,5 +122,84 @@ test("an empty store yields no catalog and no file", async () => {
     const outcome = await getCatalog(dir, sourceOf([]).source, OPTIONS, new CatalogCache());
     assert.equal(outcome.catalog, null);
     await assert.rejects(fs.access(path.join(dir, CATALOG_FILENAME)));
+  });
+});
+
+test("onBuildStart fires exactly once for a build, and not on cache reuse or disk load", async () => {
+  await withTempDir(async (dir) => {
+    const { source } = sourceOf([chunkOf("hashA-0")]);
+    const cache = new CatalogCache();
+    let starts = 0;
+    const onBuildStart = () => {
+      starts++;
+    };
+
+    await getCatalog(dir, source, OPTIONS, cache, onBuildStart);
+    await getCatalog(dir, source, OPTIONS, cache, onBuildStart);
+    assert.equal(starts, 1);
+
+    let freshStarts = 0;
+    const { source: freshSource } = sourceOf([chunkOf("hashA-0")]);
+    await getCatalog(dir, freshSource, OPTIONS, new CatalogCache(), () => {
+      freshStarts++;
+    });
+    assert.equal(freshStarts, 0);
+  });
+});
+
+test("a build failure returns reportFailure true only the first time", async () => {
+  await withTempDir(async (dir) => {
+    const failing = {
+      listChunks: async () => {
+        throw new Error("store unreadable");
+      },
+      getStats: async () => ({ totalChunks: 2 }),
+    };
+    const cache = new CatalogCache();
+
+    const first = await getCatalog(dir, failing, OPTIONS, cache);
+    assert.equal(first.reportFailure, true);
+
+    const second = await getCatalog(dir, failing, OPTIONS, cache);
+    assert.equal(second.reportFailure, false);
+  });
+});
+
+test("a catalog built above the ceiling returns reportCeiling true only the first time", async () => {
+  await withTempDir(async (dir) => {
+    const chunks = [chunkOf("hashA-0"), chunkOf("hashA-1"), chunkOf("hashA-2")];
+    const smallOptions = { ...OPTIONS, maxChunks: 2 };
+    const cache = new CatalogCache();
+
+    const { source } = sourceOf(chunks);
+    const first = await getCatalog(dir, source, smallOptions, cache);
+    assert.equal(first.catalog!.hasWordTable, false);
+    assert.equal(first.reportCeiling, true);
+
+    const { source: source2 } = sourceOf(chunks);
+    const second = await getCatalog(dir, source2, smallOptions, cache);
+    assert.equal(second.reportCeiling, false);
+  });
+});
+
+test("resetCatalogCache lets a later build report a failure again", async () => {
+  await withTempDir(async (dir) => {
+    const failing = {
+      listChunks: async () => {
+        throw new Error("store unreadable");
+      },
+      getStats: async () => ({ totalChunks: 2 }),
+    };
+
+    const first = await getCatalog(dir, failing, OPTIONS);
+    assert.equal(first.reportFailure, true);
+
+    const second = await getCatalog(dir, failing, OPTIONS);
+    assert.equal(second.reportFailure, false);
+
+    resetCatalogCache(dir);
+
+    const third = await getCatalog(dir, failing, OPTIONS);
+    assert.equal(third.reportFailure, true);
   });
 });
