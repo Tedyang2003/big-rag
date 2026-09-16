@@ -81,7 +81,9 @@ Per Medium query, each lane returns at most `laneCandidates` (default 30) ranked
 - **Keyword lane** — the question is tokenized (lowercase, stop words removed, simple suffix trimming). Chunks containing those terms are scored with BM25 (`k1` 1.2, `b` 0.75) using the word table's `df`, postings and chunk word counts. Skipped when no terms survive tokenizing or the word table is absent.
 - **Date lane** — `queryDates` reads a range from the question (see below). Chunks whose posted date or any section date falls inside the range are ranked by their BM25 score for the question, with more recent dates breaking ties, then catalog order. Skipped when the question names no date.
 
-**Fusion** is reciprocal rank fusion with constant 60: a chunk's score is the sum of `1 / (60 + rank)` over the lanes it appears in, ranks being 1-based. Chunks missing from a lane simply receive nothing from it — a date never excludes a chunk. The fused top `retrievalLimit` (5) chunks are then read from the store by key to get their text and metadata, and overlap trimming runs as today.
+**Fusion** is weighted reciprocal rank fusion: a chunk's score is the sum of `weight(lane) / (rrfConstant + rank)` over the lanes it appears in, ranks being 1-based, with `rrfConstant` 60 and all three lane weights 1 (equal) by default. Chunks missing from a lane simply receive nothing from it — a date never excludes a chunk.
+
+Weights scale a lane's whole curve, leaving the rank decay shape untouched; `rrfConstant` is the global flatness knob (smaller favours each lane's top hits, larger rewards appearing in several lanes). Both are maintainer values with no UI, shipped equal and neutral so any future weighting is chosen from eval evidence rather than intuition. `fuse.ts` therefore takes a weight per input list from the start, even though all three are 1 in this release. The fused top `retrievalLimit` (5) chunks are then read from the store by key to get their text and metadata, and overlap trimming runs as today.
 
 ### Reading dates from a question
 
@@ -97,6 +99,9 @@ Added to `src/settings/defaults.ts`:
 |---|---|
 | `laneCandidates` | 30 |
 | `rrfConstant` | 60 |
+| `laneWeightVector` | 1 |
+| `laneWeightKeyword` | 1 |
+| `laneWeightDate` | 1 |
 | `catalogMaxChunks` | 50000 |
 | `bm25K1` | 1.2 |
 | `bm25B` | 0.75 |
@@ -156,7 +161,7 @@ Unit tests, no LM Studio:
 - **BM25:** rare terms outrank common ones; shorter chunks win at equal term frequency; exact scores on a hand-computed 3-chunk fixture; unknown terms contribute nothing.
 - **Tokenizing:** lowercasing, stop-word removal, suffix trimming, punctuation and digits, empty output for an all-stop-word question.
 - **queryDates:** written forms; each supported phrase against a fixed clock; year-less expansion over the years present; nothing found when no date.
-- **Fusion:** a chunk present in three lanes beats a rank-1 chunk in one; exact scores on a fixed example; a missing lane costs only its vote; deterministic ties.
+- **Fusion:** a chunk present in three lanes beats a rank-1 chunk in one; exact scores on a fixed example; a missing lane costs only its vote; deterministic ties; a lane weight of 2 doubles that lane's contribution at every rank, and equal weights reproduce plain RRF.
 - **Catalog:** tables built correctly from a fake store; save/load round trip; rebuild on count mismatch, bad version, corrupt file; ceiling skips the word table but keeps days; updating after re-indexing replaces that file's rows.
 - **retrieve():** Low matches today's output exactly; Medium fuses three lanes; two lanes when no date; a timing per stage; abort between lanes; one lane throwing doesn't fail the query.
 
