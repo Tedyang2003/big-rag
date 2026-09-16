@@ -26,7 +26,7 @@ function chunk(id: string, text: string, dates: string[], posted = "2026-09-08")
 
 const CHUNKS = [
   chunk("hashA-0", "Bus collision on the PIE. Two injured.", ["2026-09-08"]),
-  chunk("hashA-1", "Flooding at Bukit Timah after heavy rain.", ["2026-09-11"]),
+  chunk("hashA-1", "Flooding at Bukit Timah after heavy rain.", ["2026-09-11"], "2026-09-11"),
   chunk("hashB-0", "Bus timetable changes for the new term.", ["2025-09-08"], "2025-09-08"),
 ];
 

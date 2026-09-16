@@ -34,28 +34,24 @@ function isoToDayNumber(iso: string): number {
   return Number(iso.replace(/-/g, ""));
 }
 
-/** Day numbers parsed from a JSON string holding one {start,end} range or an array of them. */
-function parseDayRanges(raw: unknown): number[] {
-  if (typeof raw !== "string" || raw.length === 0) return [];
-  try {
-    const parsed = JSON.parse(raw);
-    const days = new Set<number>();
-    for (const range of Array.isArray(parsed) ? parsed : [parsed]) {
-      if (range && typeof range.start === "string") days.add(isoToDayNumber(range.start));
-      if (range && typeof range.end === "string") days.add(isoToDayNumber(range.end));
-    }
-    return [...days].sort((a, b) => a - b);
-  } catch {
-    // Metadata written by an older version; treat as undated.
-    return [];
-  }
-}
-
-/** Day numbers for a chunk: its section dates, falling back to its posted date when there are none. */
+/** Day numbers for a chunk: its posted date plus every section date, deduped and sorted. */
 function daysOf(metadata: Record<string, any>): number[] {
-  const fromDates = parseDayRanges(metadata?.dates);
-  if (fromDates.length > 0) return fromDates;
-  return parseDayRanges(metadata?.postedDate);
+  const days = new Set<number>();
+  const add = (raw: unknown) => {
+    if (typeof raw !== "string" || raw.length === 0) return;
+    try {
+      const parsed = JSON.parse(raw);
+      for (const range of Array.isArray(parsed) ? parsed : [parsed]) {
+        if (range && typeof range.start === "string") days.add(isoToDayNumber(range.start));
+        if (range && typeof range.end === "string") days.add(isoToDayNumber(range.end));
+      }
+    } catch {
+      // Metadata written by an older version; treat as undated.
+    }
+  };
+  add(metadata?.postedDate);
+  add(metadata?.dates);
+  return [...days].sort((a, b) => a - b);
 }
 
 /**
