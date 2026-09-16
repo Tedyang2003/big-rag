@@ -279,3 +279,15 @@ test("a lane that throws does not fail the query", async () => {
   assert.equal(result.passages[0].text, "vector hit");
   assert.equal(result.laneCounts.keyword, 0);
 });
+
+test("medium with compaction keeps the vector lane at laneCandidates and widens the fused pool", async () => {
+  const results = Array.from({ length: 12 }, (_, i) => makeResult({ text: `vector ${i}`, id: `chunk-${i}` }));
+  const { deps, searchCalls } = makeDeps(results);
+  const result = await retrieve(
+    "collision",
+    { ...deps, catalog: fakeCatalog(), fetchChunks: async () => [] },
+    { ...LOW_OPTIONS, depth: "medium", retrievalLimit: 2, enableContextCompaction: true },
+  );
+  assert.deepEqual(searchCalls, [{ limit: 30, threshold: 0.5 }]);
+  assert.ok(result.passages.length > 2, `expected a widened pool, got ${result.passages.length}`);
+});

@@ -149,10 +149,12 @@ export async function retrieve(
   const medium = options.depth === "medium";
 
   // Compaction shrinks passages, so it needs a larger candidate pool to choose from.
-  const searchLimit = options.enableContextCompaction
-    ? options.retrievalLimit * CONTEXT_COMPACTION_POOL_MULTIPLIER
-    : medium
-      ? options.laneCandidates
+  // At Medium depth the vector lane always asks for laneCandidates, whichever way
+  // compaction is set, so it cannot outrun the other lanes' candidate caps.
+  const searchLimit = medium
+    ? options.laneCandidates
+    : options.enableContextCompaction
+      ? options.retrievalLimit * CONTEXT_COMPACTION_POOL_MULTIPLIER
       : options.retrievalLimit;
 
   const searched = await timed("vectorSearch", () =>
@@ -208,7 +210,11 @@ export async function retrieve(
     ];
 
     const fused = await timed("fuse", async () => fuseLanes(lanes, options.rrfConstant));
-    const winners = fused.slice(0, options.retrievalLimit);
+    // With compaction on, the compaction stage still needs its wider candidate pool.
+    const winnerCount = options.enableContextCompaction
+      ? options.retrievalLimit * CONTEXT_COMPACTION_POOL_MULTIPLIER
+      : options.retrievalLimit;
+    const winners = fused.slice(0, winnerCount);
     for (const winner of winners) {
       if (winner.lanes.includes("vector")) laneCounts.vector++;
       if (winner.lanes.includes("keyword")) laneCounts.keyword++;
