@@ -76,6 +76,8 @@ export interface RetrieveResult {
   diagnosticPool: SearchResult[];
   timings: StageTiming[];
   laneCounts: LaneCounts;
+  /** Lanes that ranked each returned passage, aligned with `passages`; empty arrays at Low depth. */
+  passageLanes: string[][];
   /** Day ranges parsed from the query; empty when it named no date. */
   dayRanges: DayRange[];
 }
@@ -257,18 +259,19 @@ export async function retrieve(
     ? await deps.vectorStore.search(queryEmbedding, options.diagnosticPoolSize, Number.NEGATIVE_INFINITY)
     : [];
 
+  let passageLanes: string[][] = passages.map(() => []);
   if (winnerLanesByKey) {
     const finalLanesByKey = winnerLanesByKey;
+    passageLanes = passages.map((passage) => finalLanesByKey.get(chunkKey(passage)) ?? []);
     laneCounts.vector = 0;
     laneCounts.keyword = 0;
     laneCounts.date = 0;
-    for (const passage of passages) {
-      const lanes = finalLanesByKey.get(chunkKey(passage)) ?? [];
+    for (const lanes of passageLanes) {
       if (lanes.includes("vector")) laneCounts.vector++;
       if (lanes.includes("keyword")) laneCounts.keyword++;
       if (lanes.includes("date")) laneCounts.date++;
     }
   }
 
-  return { passages, diagnosticPool, timings, laneCounts, dayRanges };
+  return { passages, diagnosticPool, timings, laneCounts, passageLanes, dayRanges };
 }

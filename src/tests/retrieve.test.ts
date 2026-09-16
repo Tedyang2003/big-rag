@@ -327,3 +327,38 @@ test("laneCounts reflects only the passages actually returned, not every fused w
   assert.ok(result.laneCounts.date <= result.passages.length);
   assert.deepEqual(result.laneCounts, { vector: 1, keyword: 1, date: 0 });
 });
+
+test("medium reports the lanes that ranked each returned passage", async () => {
+  const vectorHit = makeResult({ text: "vector hit", id: "chunk-1" });
+  const { deps } = makeDeps([vectorHit]);
+
+  const result = await retrieve(
+    "bus collision on 8 Sep 2026",
+    {
+      ...deps,
+      nowDate: () => new Date(2026, 8, 16),
+      catalog: fakeCatalog({
+        scoreTerms: () => new Map([[2, 5]]),
+        chunksForRanges: () => [2],
+      }),
+      fetchChunks: async (keys) =>
+        keys.map((key) => makeResult({ text: `fetched ${key}`, id: key.split("/")[1] })),
+    },
+    { ...LOW_OPTIONS, depth: "medium", retrievalLimit: 2 },
+  );
+
+  assert.deepEqual(result.passageLanes, [
+    ["keyword", "date"],
+    ["vector"],
+  ]);
+  assert.deepEqual(result.passages.map((passage) => passage.text), [
+    "fetched shard_000/chunk-2",
+    "vector hit",
+  ]);
+});
+
+test("low depth reports no lanes per passage", async () => {
+  const { deps } = makeDeps([makeResult({ text: "vector hit", id: "chunk-1" })]);
+  const result = await retrieve("collision", deps, LOW_OPTIONS);
+  assert.deepEqual(result.passageLanes, [[]]);
+});

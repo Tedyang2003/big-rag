@@ -25,6 +25,7 @@ function retrieval(passages: SearchResult[], diagnosticPool: SearchResult[]): Re
     diagnosticPool,
     timings: [{ stage: "vectorSearch", ms: 10 }],
     laneCounts: { vector: passages.length, keyword: 0, date: 0 },
+    passageLanes: passages.map(() => []),
     dayRanges: [],
   };
 }

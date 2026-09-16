@@ -87,6 +87,21 @@ async function getCitationFileHandle(
   return fileHandle;
 }
 
+/** Human-readable lane names for a passage, e.g. "meaning, keywords". */
+const LANE_LABELS: Record<string, string> = { vector: "meaning", keyword: "keywords", date: "dates" };
+
+/**
+ * How a passage earned its place. At Medium depth the fused score is a reciprocal-rank
+ * sum (roughly 0.01-0.05) that means nothing on its own, so the position and the lanes
+ * that ranked it are shown instead; at Low depth the similarity score still is the answer.
+ */
+function describeMatch(position: number, lanes: string[] | undefined, score: number): string {
+  if (!lanes || lanes.length === 0) {
+    return `score: ${score.toFixed(3)}`;
+  }
+  return `match #${position} via ${lanes.map((lane) => LANE_LABELS[lane] ?? lane).join(", ")}`;
+}
+
 const RAG_CONTEXT_MACRO = "{{rag_context}}";
 const USER_QUERY_MACRO = "{{user_query}}";
 
@@ -486,7 +501,7 @@ export async function preprocess(
     console.info(
       `[BigRAG] Executing retrieval for "${queryPreview}" (limit=${retrievalLimit}, threshold=${retrievalThreshold}, compaction=${enableContextCompaction})`,
     );
-    const { passages: results, timings, laneCounts, dayRanges } = await retrieve(
+    const { passages: results, timings, laneCounts, passageLanes, dayRanges } = await retrieve(
       userPrompt,
       {
         vectorStore,
@@ -529,7 +544,7 @@ export async function preprocess(
       const docSummaries = results
         .map(
           (result, idx) =>
-            `#${idx + 1} file=${path.basename(result.filePath)} shard=${result.shardName} score=${result.score.toFixed(3)}`,
+            `#${idx + 1} file=${path.basename(result.filePath)} shard=${result.shardName} ${describeMatch(idx + 1, passageLanes[idx], result.score)}`,
         )
         .join("\n");
       console.info(`[BigRAG] Relevant documents:\n${docSummaries}`);
@@ -573,7 +588,8 @@ export async function preprocess(
     let citationNumber = 1;
     for (const result of results) {
       const fileName = path.basename(result.filePath);
-      const citationLabel = `Citation ${citationNumber} (from ${fileName}, score: ${result.score.toFixed(3)}): `;
+      const matchLabel = describeMatch(citationNumber, passageLanes[citationNumber - 1], result.score);
+      const citationLabel = `Citation ${citationNumber} (from ${fileName}, ${matchLabel}): `;
       const passage = renderPassageForPrompt(result);
       ragContextFull += `\n${citationLabel}"${passage}"\n\n`;
       ragContextPreview += `\n${citationLabel}"${summarizeText(passage)}"\n\n`;
@@ -616,7 +632,8 @@ export async function preprocess(
       try {
         const fileHash = typeof result.metadata.fileHash === "string" ? result.metadata.fileHash : "";
         const fileHandle = await getCitationFileHandle(ctl.client, result.filePath, fileHash);
-        citationEntries.push({ content: `${result.text} \n\n Score: [${result.score.toFixed(3)}]`, score: result.score, source: fileHandle });
+        const matchLabel = describeMatch(citationEntries.length + 1, passageLanes[citationEntries.length], result.score);
+        citationEntries.push({ content: `${result.text} \n\n [${matchLabel}]`, score: result.score, source: fileHandle });
       } catch (error) {
         console.warn(`[BigRAG] Could not prepare citation for ${result.filePath}:`, error);
       }

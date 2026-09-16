@@ -40,6 +40,7 @@ test("runEval scores each question, writes a report with settings, and skips uns
           diagnosticPool: [answer],
           timings: [{ stage: "vectorSearch", ms: 12 }],
           laneCounts: { vector: 1, keyword: 0, date: 0 },
+          passageLanes: [[]],
           dayRanges: [],
         };
       },
@@ -79,6 +80,7 @@ test("runEval throws and writes nothing when no questions can be scored", async 
             diagnosticPool: [],
             timings: [],
             laneCounts: { vector: 0, keyword: 0, date: 0 },
+            passageLanes: [],
             dayRanges: [],
           }),
           listIndexedFiles: async () => new Set<string>(),
