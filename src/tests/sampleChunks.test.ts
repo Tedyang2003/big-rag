@@ -8,7 +8,7 @@ function words(n: number): string {
 }
 
 function chunk(filePath: string, chunkIndex: number, wordCount = MIN_CHUNK_WORDS): IndexedChunk {
-  return { text: words(wordCount), filePath, fileName: filePath, chunkIndex, metadata: {} };
+  return { id: `${filePath}-${chunkIndex}`, shardName: "shard_000", text: words(wordCount), filePath, fileName: filePath, chunkIndex, metadata: {} };
 }
 
 function countByFile(chunks: IndexedChunk[]): Record<string, number> {

@@ -3,7 +3,7 @@ import * as assert from "node:assert/strict";
 import * as fs from "fs/promises";
 import * as os from "os";
 import * as path from "path";
-import { VectorStore } from "../vectorstore/vectorStore";
+import { VectorStore, chunkKey } from "../vectorstore/vectorStore";
 
 test("listChunks returns every indexed chunk with its text and file", async () => {
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), "big-rag-vs-"));
@@ -153,6 +153,52 @@ test("repeated deletions reuse parsed shards instead of re-reading index.json", 
     assert.equal(indexReads, 0, "deletions should not re-parse shards from disk");
   } finally {
     fsModule.readFile = realReadFile;
+    await fs.rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("chunks expose their item id and can be fetched by key", async () => {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), "big-rag-keys-"));
+  try {
+    const store = new VectorStore(dir);
+    await store.initialize();
+    await store.addChunks([
+      {
+        id: "hashA-0",
+        text: "first chunk",
+        vector: [1, 0, 0],
+        filePath: "/docs/a.md",
+        fileName: "a.md",
+        fileHash: "hashA",
+        chunkIndex: 0,
+        metadata: {},
+      },
+      {
+        id: "hashA-1",
+        text: "second chunk",
+        vector: [0, 1, 0],
+        filePath: "/docs/a.md",
+        fileName: "a.md",
+        fileHash: "hashA",
+        chunkIndex: 1,
+        metadata: {},
+      },
+    ]);
+
+    const listed = await store.listChunks();
+    assert.deepEqual(
+      listed.map((chunk) => chunkKey(chunk)).sort(),
+      ["shard_000/hashA-0", "shard_000/hashA-1"],
+    );
+
+    const searched = await store.search([1, 0, 0], 1, 0);
+    assert.equal(searched[0].id, "hashA-0");
+
+    const fetched = await store.getChunksByKeys(["shard_000/hashA-1", "shard_000/missing", "shard_000/hashA-0"]);
+    assert.deepEqual(fetched.map((chunk) => chunk.text), ["second chunk", "first chunk"]);
+    assert.equal(fetched[0].chunkIndex, 1);
+    assert.equal(fetched[0].score, 0);
+  } finally {
     await fs.rm(dir, { recursive: true, force: true });
   }
 });

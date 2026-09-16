@@ -5,6 +5,7 @@ import { type SearchResult } from "../vectorstore/vectorStore";
 
 function result(metadata: Record<string, unknown>): SearchResult {
   return {
+    id: "chunk-0",
     text: "Water levels rose overnight.",
     score: 0.9,
     filePath: "/docs/a.md",

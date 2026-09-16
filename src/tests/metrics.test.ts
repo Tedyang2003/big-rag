@@ -16,7 +16,7 @@ const QUESTION: EvalQuestion = {
 const INDEXED = new Set(["a.md", "b.md"]);
 
 function passage(file: string, text: string): SearchResult {
-  return { text, score: 0.8, filePath: path.join(DOCS, file), fileName: file, chunkIndex: 0, shardName: "shard_000", metadata: {} };
+  return { id: `${file}-0`, text, score: 0.8, filePath: path.join(DOCS, file), fileName: file, chunkIndex: 0, shardName: "shard_000", metadata: {} };
 }
 
 function retrieval(passages: SearchResult[], diagnosticPool: SearchResult[]): RetrieveResult {

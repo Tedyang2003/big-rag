@@ -19,6 +19,7 @@ const SET: QuestionSet = {
 
 test("runEval scores each question, writes a report with settings, and skips unscorable questions", async () => {
   const answer: SearchResult = {
+    id: "a.md-0",
     text: "Total members: 15.8M this quarter.",
     score: 0.9,
     filePath: path.join(DOCS, "a.md"),

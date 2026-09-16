@@ -17,7 +17,7 @@ const GOOD = JSON.stringify({ question: "How much did membership grow?", answerS
 const LEAKY = JSON.stringify({ question: "Total members reached what?", answerSnippet: "Total members reached 15.8M this quarter." });
 
 function chunk(file: string, chunkIndex: number): IndexedChunk {
-  return { text: CHUNK_TEXT, filePath: path.join(DOCS, file), fileName: file, chunkIndex, metadata: {} };
+  return { id: `${file}-${chunkIndex}`, shardName: "shard_000", text: CHUNK_TEXT, filePath: path.join(DOCS, file), fileName: file, chunkIndex, metadata: {} };
 }
 
 function makeDeps(overrides: Partial<GenerateDeps> = {}) {
@@ -130,7 +130,7 @@ test("generateQuestions refuses to run when the output path is not gitignored", 
 test("generateQuestions drops chunks outside the documents dir and counts them", async () => {
   const outside = path.resolve("/elsewhere/b.md");
   const { deps } = makeDeps({
-    listChunks: async () => [chunk("research/a.md", 0), { text: CHUNK_TEXT, filePath: outside, fileName: "b.md", chunkIndex: 0, metadata: {} }],
+    listChunks: async () => [chunk("research/a.md", 0), { id: "outside-0", shardName: "shard_000", text: CHUNK_TEXT, filePath: outside, fileName: "b.md", chunkIndex: 0, metadata: {} }],
   });
   const summary = await generateQuestions(deps, { ...OPTIONS, count: 30 });
   assert.equal(summary.outsideDocumentsDir, 1);
@@ -141,7 +141,7 @@ test("generateQuestions drops chunks outside the documents dir and counts them",
 test("generateQuestions fails when every indexed chunk is outside the documents dir", async () => {
   const outside = path.resolve("/elsewhere/b.md");
   const { deps } = makeDeps({
-    listChunks: async () => [{ text: CHUNK_TEXT, filePath: outside, fileName: "b.md", chunkIndex: 0, metadata: {} }],
+    listChunks: async () => [{ id: "outside-0", shardName: "shard_000", text: CHUNK_TEXT, filePath: outside, fileName: "b.md", chunkIndex: 0, metadata: {} }],
   });
   await assert.rejects(() => generateQuestions(deps, OPTIONS), /BIG_RAG_DOCS_DIR/);
 });

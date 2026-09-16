@@ -18,6 +18,7 @@ export interface DocumentChunk {
 }
 
 export interface SearchResult {
+  id: string;
   text: string;
   score: number;
   filePath: string;
@@ -28,11 +29,24 @@ export interface SearchResult {
 }
 
 export interface IndexedChunk {
+  id: string;
+  shardName: string;
   text: string;
   filePath: string;
   fileName: string;
   chunkIndex: number;
   metadata: Record<string, any>;
+}
+
+/** Stable identifier for a chunk across shards, used by the retrieval catalog. */
+export function chunkKey(parts: { shardName: string; id: string }): string {
+  return `${parts.shardName}/${parts.id}`;
+}
+
+function parseChunkKey(key: string): { shardName: string; id: string } | null {
+  const separator = key.indexOf("/");
+  if (separator <= 0 || separator === key.length - 1) return null;
+  return { shardName: key.slice(0, separator), id: key.slice(separator + 1) };
 }
 
 type ChunkMetadata = {
@@ -211,6 +225,7 @@ export class VectorStore {
       for (const r of results) {
         const m = r.item.metadata as ChunkMetadata;
         merged.push({
+          id: r.item.id,
           text: m?.text ?? "",
           score: r.score,
           filePath: m?.filePath ?? "",
@@ -298,6 +313,8 @@ export class VectorStore {
         const m = item.metadata as ChunkMetadata;
         if (!m?.filePath || typeof m.text !== "string") continue;
         chunks.push({
+          id: item.id,
+          shardName: dir,
           text: m.text,
           filePath: m.filePath,
           fileName: m.fileName,
@@ -307,6 +324,33 @@ export class VectorStore {
       }
     }
     return chunks;
+  }
+
+  /**
+   * Fetch chunks by `chunkKey`, in the order given. Keys that no longer exist are skipped.
+   * Scores are 0: the caller supplies its own ranking.
+   */
+  async getChunksByKeys(keys: string[]): Promise<SearchResult[]> {
+    const results: SearchResult[] = [];
+    for (const key of keys) {
+      const parsed = parseChunkKey(key);
+      if (!parsed || !this.shardDirs.includes(parsed.shardName)) continue;
+      const shard = this.openShard(parsed.shardName);
+      const item = await shard.getItem(parsed.id);
+      const m = item?.metadata as ChunkMetadata | undefined;
+      if (!item || !m || typeof m.text !== "string") continue;
+      results.push({
+        id: item.id,
+        text: m.text,
+        score: 0,
+        filePath: m.filePath ?? "",
+        fileName: m.fileName ?? "",
+        chunkIndex: m.chunkIndex ?? 0,
+        shardName: parsed.shardName,
+        metadata: m as Record<string, any>,
+      });
+    }
+    return results;
   }
 
   /**

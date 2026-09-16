@@ -5,6 +5,7 @@ import { type SearchResult } from "../vectorstore/vectorStore";
 
 function makeResult(overrides: Partial<SearchResult> & { text: string }): SearchResult {
   return {
+    id: "chunk-0",
     score: 0.9,
     filePath: "/docs/a.md",
     fileName: "a.md",
