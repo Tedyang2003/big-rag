@@ -73,6 +73,8 @@ If Documents Directory or Vector Store Directory is empty, chats show "Big RAG i
 - **Reindex** (default: *No reindex*): To prevent reindexing, select *No reindex*. To keep the index up to date, select *Always index new & changed files*: every message checks for new or edited documents and indexes those (unchanged files, and files that previously failed to parse, are skipped). To rebuild the index from scratch, select *Always rebuild everything* — this re-parses and re-embeds every file **on every message**, which can take a long time on large collections, so switch back to *No reindex* once it has finished.
 - **Automatic first run**: If the vector store is empty, the plugin indexes your documents the first time a message is processed.
 - **Indexing lock**: Only one indexing run can be active at a time; a request made while one is running is reported and skipped.
+- **Retrieval Depth** (default: *Medium*): *Medium* searches three ways at once — by meaning (embeddings), by keyword (exact terms, names, numbers), and by date when your question names one — then merges the results. *Low* searches by meaning only, as versions before 1.5 did. Medium makes no extra model calls; it adds a few milliseconds per question plus a one-off index build.
+- The first Medium search builds a small search index next to your vector store (`.big-rag-catalog.json`) and reports progress. It is rebuilt automatically when the number of indexed chunks changes, and it is safe to delete. Above 50,000 chunks the keyword part is skipped to bound memory, and the plugin says so.
 
 ### How Documents Are Indexed
 
@@ -96,6 +98,11 @@ These values are fixed in the plugin (`src/settings/defaults.ts`). The headless 
 | OCR | on | `BIG_RAG_ENABLE_OCR` |
 | Structured indexing | on | `BIG_RAG_STRUCTURED_INDEXING` |
 | Context compaction | off | `BIG_RAG_ENABLE_COMPACTION` (eval) |
+| Candidates per lane | 30 | — |
+| RRF constant | 60 | — |
+| Lane weights (meaning / keyword / date) | 1 / 1 / 1 | — |
+| Catalog chunk ceiling | 50,000 | — |
+| BM25 k1 / b | 1.2 / 0.75 | — |
 
 ### Upgrading from 1.3
 
@@ -334,6 +341,8 @@ Run all commands below from the repo root. `BIG_RAG_DOCS_DIR` must match the plu
    ```
 
 The plugin uses fixed defaults for retrieval limit, affinity threshold, chunk size, and context compaction (see [Maintainer Defaults](#maintainer-defaults)); `eval:run` uses the same defaults unless you set `BIG_RAG_RETRIEVAL_LIMIT`, `BIG_RAG_RETRIEVAL_THRESHOLD`, `BIG_RAG_CHUNK_SIZE`, or `BIG_RAG_ENABLE_COMPACTION` to evaluate different values. If the plugin uses a non-default **Embedding Model**, also set `BIG_RAG_EMBEDDING_MODEL` to match it — otherwise `eval:run` fails the manifest compatibility check. Reports are written to `eval/reports/`. The `eval/` folder is gitignored because it contains excerpts from your documents.
+
+Set `BIG_RAG_RETRIEVAL_DEPTH=low` or `medium` (default `medium`) to compare retrieval depths on the same question set; the depth used is recorded in each report.
 
 Other environment variables:
 

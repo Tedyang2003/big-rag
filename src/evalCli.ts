@@ -11,6 +11,7 @@ import { readGenerationSettings, readRetrievalSettings } from "./eval/settings";
 import { buildSettingsSnapshot } from "./eval/settingsSnapshot";
 import { isPathIgnored } from "./eval/gitIgnore";
 import { FIXED_DEFAULTS } from "./settings/defaults";
+import { getCatalog } from "./retrieval/catalogManager";
 
 const USAGE =
   "Usage:\n" +
@@ -103,6 +104,16 @@ async function runRun(client: LMStudioClient, vectorStore: VectorStore, document
     `[BigRAG Eval] Running ${questionSet.questions.length} questions at depth ${settings.retrievalDepth} with ${JSON.stringify(settings)}...`,
   );
 
+  const catalogOutcome = await getCatalog(vectorStoreDir, vectorStore, {
+    version: FIXED_DEFAULTS.catalogVersion,
+    maxChunks: FIXED_DEFAULTS.catalogMaxChunks,
+    k1: FIXED_DEFAULTS.bm25K1,
+    b: FIXED_DEFAULTS.bm25B,
+  });
+  if (settings.retrievalDepth === "medium" && !catalogOutcome.catalog) {
+    console.warn(`[BigRAG Eval] No search index available: ${catalogOutcome.error ?? "store is empty"}`);
+  }
+
   const { report, reportPath } = await runEval(
     {
       retrieve: (query) =>
@@ -113,7 +124,7 @@ async function runRun(client: LMStudioClient, vectorStore: VectorStore, document
             embedQuery: async (text) => (await embeddingModel.embed(text)).embedding,
             embedSentences: (sentences) => embeddingModel.embed(sentences),
             countTokens: (text) => embeddingModel.countTokens(text),
-            // Task 8 adds the catalog to the eval path; until then Medium behaves like Low.
+            catalog: catalogOutcome.catalog,
             fetchChunks: (keys) => vectorStore.getChunksByKeys(keys),
           },
           {

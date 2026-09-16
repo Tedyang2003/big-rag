@@ -25,6 +25,7 @@ import * as path from "path";
 import { runIndexingJob } from "./ingestion/runIndexing";
 import { retrieve } from "./retrieval/retrieve";
 import { renderPassageForPrompt } from "./retrieval/renderPassage";
+import { getCatalog, resetCatalogCache } from "./retrieval/catalogManager";
 
 /**
  * Check the abort signal and throw if the request has been cancelled.
@@ -205,6 +206,7 @@ export async function preprocess(
     structuredIndexing,
     enableContextCompaction,
     reindexMode,
+    retrievalDepth,
   } = settings;
 
   try {
@@ -421,9 +423,53 @@ export async function preprocess(
       ctl.createStatus({ status: "error", text: formatMessage });
     }
 
+    let catalog = null as Awaited<ReturnType<typeof getCatalog>>["catalog"];
+    if (retrievalDepth === "medium") {
+      const catalogStatus = ctl.createStatus({
+        status: "loading",
+        text: `Preparing search index… (${retrievalStats.totalChunks.toLocaleString()} chunks)`,
+      });
+      const outcome = await getCatalog(
+        vectorStoreDir,
+        store,
+        {
+          version: settings.catalogVersion,
+          maxChunks: settings.catalogMaxChunks,
+          k1: settings.bm25K1,
+          b: settings.bm25B,
+        },
+      );
+      catalog = outcome.catalog;
+      if (outcome.error) {
+        catalogStatus.setState({
+          status: "error",
+          text: `Search index unavailable: ${outcome.error}. Using meaning-based search for now.`,
+        });
+        console.warn("[BigRAG] Catalog unavailable:", outcome.error);
+      } else if (outcome.built) {
+        catalogStatus.setState({
+          status: "done",
+          text: `Search index ready (${catalog?.chunkCount.toLocaleString()} chunks, ${(outcome.ms / 1000).toFixed(1)}s)`,
+        });
+        console.info(
+          `[BigRAG] Catalog built: chunks=${catalog?.chunkCount} terms=${catalog?.termCount} ms=${outcome.ms}`,
+        );
+      } else {
+        catalogStatus.setState({ status: "done", text: "Search index ready" });
+      }
+      if (catalog && !catalog.hasWordTable) {
+        ctl.createStatus({
+          status: "done",
+          text: `Keyword search off: index is larger than ${settings.catalogMaxChunks.toLocaleString()} chunks. Using meaning and dates.`,
+        });
+      }
+    }
+
     retrievalStatus.setState({
       status: "loading",
-      text: "Searching for relevant content...",
+      text: retrievalDepth === "medium"
+        ? "Searching by meaning, keywords and dates..."
+        : "Searching for relevant content...",
     });
 
     const queryPreview =
@@ -431,30 +477,39 @@ export async function preprocess(
     console.info(
       `[BigRAG] Executing retrieval for "${queryPreview}" (limit=${retrievalLimit}, threshold=${retrievalThreshold}, compaction=${enableContextCompaction})`,
     );
-    const { passages: results, timings } = await retrieve(
+    const { passages: results, timings, laneCounts, dayRanges } = await retrieve(
       userPrompt,
       {
         vectorStore,
         embedQuery: async (text) => (await embeddingModel.embed(text)).embedding,
         embedSentences: (sentences) => embeddingModel.embed(sentences),
         countTokens: (text) => embeddingModel.countTokens(text),
+        catalog,
+        fetchChunks: (keys) => store.getChunksByKeys(keys),
       },
       {
         retrievalLimit,
         retrievalThreshold,
         chunkSize,
         enableContextCompaction,
+        depth: retrievalDepth,
+        laneCandidates: settings.laneCandidates,
+        rrfConstant: settings.rrfConstant,
+        laneWeights: {
+          vector: settings.laneWeightVector,
+          keyword: settings.laneWeightKeyword,
+          date: settings.laneWeightDate,
+        },
         abortSignal: ctl.abortSignal,
-        // Depth is wired to the Retrieval Depth setting in a later task.
-        depth: "low",
-        laneCandidates: 30,
-        rrfConstant: 60,
-        laneWeights: { vector: 1, keyword: 1, date: 1 },
       },
     );
     checkAbort(ctl.abortSignal);
     console.info(
       `[BigRAG] Retrieval timings: ${timings.map((t) => `${t.stage}=${t.ms.toFixed(0)}ms`).join(" ")}`,
+    );
+    console.info(
+      `[BigRAG] Lanes: meaning=${laneCounts.vector} keywords=${laneCounts.keyword} dates=${laneCounts.date}` +
+        (dayRanges.length > 0 ? ` ranges=${dayRanges.map((r) => `${r.start}-${r.end}`).join(",")}` : " ranges=none"),
     );
     if (results.length > 0) {
       const topHit = results[0];
@@ -488,10 +543,13 @@ export async function preprocess(
     }
 
     // Format results
+    const dateSuffix = dayRanges.length > 0
+      ? `, dates: ${dayRanges.map((range) => (range.start === range.end ? String(range.start) : `${range.start}-${range.end}`)).join(", ")}`
+      : "";
     retrievalStatus.setState({
       status: "done",
-      text: enableContextCompaction
-        ? `Retrieved ${results.length} relevant passages (context compaction on)`
+      text: retrievalDepth === "medium"
+        ? `Retrieved ${results.length} relevant passages (meaning ${laneCounts.vector}, keywords ${laneCounts.keyword}, dates ${laneCounts.date}${dateSuffix})`
         : `Retrieved ${results.length} relevant passages`,
     });
 
@@ -689,6 +747,8 @@ async function runRequestedReindex(
     } catch (error) {
       console.warn("[BigRAG] Unable to send reindex notification:", error);
     }
+
+    resetCatalogCache(settings.vectorStoreDirectory);
   } catch (error) {
     if (isAbortError(error)) {
       throw error;
