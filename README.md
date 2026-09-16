@@ -75,6 +75,7 @@ If Documents Directory or Vector Store Directory is empty, chats show "Big RAG i
 - **Indexing lock**: Only one indexing run can be active at a time; a request made while one is running is reported and skipped.
 - **Retrieval Depth** (default: *Medium*): *Medium* searches three ways at once — by meaning (embeddings), by keyword (exact terms, names, numbers), and by date when your question names one — then merges the results. *Low* searches by meaning only, as versions before 1.5 did. Medium makes no extra model calls; it adds a few milliseconds per question plus a one-off index build.
 - The first Medium search builds a small search index next to your vector store (`.big-rag-catalog.json`) and reports progress. It is rebuilt automatically when the number of indexed chunks changes, and it is safe to delete. Above 50,000 chunks the keyword part is skipped to bound memory, and the plugin says so.
+- For maintainers: the search index is rebuilt when the number of indexed chunks changes, so an edit that leaves the chunk count identical is picked up on the next reindex that does change the chunk count, rather than immediately.
 
 ### How Documents Are Indexed
 

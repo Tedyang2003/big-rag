@@ -174,7 +174,7 @@ export class ChunkCatalog {
     return scoreBm25(terms, corpus, { k1: this.options.k1, b: this.options.b });
   }
 
-  /** Chunk numbers whose posted or section dates fall inside any range, in catalog order. */
+  /** Chunk numbers whose posted or section dates fall inside any range, sorted ascending. */
   chunksForRanges(ranges: DayRange[]): number[] {
     if (ranges.length === 0) return [];
     const matched = new Set<number>();
