@@ -666,7 +666,7 @@ async function runRequestedReindex(
 
     status.setState({
       status: "done",
-      text: `Reindex complete (${label}). Set Reindex to Off, then choose it again to run another.`,
+      text: `Reindex complete (${label}). To run another, select No reindex, send a message, then choose a mode again.`,
     });
 
     const summaryLines = [
@@ -689,7 +689,7 @@ async function runRequestedReindex(
     try {
       await ctl.client.system.notify({
         title: "Big RAG reindex completed",
-        description: `Reindex (${label}) finished. Set Reindex to Off, then choose it again to run another.`,
+        description: `Reindex (${label}) finished. To run another, select No reindex, send a message, then choose a mode again.`,
       });
     } catch (error) {
       console.warn("[BigRAG] Unable to send reindex notification:", error);

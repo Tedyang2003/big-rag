@@ -70,10 +70,10 @@ If Documents Directory or Vector Store Directory is empty, chats show "Big RAG i
 
 ### Chat Sidebar: Reindex
 
-- **Reindex** (default: *Off*): Choose *New & changed files* (skips unchanged files and files that previously failed to parse) or *Rebuild everything* (re-processes every file), then send a message. The reindex runs once; later messages show "Reindex already done at …". To run another — including switching from one mode to the other — set Reindex to *Off*, send a message, then choose a mode again; switching modes directly does not run the new mode, since a completed run of either mode is still recorded as "done" until cleared.
+- **Reindex** (default: *No reindex*): To prevent reindexing, select *No reindex*. To index only new or updated files, select *New & changed files* (unchanged files, and files that previously failed to parse, are skipped). To rebuild the whole index from scratch, select *Rebuild everything*. The chosen mode runs once on your next message; later messages show "Reindex already done at …". To run another — including switching from one mode to the other — select *No reindex*, send a message, then choose a mode again.
 - **Automatic first run**: If the vector store is empty, the plugin indexes your documents the first time a message is processed.
 - **Indexing lock**: Only one indexing run can be active at a time; a request made while one is running is reported and skipped.
-- The "done" record is the file `.big-rag-reindex.json` in the Vector Store Directory. Because Reindex is set per chat, a message in another chat where Reindex is *Off* clears it.
+- The "done" record is the file `.big-rag-reindex.json` in the Vector Store Directory. Because Reindex is set per chat, a message in another chat set to *No reindex* clears it.
 
 ### How Documents Are Indexed
 

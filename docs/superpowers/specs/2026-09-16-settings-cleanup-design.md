@@ -52,7 +52,7 @@ Registered with `withConfigSchematics` (per chat).
 
 | Setting | Type | Values | Default |
 |---|---|---|---|
-| Reindex | select | `off` "Off", `changed` "New & changed files", `rebuild` "Rebuild everything" | `off` |
+| Reindex | select | `off` "No reindex", `changed` "New & changed files", `rebuild` "Rebuild everything" | `off` |
 
 ### Fixed defaults
 
@@ -127,16 +127,16 @@ A pure function `decideReindex(mode: ReindexMode, marker: ReindexMarker | null):
 ### Behaviour
 
 - `run`: start the reindex with the existing flow. `changed` skips unchanged files; `rebuild` forces every file. The marker is written only after the run completes successfully; a failed or aborted run writes nothing, so the next message tries again.
-- `skip`: any existing marker means skip, regardless of its mode — status "Reindex already done at <local time> — set Reindex to Off, then choose it again to run another."
+- `skip`: any existing marker means skip, regardless of its mode — status "Reindex already done at <local time> — to run another, select No reindex, send a message, then choose a mode again."
 - `clear`: delete the marker silently.
 - Unchanged: the indexing lock, automatic first-run indexing of an empty store, and rebuild-everything on an index format change.
 - The misleading "resets after running" description, reminder status, and system notification text are replaced with text describing the behaviour above.
 
 ### Known edge case
 
-The Reindex setting is per chat but the marker belongs to the index. If one chat has Reindex on and another has it Off, a message in the second chat clears the marker, and the next message in the first chat reindexes again. Accepted: rare, and visible through the status line.
+The Reindex setting is per chat but the marker belongs to the index. If one chat has Reindex on and another has it at No reindex, a message in the second chat clears the marker, and the next message in the first chat reindexes again. Accepted: rare, and visible through the status line.
 
-Because any existing marker means skip regardless of mode, switching between *New & changed files* and *Rebuild everything* in the same chat (or across chats sharing an index) does not run the newly chosen mode — the marker from the previous run is still present. To run a different mode, set Reindex to Off first (which clears the marker), send a message, then choose the new mode.
+Because any existing marker means skip regardless of mode, switching between *New & changed files* and *Rebuild everything* in the same chat (or across chats sharing an index) does not run the newly chosen mode — the marker from the previous run is still present. To run a different mode, select No reindex first (which clears the marker), send a message, then choose the new mode.
 
 ## Error Handling
 
@@ -162,7 +162,7 @@ Unit tests, no LM Studio required:
 1. On an existing 1.3 install, open a chat: the "Big RAG is not in use" status names the settings to fill in.
 2. Fill in global settings: the status disappears and retrieval works against the existing index.
 3. Set Reindex to New & changed files: it runs once; the next message shows "already done".
-4. Set Reindex to Off, send a message, choose it again: it runs again.
+4. Select No reindex, send a message, then choose a mode again: it runs again.
 5. The chat sidebar shows only Reindex.
 
 ## Documentation and Release

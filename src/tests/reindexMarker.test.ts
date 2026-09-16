@@ -104,6 +104,6 @@ test("handleReindexRequest writes no marker when the run does not complete", asy
 test("reindexAlreadyDoneMessage explains how to run another reindex", () => {
   assert.match(
     reindexAlreadyDoneMessage(marker("changed")),
-    /^Reindex already done at .+ — set Reindex to Off, then choose it again to run another\.$/,
+    /^Reindex already done at .+ — to run another, select No reindex, send a message, then choose a mode again\.$/,
   );
 });

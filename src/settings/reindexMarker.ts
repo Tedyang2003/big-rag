@@ -82,5 +82,5 @@ export async function handleReindexRequest(opts: {
 }
 
 export function reindexAlreadyDoneMessage(marker: ReindexMarker): string {
-  return `Reindex already done at ${new Date(marker.completedAt).toLocaleString()} — set Reindex to Off, then choose it again to run another.`;
+  return `Reindex already done at ${new Date(marker.completedAt).toLocaleString()} — to run another, select No reindex, send a message, then choose a mode again.`;
 }
