@@ -644,6 +644,17 @@ const REINDEX_MODE_LABELS: Record<Exclude<ReindexMode, "off">, string> = {
   rebuild: "Always rebuild everything",
 };
 
+/**
+ * True when a reindex run actually changed the store (updated or added at least
+ * one file), i.e. when the in-memory catalog cache needs to be dropped so the
+ * next query rebuilds it. A run where every file was skipped as unchanged
+ * should not evict the cache — getCatalog's own chunk-count staleness check
+ * still covers anything this misses.
+ */
+export function reindexChangedStore(result: { updatedFiles: number; newFiles: number }): boolean {
+  return result.updatedFiles + result.newFiles > 0;
+}
+
 /** Runs the reindex the chat's Reindex setting asks for, on every message while a mode is selected. */
 async function runRequestedReindex(
   ctl: PromptPreprocessorController,
@@ -757,7 +768,9 @@ async function runRequestedReindex(
       console.warn("[BigRAG] Unable to send reindex notification:", error);
     }
 
-    resetCatalogCache(settings.vectorStoreDirectory);
+    if (reindexChangedStore(indexingResult)) {
+      resetCatalogCache(settings.vectorStoreDirectory);
+    }
   } catch (error) {
     if (isAbortError(error)) {
       throw error;
