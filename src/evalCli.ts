@@ -10,6 +10,7 @@ import { formatMetricsTable, runEval } from "./eval/runEval";
 import { readGenerationSettings, readRetrievalSettings } from "./eval/settings";
 import { buildSettingsSnapshot } from "./eval/settingsSnapshot";
 import { isPathIgnored } from "./eval/gitIgnore";
+import { FIXED_DEFAULTS } from "./settings/defaults";
 
 const USAGE =
   "Usage:\n" +
@@ -98,7 +99,9 @@ async function runRun(client: LMStudioClient, vectorStore: VectorStore, document
     questionSet,
   });
 
-  console.log(`[BigRAG Eval] Running ${questionSet.questions.length} questions with ${JSON.stringify(settings)}...`);
+  console.log(
+    `[BigRAG Eval] Running ${questionSet.questions.length} questions at depth ${settings.retrievalDepth} with ${JSON.stringify(settings)}...`,
+  );
 
   const { report, reportPath } = await runEval(
     {
@@ -110,15 +113,20 @@ async function runRun(client: LMStudioClient, vectorStore: VectorStore, document
             embedQuery: async (text) => (await embeddingModel.embed(text)).embedding,
             embedSentences: (sentences) => embeddingModel.embed(sentences),
             countTokens: (text) => embeddingModel.countTokens(text),
+            // Task 8 adds the catalog to the eval path; until then Medium behaves like Low.
+            fetchChunks: (keys) => vectorStore.getChunksByKeys(keys),
           },
           {
             ...settings,
             diagnosticPoolSize,
-            // Depth is wired to the Retrieval Depth setting in a later task.
-            depth: "low",
-            laneCandidates: 30,
-            rrfConstant: 60,
-            laneWeights: { vector: 1, keyword: 1, date: 1 },
+            depth: settings.retrievalDepth,
+            laneCandidates: FIXED_DEFAULTS.laneCandidates,
+            rrfConstant: FIXED_DEFAULTS.rrfConstant,
+            laneWeights: {
+              vector: FIXED_DEFAULTS.laneWeightVector,
+              keyword: FIXED_DEFAULTS.laneWeightKeyword,
+              date: FIXED_DEFAULTS.laneWeightDate,
+            },
           },
         ),
       listIndexedFiles: async () =>

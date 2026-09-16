@@ -25,6 +25,7 @@ test("resolveSettings uses global values and the chat reindex mode", () => {
     excludePatterns: ["*.png", "archive/**"],
     promptTemplate: "{{rag_context}}\n{{user_query}}",
     reindexMode: "changed",
+    retrievalDepth: "medium",
     ...FIXED_DEFAULTS,
     missingRequired: [],
   });
@@ -58,6 +59,27 @@ test("resolveSettings ignores old per-chat tuning values", () => {
   assert.equal(settings.retrievalLimit, FIXED_DEFAULTS.retrievalLimit);
   assert.equal(settings.chunkSize, FIXED_DEFAULTS.chunkSize);
   assert.equal(settings.enableContextCompaction, false);
+});
+
+test("resolveSettings reads the retrieval depth from the chat config", () => {
+  const base = { documentsDirectory: "/d", vectorStoreDirectory: "/v" };
+  assert.equal(resolveSettings(reader(base), reader({ retrievalDepth: "low" })).retrievalDepth, "low");
+  assert.equal(resolveSettings(reader(base), reader({ retrievalDepth: "medium" })).retrievalDepth, "medium");
+  assert.equal(resolveSettings(reader(base), reader({})).retrievalDepth, "medium");
+  assert.equal(resolveSettings(reader(base), reader({ retrievalDepth: "deep" })).retrievalDepth, "medium");
+});
+
+test("resolveSettings exposes the hybrid retrieval defaults", () => {
+  const settings = resolveSettings(reader({ documentsDirectory: "/d", vectorStoreDirectory: "/v" }), reader({}));
+  assert.equal(settings.laneCandidates, 30);
+  assert.equal(settings.rrfConstant, 60);
+  assert.equal(settings.laneWeightVector, 1);
+  assert.equal(settings.laneWeightKeyword, 1);
+  assert.equal(settings.laneWeightDate, 1);
+  assert.equal(settings.catalogMaxChunks, 50000);
+  assert.equal(settings.bm25K1, 1.2);
+  assert.equal(settings.bm25B, 0.75);
+  assert.equal(settings.catalogVersion, 1);
 });
 
 test("notConfiguredMessage names exactly the missing settings", () => {

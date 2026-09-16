@@ -1,5 +1,6 @@
 import { DEFAULT_PROMPT_TEMPLATE, resolveEmbeddingModelId } from "../config";
 import { parseExcludePatternsBlock } from "../utils/fileExcludePatterns";
+import { type RetrievalDepth } from "../retrieval/retrieve";
 import { FIXED_DEFAULTS } from "./defaults";
 
 export type ReindexMode = "off" | "changed" | "rebuild";
@@ -16,6 +17,16 @@ export interface ResolvedSettings {
   excludePatterns: string[];
   promptTemplate: string;
   reindexMode: ReindexMode;
+  retrievalDepth: RetrievalDepth;
+  laneCandidates: number;
+  rrfConstant: number;
+  laneWeightVector: number;
+  laneWeightKeyword: number;
+  laneWeightDate: number;
+  catalogMaxChunks: number;
+  bm25K1: number;
+  bm25B: number;
+  catalogVersion: number;
   retrievalLimit: number;
   retrievalThreshold: number;
   chunkSize: number;
@@ -49,6 +60,7 @@ export function resolveSettings(globalConfig: ConfigReader, chatConfig: ConfigRe
 
   const promptTemplate = readString(globalConfig, "promptTemplate");
   const reindexMode = readString(chatConfig, "reindexMode");
+  const retrievalDepth = readString(chatConfig, "retrievalDepth");
 
   return {
     documentsDirectory,
@@ -57,6 +69,7 @@ export function resolveSettings(globalConfig: ConfigReader, chatConfig: ConfigRe
     excludePatterns: parseExcludePatternsBlock(readString(globalConfig, "excludeFilenamePatterns")),
     promptTemplate: promptTemplate.trim() ? promptTemplate : DEFAULT_PROMPT_TEMPLATE,
     reindexMode: reindexMode === "changed" || reindexMode === "rebuild" ? reindexMode : "off",
+    retrievalDepth: retrievalDepth === "low" ? "low" : "medium",
     ...FIXED_DEFAULTS,
     missingRequired,
   };

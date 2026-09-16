@@ -15,7 +15,7 @@ const questionSet = {
 
 function args(vectorStoreDir: string) {
   return {
-    settings: { retrievalLimit: 5, retrievalThreshold: 0.5, chunkSize: 512, enableContextCompaction: false },
+    settings: { retrievalLimit: 5, retrievalThreshold: 0.5, chunkSize: 512, enableContextCompaction: false, retrievalDepth: "medium" as const },
     diagnosticPoolSize: 50,
     embeddingModelId: "embed-model",
     vectorStoreDir,
@@ -32,6 +32,7 @@ test("the eval settings snapshot records the manifest's index format", async () 
     const snapshot = await buildSettingsSnapshot(args(dir));
     assert.equal(snapshot.indexFormat, "structured-v1");
     assert.equal(snapshot.retrievalLimit, 5);
+    assert.equal(snapshot.retrievalDepth, "medium");
     assert.equal(snapshot.diagnosticPoolSize, 50);
     assert.equal(snapshot.embeddingModelId, "embed-model");
     assert.deepEqual(snapshot.indexManifest, { embeddingModelId: "embed-model", dimensions: 3, indexFormat: "structured-v1" });

@@ -8,7 +8,15 @@ test("readRetrievalSettings uses the plugin config defaults when env vars are un
     retrievalThreshold: 0.5,
     chunkSize: 512,
     enableContextCompaction: false,
+    retrievalDepth: "medium",
   });
+});
+
+test("readRetrievalSettings reads the retrieval depth from the environment", () => {
+  assert.equal(readRetrievalSettings({}).retrievalDepth, "medium");
+  assert.equal(readRetrievalSettings({ BIG_RAG_RETRIEVAL_DEPTH: "low" }).retrievalDepth, "low");
+  assert.equal(readRetrievalSettings({ BIG_RAG_RETRIEVAL_DEPTH: "LOW" }).retrievalDepth, "low");
+  assert.throws(() => readRetrievalSettings({ BIG_RAG_RETRIEVAL_DEPTH: "deep" }), /BIG_RAG_RETRIEVAL_DEPTH/);
 });
 
 test("readRetrievalSettings reads overrides from env vars", () => {
@@ -19,7 +27,7 @@ test("readRetrievalSettings reads overrides from env vars", () => {
       BIG_RAG_CHUNK_SIZE: "1024",
       BIG_RAG_ENABLE_COMPACTION: "TRUE",
     }),
-    { retrievalLimit: 8, retrievalThreshold: 0.35, chunkSize: 1024, enableContextCompaction: true },
+    { retrievalLimit: 8, retrievalThreshold: 0.35, chunkSize: 1024, enableContextCompaction: true, retrievalDepth: "medium" },
   );
 });
 

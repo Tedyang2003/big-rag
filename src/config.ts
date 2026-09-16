@@ -98,5 +98,20 @@ export const configSchematics = createConfigSchematics()
     },
     "off",
   )
+  .field(
+    "retrievalDepth",
+    "select",
+    {
+      displayName: "Retrieval Depth",
+      subtitle:
+        "Medium searches by meaning, by keyword, and by date, then merges the results — better recall, no extra model calls. "
+        + "Low searches by meaning only, like earlier versions.",
+      options: [
+        { value: "low", displayName: "Low" },
+        { value: "medium", displayName: "Medium" },
+      ],
+    },
+    "medium",
+  )
   .build();
 

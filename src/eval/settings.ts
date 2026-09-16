@@ -1,11 +1,13 @@
 import { DEFAULT_WORDING_LEAK_LIMIT } from "./wordingLeak";
 import { FIXED_DEFAULTS } from "../settings/defaults";
+import { type RetrievalDepth } from "../retrieval/retrieve";
 
 export interface RetrievalSettings {
   retrievalLimit: number;
   retrievalThreshold: number;
   chunkSize: number;
   enableContextCompaction: boolean;
+  retrievalDepth: RetrievalDepth;
 }
 
 function readNumber(env: Record<string, string | undefined>, name: string, fallback: number): number {
@@ -35,11 +37,17 @@ export function readRetrievalSettings(env: Record<string, string | undefined>): 
     throw new Error(`BIG_RAG_CHUNK_SIZE must be a whole number between 128 and 2048, got "${env.BIG_RAG_CHUNK_SIZE}"`);
   }
 
+  const rawDepth = (env.BIG_RAG_RETRIEVAL_DEPTH ?? "medium").trim().toLowerCase();
+  if (rawDepth !== "low" && rawDepth !== "medium") {
+    throw new Error(`BIG_RAG_RETRIEVAL_DEPTH must be "low" or "medium", got "${env.BIG_RAG_RETRIEVAL_DEPTH}"`);
+  }
+
   return {
     retrievalLimit,
     retrievalThreshold,
     chunkSize,
     enableContextCompaction: (env.BIG_RAG_ENABLE_COMPACTION ?? String(FIXED_DEFAULTS.enableContextCompaction)).trim().toLowerCase() === "true",
+    retrievalDepth: rawDepth,
   };
 }
 
