@@ -166,6 +166,12 @@ export async function retrieve(
   const laneCounts: LaneCounts = { vector: 0, keyword: 0, date: 0 };
   let dayRanges: DayRange[] = [];
   let ranked: SearchResult[] = searched;
+  // Set only on the catalog path: chunk key -> the lanes that ranked it while
+  // fusing. laneCounts is finalized from this against the passages actually
+  // returned (below), not against every fused winner, since a winner can be
+  // dropped later (its fetchChunks lookup came back empty, trimOverlap merged
+  // it into a neighbor, or compaction skipped it for budget).
+  let winnerLanesByKey: Map<string, string[]> | null = null;
 
   if (catalog) {
     const terms = tokenize(query);
@@ -215,11 +221,7 @@ export async function retrieve(
       ? options.retrievalLimit * CONTEXT_COMPACTION_POOL_MULTIPLIER
       : options.retrievalLimit;
     const winners = fused.slice(0, winnerCount);
-    for (const winner of winners) {
-      if (winner.lanes.includes("vector")) laneCounts.vector++;
-      if (winner.lanes.includes("keyword")) laneCounts.keyword++;
-      if (winner.lanes.includes("date")) laneCounts.date++;
-    }
+    winnerLanesByKey = new Map(winners.map((winner) => [winner.key, winner.lanes]));
 
     const missingKeys = winners.filter((winner) => !vectorByKey.has(winner.key)).map((winner) => winner.key);
     const fetchedByKey = new Map<string, SearchResult>();
@@ -254,6 +256,19 @@ export async function retrieve(
   const diagnosticPool = options.diagnosticPoolSize
     ? await deps.vectorStore.search(queryEmbedding, options.diagnosticPoolSize, Number.NEGATIVE_INFINITY)
     : [];
+
+  if (winnerLanesByKey) {
+    const finalLanesByKey = winnerLanesByKey;
+    laneCounts.vector = 0;
+    laneCounts.keyword = 0;
+    laneCounts.date = 0;
+    for (const passage of passages) {
+      const lanes = finalLanesByKey.get(chunkKey(passage)) ?? [];
+      if (lanes.includes("vector")) laneCounts.vector++;
+      if (lanes.includes("keyword")) laneCounts.keyword++;
+      if (lanes.includes("date")) laneCounts.date++;
+    }
+  }
 
   return { passages, diagnosticPool, timings, laneCounts, dayRanges };
 }

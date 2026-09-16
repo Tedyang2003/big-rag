@@ -291,3 +291,39 @@ test("medium with compaction keeps the vector lane at laneCandidates and widens 
   assert.deepEqual(searchCalls, [{ limit: 30, threshold: 0.5 }]);
   assert.ok(result.passages.length > 2, `expected a widened pool, got ${result.passages.length}`);
 });
+
+test("laneCounts reflects only the passages actually returned, not every fused winner", async () => {
+  // chunk-3 fuses on both the keyword and date lanes and would rank above the
+  // single-lane winners, but its fetchChunks lookup comes back empty (as if the
+  // chunk had since been deleted from the store) so it never becomes a passage.
+  const vectorHit = makeResult({ text: "vector hit", id: "chunk-1" });
+  const { deps } = makeDeps([vectorHit]);
+
+  const result = await retrieve(
+    "bus collision on 8 Sep 2026",
+    {
+      ...deps,
+      nowDate: () => new Date(2026, 8, 16),
+      catalog: fakeCatalog({
+        scoreTerms: () => new Map([[2, 5], [3, 1]]),
+        chunksForRanges: () => [3, 4],
+      }),
+      fetchChunks: async (keys) =>
+        keys
+          .filter((key) => key !== "shard_000/chunk-3")
+          .map((key) => makeResult({ text: `fetched ${key}`, id: key.split("/")[1] })),
+    },
+    { ...LOW_OPTIONS, depth: "medium", retrievalLimit: 3 },
+  );
+
+  // chunk-3 (keyword+date winner) is missing from the passages; only chunk-1
+  // (vector) and chunk-2 (keyword) come back.
+  assert.deepEqual(result.passages.map((passage) => passage.text), [
+    "vector hit",
+    "fetched shard_000/chunk-2",
+  ]);
+  assert.ok(result.laneCounts.vector <= result.passages.length);
+  assert.ok(result.laneCounts.keyword <= result.passages.length);
+  assert.ok(result.laneCounts.date <= result.passages.length);
+  assert.deepEqual(result.laneCounts, { vector: 1, keyword: 1, date: 0 });
+});
