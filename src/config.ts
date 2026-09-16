@@ -86,13 +86,14 @@ export const configSchematics = createConfigSchematics()
     {
       displayName: "Reindex",
       subtitle:
-        "To prevent reindexing, select No reindex. To index only new or updated files, select New & changed files. "
-        + "To rebuild the whole index from scratch, select Rebuild everything. "
-        + "The chosen mode runs once on your next message; to run it again, select No reindex, send a message, then choose a mode again.",
+        "To prevent reindexing, select No reindex. To keep the index up to date, select Always index new & changed files: "
+        + "every message checks for new or edited documents and indexes those. "
+        + "To rebuild the index from scratch, select Always rebuild everything — this re-indexes every file on every message, "
+        + "so switch back to No reindex once it has finished.",
       options: [
         { value: "off", displayName: "No reindex" },
-        { value: "changed", displayName: "New & changed files" },
-        { value: "rebuild", displayName: "Rebuild everything" },
+        { value: "changed", displayName: "Always index new & changed files" },
+        { value: "rebuild", displayName: "Always rebuild everything" },
       ],
     },
     "off",

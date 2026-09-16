@@ -13,7 +13,6 @@ import {
   type ReindexMode,
   type ResolvedSettings,
 } from "./settings/resolveSettings";
-import { handleReindexRequest, reindexAlreadyDoneMessage } from "./settings/reindexMarker";
 import { VectorStore } from "./vectorstore/vectorStore";
 import { performSanityChecks } from "./utils/sanityChecks";
 import { tryStartIndexing, finishIndexing } from "./utils/indexingLock";
@@ -283,7 +282,7 @@ export async function preprocess(
 
     checkAbort(ctl.abortSignal);
 
-    await maybeHandleReindexRequest(ctl, settings, vectorStore);
+    await runRequestedReindex(ctl, settings, vectorStore);
 
     checkAbort(ctl.abortSignal);
 
@@ -563,34 +562,19 @@ export async function preprocess(
 }
 
 const REINDEX_MODE_LABELS: Record<Exclude<ReindexMode, "off">, string> = {
-  changed: "New & changed files",
-  rebuild: "Rebuild everything",
+  changed: "Always index new & changed files",
+  rebuild: "Always rebuild everything",
 };
 
-async function maybeHandleReindexRequest(
-  ctl: PromptPreprocessorController,
-  settings: ResolvedSettings,
-  store: VectorStore,
-): Promise<void> {
-  const outcome = await handleReindexRequest({
-    vectorStoreDir: settings.vectorStoreDirectory,
-    mode: settings.reindexMode,
-    run: () => runRequestedReindex(ctl, settings, store),
-  });
-  if (outcome.decision === "skip" && outcome.marker) {
-    ctl.createStatus({ status: "done", text: reindexAlreadyDoneMessage(outcome.marker) });
-  }
-}
-
-/** Runs the reindex the user chose. Resolves true only when the run completed. */
+/** Runs the reindex the chat's Reindex setting asks for, on every message while a mode is selected. */
 async function runRequestedReindex(
   ctl: PromptPreprocessorController,
   settings: ResolvedSettings,
   store: VectorStore,
-): Promise<boolean> {
+): Promise<void> {
   const mode = settings.reindexMode;
   if (mode === "off") {
-    return false;
+    return;
   }
   const embeddingModelId = settings.embeddingModelId;
   const label = REINDEX_MODE_LABELS[mode];
@@ -600,7 +584,7 @@ async function runRequestedReindex(
       status: "canceled",
       text: "A reindex is already running. Please wait for it to finish.",
     });
-    return false;
+    return;
   }
 
   const status = ctl.createStatus({
@@ -661,12 +645,12 @@ async function runRequestedReindex(
         status: "canceled",
         text: "Reindex cancelled.",
       });
-      return false;
+      return;
     }
 
     status.setState({
       status: "done",
-      text: `Reindex complete (${label}). To run another, select No reindex, send a message, then choose a mode again.`,
+      text: `Reindex complete (${label}). Select No reindex to stop reindexing on every message.`,
     });
 
     const summaryLines = [
@@ -689,12 +673,11 @@ async function runRequestedReindex(
     try {
       await ctl.client.system.notify({
         title: "Big RAG reindex completed",
-        description: `Reindex (${label}) finished. To run another, select No reindex, send a message, then choose a mode again.`,
+        description: `Reindex (${label}) finished. Select No reindex to stop reindexing on every message.`,
       });
     } catch (error) {
       console.warn("[BigRAG] Unable to send reindex notification:", error);
     }
-    return true;
   } catch (error) {
     if (isAbortError(error)) {
       throw error;
@@ -704,7 +687,6 @@ async function runRequestedReindex(
       text: `Reindex failed: ${error instanceof Error ? error.message : String(error)}`,
     });
     console.error("[BigRAG] Reindex failed:", error);
-    return false;
   } finally {
     finishIndexing();
   }

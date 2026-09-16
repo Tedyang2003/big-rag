@@ -21,7 +21,7 @@ Project order:
 
 - Show end users only what they need: set-once setup in global settings, one per-chat action.
 - Keep maintainer tuning available through one defaults module and existing env vars.
-- Make a reindex request run once instead of on every message.
+- Make each Reindex mode mean exactly what it says, with no hidden state.
 - Tell users plainly when Big RAG is not configured, and exactly what to set.
 - No change to retrieval or indexing behaviour.
 
@@ -52,7 +52,7 @@ Registered with `withConfigSchematics` (per chat).
 
 | Setting | Type | Values | Default |
 |---|---|---|---|
-| Reindex | select | `off` "No reindex", `changed` "New & changed files", `rebuild` "Rebuild everything" | `off` |
+| Reindex | select | `off` "No reindex", `changed` "Always index new & changed files", `rebuild` "Always rebuild everything" | `off` |
 
 ### Fixed defaults
 
@@ -107,44 +107,22 @@ The two config arguments are objects with a `get(key)` method, so tests can pass
 - No values are migrated from the old per-chat settings; after upgrading, global settings start at their defaults and old per-chat values are ignored.
 - When `missingRequired` is non-empty, the preprocessor shows one status naming exactly what to set, for example: "Big RAG is not in use: set Documents Directory and Vector Store Directory in Big RAG's global settings." It then returns the user's message unchanged (no retrieval, no indexing, no reindex handling), as today when directories are empty.
 
-## Reindex Once Per Request
+## Reindex Modes
 
-### Marker
+The Reindex setting is standing behaviour, not a one-shot request: the plugin acts on whatever mode is selected, on every message.
 
-A file `.big-rag-reindex.json` in the Vector Store Directory: `{ "mode": "changed" | "rebuild", "completedAt": "<ISO timestamp>" }`.
+- `off`: nothing is indexed.
+- `changed`: index new and changed files (unchanged files and previously failed files are skipped).
+- `rebuild`: re-parse and re-embed every file. This runs on every message while selected, which can be slow on large collections; the setting's description and the README say to switch back to `No reindex` when it has finished.
 
-### Decision
-
-A pure function `decideReindex(mode: ReindexMode, marker: ReindexMarker | null): "run" | "skip" | "clear" | "none"`:
-
-| Reindex setting | Marker | Decision |
-|---|---|---|
-| Off | none | `none` |
-| Off | present | `clear` (delete marker) |
-| changed / rebuild | none | `run` |
-| changed / rebuild | any marker | `skip` |
-
-### Behaviour
-
-- `run`: start the reindex with the existing flow. `changed` skips unchanged files; `rebuild` forces every file. The marker is written only after the run completes successfully; a failed or aborted run writes nothing, so the next message tries again.
-- `skip`: any existing marker means skip, regardless of its mode — status "Reindex already done at <local time> — to run another, select No reindex, send a message, then choose a mode again."
-- `clear`: delete the marker silently.
-- Unchanged: the indexing lock, automatic first-run indexing of an empty store, and rebuild-everything on an index format change.
-- The misleading "resets after running" description, reminder status, and system notification text are replaced with text describing the behaviour above.
-
-### Known edge case
-
-The Reindex setting is per chat but the marker belongs to the index. If one chat has Reindex on and another has it at No reindex, a message in the second chat clears the marker, and the next message in the first chat reindexes again. Accepted: rare, and visible through the status line.
-
-Because any existing marker means skip regardless of mode, switching between *New & changed files* and *Rebuild everything* in the same chat (or across chats sharing an index) does not run the newly chosen mode — the marker from the previous run is still present. To run a different mode, select No reindex first (which clears the marker), send a message, then choose the new mode.
+Unchanged: the indexing lock (a request while a run is active is reported and skipped), automatic first-run indexing of an empty store, and rebuild-everything on an index format change. An aborted run is reported as cancelled. The misleading "resets after running" description, reminder status, and system notification text are replaced with text describing the behaviour above.
 
 ## Error Handling
 
 | Situation | Behaviour |
 |---|---|
 | Required global settings empty | Status "Big RAG is not in use: set <names> in Big RAG's global settings."; message passed through unchanged |
-| Marker file unreadable or malformed | Treated as no marker (reindex runs); marker rewritten after success |
-| Marker write fails | Warning logged; reindex result unaffected (next message may run again) |
+| Reindex aborted mid-run | Status "Reindex cancelled."; the indexing lock is released and the next message reindexes again |
 
 ## Testing
 
@@ -152,8 +130,6 @@ Unit tests, no LM Studio required:
 
 - `resolveSettings`: global values used; empty or whitespace-only directories resolve to `""` and are listed in `missingRequired` by display name; empty optional fields fall back to defaults; fixed defaults always match `defaults.ts`; reindex mode read from the chat config.
 - Preprocessor not-configured path: with a directory missing, the status names the missing settings and the message is returned unchanged (controller faked).
-- `decideReindex`: every row of the decision table.
-- Marker I/O: read/write round trip; malformed file reads as null; the marker is written only after a completed run (the reindex runner is faked).
 - Defaults: CLI and eval settings with no env vars resolve to the `defaults.ts` values.
 - Existing tests that build config objects or reference removed fields are updated; retrieval, chunker, and parser tests are unchanged.
 
@@ -161,8 +137,8 @@ Unit tests, no LM Studio required:
 
 1. On an existing 1.3 install, open a chat: the "Big RAG is not in use" status names the settings to fill in.
 2. Fill in global settings: the status disappears and retrieval works against the existing index.
-3. Set Reindex to New & changed files: it runs once; the next message shows "already done".
-4. Select No reindex, send a message, then choose a mode again: it runs again.
+3. Select Always index new & changed files: each message indexes new or changed files (a run with nothing to do reports all files skipped).
+4. Select No reindex: messages no longer index anything.
 5. The chat sidebar shows only Reindex.
 
 ## Documentation and Release
