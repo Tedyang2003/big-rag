@@ -230,7 +230,7 @@ import { scoreTerms, tokenize, type Bm25Corpus, type TermEntry } from "../retrie
 const OPTIONS = { k1: 1.2, b: 0.75 };
 
 test("tokenize lowercases, drops stop words and short tokens, and trims suffixes", () => {
-  assert.deepEqual(tokenize("The buses COLLIDED on the PIE!"), ["buse", "collid", "pie"]);
+  assert.deepEqual(tokenize("The buses COLLIDED on the PIE!"), ["bus", "collid", "pie"]);
   assert.deepEqual(tokenize("Collision, collisions; collision."), ["collision", "collision", "collision"]);
   assert.deepEqual(tokenize("report 2026-09-08"), ["report", "2026", "09", "08"]);
   assert.deepEqual(tokenize("the and of to"), []);
@@ -1229,14 +1229,16 @@ test("medium fuses vector, keyword and date lanes", async () => {
     { ...LOW_OPTIONS, depth: "medium", retrievalLimit: 3 },
   );
 
+  // chunk-3 is ranked by both the keyword and date lanes, so it fuses above the
+  // single-lane chunks; chunk-1 (vector) and chunk-2 (keyword) tie and keep lane order.
   assert.deepEqual(result.passages.map((passage) => passage.text), [
+    "fetched shard_000/chunk-3",
     "vector hit",
     "fetched shard_000/chunk-2",
-    "fetched shard_000/chunk-3",
   ]);
   assert.deepEqual(result.laneCounts, { vector: 1, keyword: 2, date: 1 });
   assert.deepEqual(result.dayRanges, [{ start: 20260908, end: 20260908 }]);
-  assert.deepEqual(fetched, [["shard_000/chunk-2", "shard_000/chunk-3"]]);
+  assert.deepEqual(fetched, [["shard_000/chunk-3", "shard_000/chunk-2"]]);
   assert.ok(result.timings.some((timing) => timing.stage === "keywordLane"));
   assert.ok(result.timings.some((timing) => timing.stage === "dateLane"));
   assert.ok(result.timings.some((timing) => timing.stage === "fuse"));
@@ -1617,7 +1619,18 @@ Add to `ResolvedSettings` (after `reindexMode`):
 
 ```ts
   retrievalDepth: RetrievalDepth;
+  laneCandidates: number;
+  rrfConstant: number;
+  laneWeightVector: number;
+  laneWeightKeyword: number;
+  laneWeightDate: number;
+  catalogMaxChunks: number;
+  bm25K1: number;
+  bm25B: number;
+  catalogVersion: number;
 ```
+
+(The tuning fields arrive through the `...FIXED_DEFAULTS` spread that is already in `resolveSettings`; without these declarations the callers cannot read them.)
 
 In `resolveSettings`, after the `reindexMode` line:
 
