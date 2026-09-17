@@ -27,5 +27,7 @@ dist/
 .idea/
 
 # Retrieval evaluation sets and reports (contain excerpts from indexed documents)
-/eval/
-
+/eval/documents
+/eval/vdbs
+.claude
+/eval/candidates-*
