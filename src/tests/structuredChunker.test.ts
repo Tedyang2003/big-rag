@@ -162,3 +162,26 @@ test("chunkStructured budgets headers at their own token density", async () => {
     }
   }
 });
+
+test("chunkStructured never crawls forward when a split piece ends early", async () => {
+  // A short paragraph followed by one long paragraph with no sentence ends: the first
+  // piece ends at the short paragraph's boundary, well before the overlap distance.
+  const shortParagraph = Array.from({ length: 20 }, (_, i) => `intro${i}`).join(" ");
+  const longParagraph = Array.from({ length: 600 }, (_, i) => `body${i}`).join(" ");
+  const markdown = `## Long section\n\n${shortParagraph}\n\n${longParagraph}`;
+
+  const chunks = await chunkStructured(markdown, options({ chunkSize: 110, chunkOverlap: 50 }));
+
+  for (let i = 1; i < chunks.length; i++) {
+    assert.ok(
+      chunks[i].endIndex > chunks[i - 1].endIndex,
+      `chunk ${i} ends at ${chunks[i].endIndex}, not past chunk ${i - 1} (${chunks[i - 1].endIndex})`,
+    );
+    const previousLength = chunks[i - 1].endIndex - chunks[i - 1].startIndex;
+    assert.ok(
+      chunks[i].startIndex >= chunks[i - 1].startIndex + Math.ceil(previousLength / 2),
+      `chunk ${i} starts at ${chunks[i].startIndex}, overlapping more than half of chunk ${i - 1}`,
+    );
+  }
+  assert.ok(chunks.length <= 16, `expected a handful of chunks, got ${chunks.length}`);
+});

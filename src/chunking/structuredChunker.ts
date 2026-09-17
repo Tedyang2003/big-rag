@@ -194,9 +194,12 @@ export async function chunkStructured(markdown: string, options: StructuredChunk
     };
 
     let start = 0;
+    let previousEnd = 0;
     while (start < total) {
       const limit = Math.min(total, start + pieceBudget);
-      const lower = start === 0 ? Math.max(start, item.headingEnd) : start;
+      // Split points must lie beyond the previous piece's end; otherwise a piece that
+      // ended early at a nearby boundary is re-emitted one word at a time.
+      const lower = start === 0 ? Math.max(start, item.headingEnd) : Math.max(start, previousEnd);
       let end = limit;
       if (limit < total) {
         end = lastBoundary(item.blockEnds, lower, limit) ?? lastBoundary(sentences, lower, limit) ?? limit;
@@ -207,7 +210,10 @@ export async function chunkStructured(markdown: string, options: StructuredChunk
       end = avoidHeadingEnd(end, lower);
       emit([item.section], item.tokens.slice(start, end), item.offset + start);
       if (end >= total) break;
-      start = Math.max(start + 1, end - overlapWords);
+      // Overlap by at most half the piece just emitted, so short pieces still move forward.
+      const overlap = Math.min(overlapWords, Math.floor((end - start) / 2));
+      previousEnd = end;
+      start = Math.max(start + 1, end - overlap);
     }
   };
 
