@@ -146,6 +146,11 @@ export class ChunkCatalog {
     return storeChunkCount !== this.file.chunkCount;
   }
 
+  /** False when the word table was skipped (or kept) under a different chunk ceiling than `maxChunks`. */
+  matchesCeiling(maxChunks: number): boolean {
+    return this.file.wordTableSkipped === this.file.chunkCount > maxChunks;
+  }
+
   keyOf(chunkNumber: number): string {
     return this.file.chunks[chunkNumber]?.key ?? "";
   }

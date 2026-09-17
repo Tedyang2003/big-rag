@@ -114,6 +114,7 @@ Only compare runs that used the same question set, and for generated sets, the s
 |---|---|---|
 | `BIG_RAG_DOCS_DIR` / `BIG_RAG_DB_DIR` | none | Must match the documents and index being evaluated |
 | `BIG_RAG_RETRIEVAL_DEPTH` | `medium` | `low` or `medium`; recorded in each report |
+| `BIG_RAG_CATALOG_MAX_CHUNKS` | `50000` | Above this many chunks, keyword search is switched off at Medium depth; raise it to evaluate large sets. Needs more memory, e.g. `$env:NODE_OPTIONS="--max-old-space-size=8192"` |
 | `BIG_RAG_EVAL_FILE` | `eval/questions.json` | Question set to run |
 | `BIG_RAG_EVAL_COUNT` | `30` | Questions to generate |
 | `BIG_RAG_EVAL_SEED` | `42` | Seed for choosing which chunks to generate questions from |
@@ -142,5 +143,5 @@ These values are fixed in the plugin (`src/settings/defaults.ts`) and have no se
 | Candidates per search lane | 30 | none |
 | Rank fusion constant | 60 | none |
 | Lane weights (meaning / keyword / date) | 1 / 1 / 1 | none |
-| Keyword index chunk ceiling | 50,000 | none |
+| Keyword index chunk ceiling | 50,000 | `BIG_RAG_CATALOG_MAX_CHUNKS` (evaluation) |
 | BM25 k1 / b | 1.2 / 0.75 | none |

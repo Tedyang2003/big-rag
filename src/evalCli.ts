@@ -106,12 +106,17 @@ async function runRun(client: LMStudioClient, vectorStore: VectorStore, document
 
   const catalogOutcome = await getCatalog(vectorStoreDir, vectorStore, {
     version: FIXED_DEFAULTS.catalogVersion,
-    maxChunks: FIXED_DEFAULTS.catalogMaxChunks,
+    maxChunks: settings.catalogMaxChunks,
     k1: FIXED_DEFAULTS.bm25K1,
     b: FIXED_DEFAULTS.bm25B,
   });
   if (settings.retrievalDepth === "medium" && !catalogOutcome.catalog) {
     console.warn(`[BigRAG Eval] No search index available: ${catalogOutcome.error ?? "store is empty"}`);
+  } else if (settings.retrievalDepth === "medium" && catalogOutcome.catalog && !catalogOutcome.catalog.hasWordTable) {
+    console.warn(
+      `[BigRAG Eval] Keyword search is off: the index has ${catalogOutcome.catalog.chunkCount} chunks, above the ` +
+        `${settings.catalogMaxChunks} chunk ceiling. Set BIG_RAG_CATALOG_MAX_CHUNKS higher to include it.`,
+    );
   }
 
   const { report, reportPath } = await runEval(

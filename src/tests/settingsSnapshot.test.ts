@@ -15,7 +15,7 @@ const questionSet = {
 
 function args(vectorStoreDir: string) {
   return {
-    settings: { retrievalLimit: 5, retrievalThreshold: 0.5, chunkSize: 512, enableContextCompaction: false, retrievalDepth: "medium" as const },
+    settings: { retrievalLimit: 5, retrievalThreshold: 0.5, chunkSize: 512, enableContextCompaction: false, retrievalDepth: "medium" as const, catalogMaxChunks: 50000 },
     diagnosticPoolSize: 50,
     embeddingModelId: "embed-model",
     vectorStoreDir,

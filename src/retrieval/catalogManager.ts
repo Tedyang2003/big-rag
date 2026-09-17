@@ -105,7 +105,7 @@ export async function getCatalog(
     }
 
     const cached = cache.get(vectorStoreDir);
-    if (cached && !cached.isStaleFor(totalChunks)) {
+    if (cached && !cached.isStaleFor(totalChunks) && cached.matchesCeiling(options.maxChunks)) {
       return {
         catalog: cached,
         built: false,
@@ -116,7 +116,7 @@ export async function getCatalog(
     }
 
     const loaded = await ChunkCatalog.load(vectorStoreDir, options);
-    if (loaded && !loaded.isStaleFor(totalChunks)) {
+    if (loaded && !loaded.isStaleFor(totalChunks) && loaded.matchesCeiling(options.maxChunks)) {
       cache.set(vectorStoreDir, loaded);
       return {
         catalog: loaded,

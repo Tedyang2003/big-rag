@@ -8,6 +8,8 @@ export interface RetrievalSettings {
   chunkSize: number;
   enableContextCompaction: boolean;
   retrievalDepth: RetrievalDepth;
+  /** Above this many chunks the keyword index is skipped. Raise it to evaluate hybrid retrieval on large sets. */
+  catalogMaxChunks: number;
 }
 
 function readNumber(env: Record<string, string | undefined>, name: string, fallback: number): number {
@@ -42,12 +44,18 @@ export function readRetrievalSettings(env: Record<string, string | undefined>): 
     throw new Error(`BIG_RAG_RETRIEVAL_DEPTH must be "low" or "medium", got "${env.BIG_RAG_RETRIEVAL_DEPTH}"`);
   }
 
+  const catalogMaxChunks = readNumber(env, "BIG_RAG_CATALOG_MAX_CHUNKS", FIXED_DEFAULTS.catalogMaxChunks);
+  if (!Number.isInteger(catalogMaxChunks) || catalogMaxChunks < 1) {
+    throw new Error(`BIG_RAG_CATALOG_MAX_CHUNKS must be a positive whole number, got "${env.BIG_RAG_CATALOG_MAX_CHUNKS}"`);
+  }
+
   return {
     retrievalLimit,
     retrievalThreshold,
     chunkSize,
     enableContextCompaction: (env.BIG_RAG_ENABLE_COMPACTION ?? String(FIXED_DEFAULTS.enableContextCompaction)).trim().toLowerCase() === "true",
     retrievalDepth: rawDepth,
+    catalogMaxChunks,
   };
 }
 

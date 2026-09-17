@@ -9,6 +9,7 @@ test("readRetrievalSettings uses the plugin config defaults when env vars are un
     chunkSize: 512,
     enableContextCompaction: false,
     retrievalDepth: "medium",
+    catalogMaxChunks: 50000,
   });
 });
 
@@ -27,7 +28,7 @@ test("readRetrievalSettings reads overrides from env vars", () => {
       BIG_RAG_CHUNK_SIZE: "1024",
       BIG_RAG_ENABLE_COMPACTION: "TRUE",
     }),
-    { retrievalLimit: 8, retrievalThreshold: 0.35, chunkSize: 1024, enableContextCompaction: true, retrievalDepth: "medium" },
+    { retrievalLimit: 8, retrievalThreshold: 0.35, chunkSize: 1024, enableContextCompaction: true, retrievalDepth: "medium", catalogMaxChunks: 50000 },
   );
 });
 
@@ -72,4 +73,11 @@ test("readGenerationSettings rejects invalid count and seed values", () => {
   assert.throws(() => readGenerationSettings({ BIG_RAG_EVAL_COUNT: "0" }), /BIG_RAG_EVAL_COUNT/);
   assert.throws(() => readGenerationSettings({ BIG_RAG_EVAL_COUNT: "2.5" }), /BIG_RAG_EVAL_COUNT/);
   assert.throws(() => readGenerationSettings({ BIG_RAG_EVAL_SEED: "x" }), /BIG_RAG_EVAL_SEED/);
+});
+
+test("readRetrievalSettings reads the catalog chunk ceiling from the environment", () => {
+  assert.equal(readRetrievalSettings({}).catalogMaxChunks, 50000);
+  assert.equal(readRetrievalSettings({ BIG_RAG_CATALOG_MAX_CHUNKS: "200000" }).catalogMaxChunks, 200000);
+  assert.throws(() => readRetrievalSettings({ BIG_RAG_CATALOG_MAX_CHUNKS: "0" }), /BIG_RAG_CATALOG_MAX_CHUNKS/);
+  assert.throws(() => readRetrievalSettings({ BIG_RAG_CATALOG_MAX_CHUNKS: "lots" }), /BIG_RAG_CATALOG_MAX_CHUNKS/);
 });

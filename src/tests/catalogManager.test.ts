@@ -203,3 +203,18 @@ test("resetCatalogCache lets a later build report a failure again", async () => 
     assert.equal(third.reportFailure, true);
   });
 });
+
+test("raising the ceiling rebuilds a catalog that was saved without its word table", async () => {
+  await withTempDir(async (dir) => {
+    const chunks = [chunkOf("hashA-0"), chunkOf("hashA-1"), chunkOf("hashA-2")];
+
+    const lowCeiling = await getCatalog(dir, sourceOf(chunks).source, { ...OPTIONS, maxChunks: 2 }, new CatalogCache());
+    assert.equal(lowCeiling.catalog!.hasWordTable, false);
+
+    const { source, listCalls } = sourceOf(chunks);
+    const raised = await getCatalog(dir, source, { ...OPTIONS, maxChunks: 50000 }, new CatalogCache());
+    assert.equal(raised.built, true);
+    assert.equal(raised.catalog!.hasWordTable, true);
+    assert.equal(listCalls(), 1);
+  });
+});
