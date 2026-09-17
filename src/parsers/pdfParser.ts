@@ -1,5 +1,6 @@
 import { type LMStudioClient } from "@lmstudio/sdk";
 import * as fs from "fs";
+import * as path from "path";
 import pdfParse from "pdf-parse";
 import { createWorker } from "tesseract.js";
 import { inferStructure } from "./markdown/inferStructure";
@@ -49,9 +50,29 @@ export type PdfParserResult = PdfParserSuccess | PdfParserFailure;
 
 type StageResult = PdfParserSuccess | PdfParserFailure;
 
+const MAX_ERROR_SUMMARY_LENGTH = 160;
+
+/**
+ * One readable line for a parser error. LM Studio formats its errors as a box with a
+ * stack trace inside, which is noise when a later parser is about to recover the file.
+ */
+export function summarizeParserError(error: unknown): string {
+  const raw = error instanceof Error ? error.message : String(error);
+  const withoutStack = raw.split(/<\/>\s*STACK TRACE|\n\s*at\s/)[0];
+  const text = withoutStack
+    .replace(/[\u2500-\u257F]/g, " ")
+    .replace(/^\s*Error\b/, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!text) return "unknown error";
+  return text.length > MAX_ERROR_SUMMARY_LENGTH
+    ? `${text.slice(0, MAX_ERROR_SUMMARY_LENGTH - 1)}…`
+    : text;
+}
+
 async function tryLmStudioParser(filePath: string, client: LMStudioClient): Promise<StageResult> {
   const maxRetries = 2;
-  const fileName = filePath.split("/").pop() || filePath;
+  const fileName = path.basename(filePath);
 
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
     try {
@@ -92,11 +113,12 @@ async function tryLmStudioParser(filePath: string, client: LMStudioClient): Prom
         continue;
       }
 
-      console.error(`[PDF Parser] (LM Studio) Error parsing PDF file ${filePath}:`, error);
+      const summary = summarizeParserError(error);
+      console.warn(`[PDF Parser] LM Studio parser couldn't read ${fileName} (${summary}); trying pdf-parse`);
       return {
         success: false,
         reason: "pdf.lmstudio-error",
-        details: error instanceof Error ? error.message : String(error),
+        details: summary,
       };
     }
   }
@@ -109,7 +131,7 @@ async function tryLmStudioParser(filePath: string, client: LMStudioClient): Prom
 }
 
 async function tryPdfParse(filePath: string): Promise<StageResult> {
-  const fileName = filePath.split("/").pop() || filePath;
+  const fileName = path.basename(filePath);
   try {
     const buffer = await fs.promises.readFile(filePath);
     const result = await pdfParse(buffer);
@@ -129,11 +151,12 @@ async function tryPdfParse(filePath: string): Promise<StageResult> {
       details: `length=${cleaned.length}`,
     };
   } catch (error) {
-    console.error(`[PDF Parser] (pdf-parse) Error parsing PDF file ${filePath}:`, error);
+    const summary = summarizeParserError(error);
+    console.warn(`[PDF Parser] pdf-parse couldn't read ${fileName} (${summary}); trying the next fallback`);
     return {
       success: false,
       reason: "pdf.pdfparse-error",
-      details: error instanceof Error ? error.message : String(error),
+      details: summary,
     };
   }
 }
@@ -310,37 +333,46 @@ export async function parsePDF(
   client: LMStudioClient,
   enableOCR: boolean,
 ): Promise<PdfParserResult> {
-  const fileName = filePath.split("/").pop() || filePath;
+  const fileName = path.basename(filePath);
+  const earlierFailures: PdfParserFailure[] = [];
+  const reportAllFailed = (final: PdfParserFailure): PdfParserFailure => {
+    const stages = [...earlierFailures, final]
+      .map((failure) => `${failure.reason}${failure.details ? ` (${failure.details})` : ""}`)
+      .join("; ");
+    console.error(`[PDF Parser] Could not extract text from ${filePath}: ${stages}`);
+    return final;
+  };
 
   // 1) LM Studio parser
   const lmStudioResult = await tryLmStudioParser(filePath, client);
   if (lmStudioResult.success) {
     return lmStudioResult;
   }
-  let lastFailure: PdfParserFailure = lmStudioResult;
+  earlierFailures.push(lmStudioResult);
 
   // 2) Local pdf-parse fallback
   const pdfParseResult = await tryPdfParse(filePath);
   if (pdfParseResult.success) {
     return pdfParseResult;
   }
-  lastFailure = pdfParseResult;
+  earlierFailures.push(pdfParseResult);
 
   // 3) OCR fallback (only if enabled)
   if (!enableOCR) {
     console.log(
       `[PDF Parser] (OCR) Enable OCR is off, skipping OCR fallback for ${fileName} after other methods returned no text`,
     );
-    return {
+    return reportAllFailed({
       success: false,
       reason: "pdf.ocr-disabled",
-      details: `Previous failure reason: ${lastFailure.reason}`,
-    };
+      details: `Previous failure reason: ${pdfParseResult.reason}`,
+    });
   }
 
   console.log(
     `[PDF Parser] (OCR) No text extracted from ${fileName} with LM Studio or pdf-parse, attempting OCR...`,
   );
 
-  return tryOcrWithMuPdf(filePath);
+  const ocrResult = await tryOcrWithMuPdf(filePath);
+  return ocrResult.success ? ocrResult : reportAllFailed(ocrResult);
 }
