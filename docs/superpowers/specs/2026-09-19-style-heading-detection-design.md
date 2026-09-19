@@ -50,15 +50,15 @@ Each MuPDF text block becomes a paragraph.
 
 **Pass 2: remove page furniture.** Drop:
 - lines in the top or bottom 8% of the page whose text, with digits normalized, repeats on at least 50% of pages, and only when the document has 3 or more pages
-- lines made only of a number, optionally with a `Page` prefix or `of N` suffix
+- lines in the same top or bottom 8% band made only of a number, optionally with a `Page` prefix or `of N` suffix (number-only lines elsewhere are table cells and are kept)
 
 **Pass 3: find candidates.** The body style is the style covering the most words. A line is a heading candidate when all of the following hold:
 - the whole line is in one style, and that style is not the body style
 - it has 12 words or fewer, contains at least one letter, and does not end in `.`, `,`, `;` or `:`
-- **Guard 1 (own row):** no other line on the same page overlaps it vertically by more than half its height. A heading occupies a row alone. A table row label, table cell or column header shares its row with other text.
+- **Guard 1 (own row):** no other line on the same page overlaps it vertically by more than half its height, counting only lines whose block is at most 2 line-heights tall. A heading occupies a row alone. A table row label, table cell or column header shares its row with other short text. Lines in taller blocks are flowing prose, such as the other column of a two-column page, and are ignored.
 
 **Pass 4: reject over-used styles.**
-- **Guard 2:** a style is dropped as a heading style if its candidate lines make up more than 15% of all lines left after pass 2. A style used that often is emphasis, not a heading level.
+- **Guard 2:** a style is dropped as a heading style if its candidate lines (all of them, including lines in joins later rejected for length) make up more than 15% of all lines left after pass 2. A style used that often is emphasis, not a heading level.
 
 **Pass 5: rank heading styles.**
 - Order the remaining styles by font size, largest first, then by the position of their first candidate line in reading order, ignoring page 1 (the cover page).
@@ -66,7 +66,7 @@ Each MuPDF text block becomes a paragraph.
 - The styles map to `#`, `##` and `###`; any further styles map to `###`.
 - When exactly one heading style remains, it maps to `##`.
 
-Consecutive candidate lines of the same style on adjacent lines are joined into one heading, for headings that wrap onto a second line. The join counts as one heading and must still be 12 words or fewer after joining. If it isn't, the lines are body text.
+Consecutive candidate lines of the same style on the same page, where the next line starts no more than one line height below the previous one, are joined into one heading, for headings that wrap onto a second line. The join counts as one heading and must still be 12 words or fewer after joining. If it isn't, the lines are body text.
 
 **Fallback.** If no heading style survives pass 4, the MuPDF stage reports that it found no headings and the chain moves on to pdf-parse, which applies `inferStructure`'s blank-line rule exactly as it does today. Running that rule on MuPDF's blocks would instead turn every short single-line block, such as a table cell, into a heading.
 
