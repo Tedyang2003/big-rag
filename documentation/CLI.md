@@ -56,6 +56,16 @@ Environment variables stay set for the rest of a PowerShell session, so set each
 
 Set `BIG_RAG_FAILURE_REPORT_PATH` to an absolute path, for example `C:\temp\index-failures.json`, to get a JSON file listing every file that failed and why once indexing finishes. It is useful for tracking down stubborn PDFs such as blueprints or large scanned books.
 
+### Structure Report
+
+`npm run structure:report` shows how documents will be split, without building an index or starting LM Studio.
+
+```powershell
+$env:BIG_RAG_DOCS_DIR = "D:\docs"; npm run structure:report
+```
+
+For each file it prints the parser used, headings found at each level and per page, legacy and structured chunk counts, and how full structured chunks are on average; totals follow at the end. Set `BIG_RAG_REPORT_HEADINGS=true` to also list each file's first 20 headings. Token counts are estimated at 1.3 per word, so chunk counts are close to, not exactly, what indexing produces. `BIG_RAG_CHUNK_SIZE`, `BIG_RAG_CHUNK_OVERLAP`, `BIG_RAG_ENABLE_OCR` and `BIG_RAG_EXCLUDE_PATTERNS` apply as they do for indexing.
+
 ### Building Indexes for Comparison
 
 Changes to how documents are processed need their own index folder, so each run reflects its own pipeline. For example, a structured index and an older-format index of the same documents:
