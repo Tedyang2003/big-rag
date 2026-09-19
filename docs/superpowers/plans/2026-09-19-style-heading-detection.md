@@ -968,6 +968,11 @@ function readStyledPage(doc: MupdfDocument, pageNumber: number): PdfPage {
     let chars = "";
     let box: [number, number, number, number] = [0, 0, 0, 0];
     let styles = new Map<string, { size: number; bold: boolean; italic: boolean; count: number }>();
+    // walk() hands over a new Font wrapper per character, but its pointer is stable, so the
+    // name and flags are looked up only when the font changes (about 4k lookups instead of 790k
+    // on a 236-page filing).
+    let lastFontPointer: unknown = null;
+    let lastFontFlags = { bold: false, italic: false };
     try {
       stext.walk({
         beginTextBlock() {
@@ -981,12 +986,15 @@ function readStyledPage(doc: MupdfDocument, pageNumber: number): PdfPage {
         onChar(c, _origin, font, size) {
           chars += c;
           if (!c.trim()) return;
-          const name = font.getName();
-          const style = {
-            size: Math.round(size * 2) / 2,
-            bold: font.isBold() || BOLD_FONT.test(name),
-            italic: font.isItalic() || ITALIC_FONT.test(name),
-          };
+          if (font.pointer !== lastFontPointer) {
+            const name = font.getName();
+            lastFontPointer = font.pointer;
+            lastFontFlags = {
+              bold: font.isBold() || BOLD_FONT.test(name),
+              italic: font.isItalic() || ITALIC_FONT.test(name),
+            };
+          }
+          const style = { size: Math.round(size * 2) / 2, ...lastFontFlags };
           const key = styleKey(style);
           const entry = styles.get(key) ?? { ...style, count: 0 };
           entry.count++;
