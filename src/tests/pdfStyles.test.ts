@@ -143,18 +143,18 @@ test("a page number is only furniture near the page edge", () => {
   assert.ok(!/^7$/m.test(markdown!), "footer page number dropped");
 });
 
-test("guard 1 ignores overlap from a taller flowing-text block (two-column page)", () => {
+test("guard 1 ignores overlap from long flowing-text lines (two-column page)", () => {
   const second: PdfPage = {
     height: 1000,
     blocks: [
       { lines: [line("Methods", 300, { bold: true, box: [50, 300, 290, 312] })] },
       {
         lines: [
-          line("Right column line one.", 280, { box: [310, 280, 550, 292] }),
-          line("Right column line two.", 300, { box: [310, 300, 550, 312] }),
-          line("Right column line three.", 320, { box: [310, 320, 550, 332] }),
-          line("Right column line four.", 340, { box: [310, 340, 550, 352] }),
-          line("Right column line five.", 360, { box: [310, 360, 550, 372] }),
+          line("Right column line one of the flowing text.", 280, { box: [310, 280, 550, 292] }),
+          line("Right column line two of the flowing text.", 300, { box: [310, 300, 550, 312] }),
+          line("Right column line three of the flowing text.", 320, { box: [310, 320, 550, 332] }),
+          line("Right column line four of the flowing text.", 340, { box: [310, 340, 550, 352] }),
+          line("Right column line five of the flowing text.", 360, { box: [310, 360, 550, 372] }),
         ],
       },
     ],
@@ -186,6 +186,81 @@ test("candidate lines are only joined into one heading when they are vertically 
   };
   const markdown = styledPagesToMarkdown([page(body(10)), second]);
   assert.deepEqual(headingLines(markdown), ["## Part Two", "## Item 5"]);
+});
+
+test("F1: a wrapped paragraph in a heading-like style is body text, not a heading", () => {
+  const markdown = styledPagesToMarkdown([
+    page(body(5)),
+    page([
+      bold("Results"),
+      ...body(8),
+      ["(1) Represents the impact of foreign currency", { italic: true }],
+      ["translation on the reported balance.", { italic: true }],
+      ...body(5),
+    ]),
+  ]);
+  assert.deepEqual(headingLines(markdown), ["## Results"]);
+  assert.ok(markdown!.includes("(1) Represents the impact of foreign currency"));
+  assert.ok(markdown!.includes("translation on the reported balance."));
+});
+
+test("F2a: a label column beside a tall number column is a table, not headings", () => {
+  const labels = ["Revenue", "Costs", "Taxes", "Margin", "Assets", "Debt", "Equity", "Cash"];
+  const second: PdfPage = {
+    height: 1000,
+    blocks: [
+      { lines: labels.map((text, i) => line(text, 300 + i * 20, { bold: true, box: [50, 300 + i * 20, 200, 312 + i * 20] })) },
+      { lines: labels.map((_, i) => line(`${(i + 1) * 111}`, 300 + i * 20, { box: [400, 300 + i * 20, 450, 312 + i * 20] })) },
+      ...body(50).map((text, i) => ({ lines: [line(text as string, 480 + i * 10)] })),
+    ],
+  };
+  const markdown = styledPagesToMarkdown([page(body(10)), second]);
+  const headings = headingLines(markdown);
+  for (const label of labels) assert.ok(!headings.some((h) => h.includes(label)), `${label} is not a heading`);
+});
+
+test("F2b: a single-line numeric table row is not a heading", () => {
+  const markdown = styledPagesToMarkdown([
+    page(body(5)),
+    page([bold("Results"), ...body(8), bold("Net sales 1,000 900"), ...body(8)]),
+  ]);
+  assert.deepEqual(headingLines(markdown), ["## Results"]);
+  assert.ok(markdown!.includes("Net sales 1,000 900"));
+});
+
+test("F3: a candidate that starts far above the previous one is not joined to it", () => {
+  const second: PdfPage = {
+    height: 1000,
+    blocks: [
+      { lines: [line("Left Column Heading", 500, { bold: true, box: [50, 500, 290, 512] })] },
+      { lines: [line("Right Column Heading", 200, { bold: true, box: [310, 200, 550, 212] })] },
+      ...body(10).map((text, i) => ({ lines: [line(text as string, 600 + i * 20)] })),
+    ],
+  };
+  const markdown = styledPagesToMarkdown([page(body(10)), second]);
+  assert.deepEqual(headingLines(markdown), ["## Left Column Heading", "## Right Column Heading"]);
+});
+
+test("F4: a body line starting with '# ' is escaped, not turned into a heading", () => {
+  const markdown = styledPagesToMarkdown([
+    page(body(5)),
+    page([bold("Stores"), ...body(4), "# of stores at year end", ...body(4)]),
+  ]);
+  assert.deepEqual(headingLines(markdown), ["## Stores"]);
+  assert.ok(markdown!.includes("\\# of stores at year end"));
+});
+
+test("F-style: smaller text is never a heading style, even when bold", () => {
+  const smallPlain = styledPagesToMarkdown([
+    page(body(5)),
+    page([bold("Results"), ...body(8), ["Footnote marker text", { size: 8 }], ...body(8)]),
+  ]);
+  assert.deepEqual(headingLines(smallPlain), ["## Results"]);
+  const smallBold = styledPagesToMarkdown([
+    page(body(5)),
+    page([bold("Results"), ...body(8), ["Small bold note", { size: 8, bold: true }], ...body(8)]),
+  ]);
+  assert.deepEqual(headingLines(smallBold), ["## Results"]);
 });
 
 test("inferStructure keeps short standalone lines as text when heading inference is off", () => {

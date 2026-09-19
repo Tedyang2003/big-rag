@@ -28,6 +28,7 @@ const FURNITURE_PAGE_SHARE = 0.5;
 const FURNITURE_MIN_PAGES = 3;
 const MAX_HEADING_STYLE_SHARE = 0.15;
 const SAME_ROW_OVERLAP = 0.5;
+const MAX_ROW_CELL_WORDS = 5;
 const MAX_HEADING_LEVEL = 3;
 const PAGE_NUMBER = /^(?:page\s+)?\d+(?:\s+of\s+\d+)?$/i;
 
@@ -97,8 +98,15 @@ function removeFurniture(pages: PdfPage[]): PlacedLine[] {
   return kept;
 }
 
+interface BodyStyle {
+  key: string;
+  size: number;
+  bold: boolean;
+  italic: boolean;
+}
+
 /** The style covering the most words. */
-function bodyStyleOf(lines: PlacedLine[]): string {
+function bodyStyleOf(lines: PlacedLine[]): BodyStyle {
   const words = new Map<string, number>();
   for (const { line } of lines) {
     const key = styleKey(line);
@@ -112,62 +120,97 @@ function bodyStyleOf(lines: PlacedLine[]): string {
       bestWords = count;
     }
   }
-  return best;
+  const { size, bold, italic } = lines.find(({ line }) => styleKey(line) === best)!.line;
+  return { key: best, size, bold, italic };
 }
 
-/** Max bottom minus min top over each block's kept lines, keyed by "page:block". */
-function blockHeightsOf(lines: PlacedLine[]): Map<string, number> {
-  const bounds = new Map<string, { top: number; bottom: number }>();
-  for (const { line, page, block } of lines) {
-    const key = `${page}:${block}`;
-    const existing = bounds.get(key);
-    if (!existing) {
-      bounds.set(key, { top: line.box[1], bottom: line.box[3] });
-    } else {
-      existing.top = Math.min(existing.top, line.box[1]);
-      existing.bottom = Math.max(existing.bottom, line.box[3]);
-    }
+/** Only body-size-or-larger emphasis can mark a heading: larger, or newly bold or italic. */
+function isHeadingStyle(line: PdfLine, body: BodyStyle): boolean {
+  if (line.size < body.size) return false;
+  return line.size > body.size || (line.bold && !body.bold) || (line.italic && !body.italic);
+}
+
+/** A word that is a number once currency, percent, parentheses and separators are stripped. */
+function isNumericWord(word: string): boolean {
+  const stripped = word.replace(/[$%(),.]/g, "").replace(/^-/, "");
+  return stripped.length > 0 && /^\d+$/.test(stripped);
+}
+
+/** A row of figures that MuPDF emitted as one line: at least 2 numbers making up half the words. */
+function isNumericRow(text: string): boolean {
+  const words = text.split(/\s+/).filter(Boolean);
+  const numeric = words.filter(isNumericWord).length;
+  return numeric >= 2 && numeric * 2 >= words.length;
+}
+
+/** One page's lines sorted by top, with the tallest line's height, for windowed row lookups. */
+interface PageRows {
+  lines: PlacedLine[];
+  maxHeight: number;
+}
+
+function pageRowsOf(pageLines: PlacedLine[]): PageRows {
+  const lines = [...pageLines].sort((a, b) => a.line.box[1] - b.line.box[1]);
+  const maxHeight = lines.reduce((max, { line }) => Math.max(max, line.box[3] - line.box[1]), 0);
+  return { lines, maxHeight };
+}
+
+/** Index of the first line whose top is at least `top`. */
+function firstAtOrBelow(lines: PlacedLine[], top: number): number {
+  let low = 0;
+  let high = lines.length;
+  while (low < high) {
+    const mid = (low + high) >> 1;
+    if (lines[mid].line.box[1] < top) low = mid + 1;
+    else high = mid;
   }
-  const heights = new Map<string, number>();
-  for (const [key, { top, bottom }] of bounds) heights.set(key, bottom - top);
-  return heights;
+  return low;
 }
 
 /**
  * Guard 1: a heading has its row to itself; table cells and row labels share theirs.
- * Overlap from another block is only counted when that block is at most 2 line-heights
- * tall, so flowing prose in the other column of a two-column page is ignored.
+ * Only a short line (at most 5 words) counts as sharing the row, so flowing prose in the
+ * other column of a two-column page is ignored.
  */
-function sharesRow(target: PlacedLine, pageLines: PlacedLine[], blockHeights: Map<string, number>): boolean {
+function sharesRow(target: PlacedLine, rows: PageRows): boolean {
   const [, top, , bottom] = target.line.box;
   const height = Math.max(bottom - top, 1);
-  return pageLines.some((other) => {
-    if (other === target) return false;
-    const otherBlockHeight = blockHeights.get(`${other.page}:${other.block}`) ?? 0;
-    if (otherBlockHeight > height * 2) return false;
+  // A line that overlaps has its top above `bottom`, and its bottom below `top`, so its
+  // top is no more than the tallest line's height above `top`.
+  for (let i = firstAtOrBelow(rows.lines, top - rows.maxHeight); i < rows.lines.length; i++) {
+    const other = rows.lines[i];
+    if (other.line.box[1] >= bottom) break;
+    if (other === target || wordCount(other.line.text) > MAX_ROW_CELL_WORDS) continue;
     const overlap = Math.min(bottom, other.line.box[3]) - Math.max(top, other.line.box[1]);
-    return overlap > height * SAME_ROW_OVERLAP;
-  });
+    if (overlap > height * SAME_ROW_OVERLAP) return true;
+  }
+  return false;
 }
 
-/** Pass 3: whole-line, non-body, short lines that stand alone on their row. */
-function isCandidate(
-  placed: PlacedLine,
-  bodyStyle: string,
-  pageLines: PlacedLine[],
-  blockHeights: Map<string, number>,
-): boolean {
+/** Pass 3: whole-line, heading-style, short lines that stand alone on their row. */
+function isCandidate(placed: PlacedLine, body: BodyStyle, rows: PageRows): boolean {
   const { line } = placed;
-  if (line.mixed || styleKey(line) === bodyStyle) return false;
+  if (line.mixed || styleKey(line) === body.key || !isHeadingStyle(line, body)) return false;
   if (wordCount(line.text) > MAX_HEADING_WORDS) return false;
   if (!/\p{L}/u.test(line.text) || /[.,;:]$/.test(line.text)) return false;
-  return !sharesRow(placed, pageLines, blockHeights);
+  if (isNumericRow(line.text)) return false;
+  return !sharesRow(placed, rows);
+}
+
+/**
+ * True when `next` continues directly from `previous`: same page, starting no more than
+ * one line height below it and no more than half a line height above it.
+ */
+function followsDirectly(previous: PlacedLine, next: PlacedLine): boolean {
+  if (previous.page !== next.page) return false;
+  const previousHeight = previous.line.box[3] - previous.line.box[1];
+  const gap = next.line.box[1] - previous.line.box[3];
+  return gap <= previousHeight && gap >= -previousHeight / 2;
 }
 
 /**
  * Joins consecutive candidate lines of one style on one page into a run, but only
- * when the next line starts no more than one line height below the previous one;
- * drops joins over 12 words.
+ * when each line follows directly from the previous one; drops joins over 12 words.
  */
 function groupCandidates(lines: PlacedLine[], candidate: boolean[]): HeadingGroup[] {
   const groups: HeadingGroup[] = [];
@@ -187,16 +230,28 @@ function groupCandidates(lines: PlacedLine[], candidate: boolean[]): HeadingGrou
     }
     const previous = current[current.length - 1];
     if (previous) {
-      const previousHeight = previous.line.box[3] - previous.line.box[1];
-      const gap = placed.line.box[1] - previous.line.box[3];
-      const adjacent =
-        previous.page === placed.page && styleKey(previous.line) === styleKey(placed.line) && gap <= previousHeight;
+      const adjacent = styleKey(previous.line) === styleKey(placed.line) && followsDirectly(previous, placed);
       if (!adjacent) close();
     }
     current.push(placed);
   });
   close();
   return groups;
+}
+
+/**
+ * A run is part of a wrapped paragraph when the kept line directly before or after it has
+ * the same style, follows on directly, and is not itself a candidate.
+ */
+function isWrappedParagraph(group: HeadingGroup, lines: PlacedLine[], candidate: boolean[]): boolean {
+  const first = group.lines[0];
+  const last = group.lines[group.lines.length - 1];
+  const continues = (neighbour: PlacedLine | undefined, before: boolean) =>
+    neighbour !== undefined &&
+    !candidate[neighbour.order] &&
+    styleKey(neighbour.line) === group.style &&
+    (before ? followsDirectly(neighbour, first) : followsDirectly(last, neighbour));
+  return continues(lines[first.order - 1], true) || continues(lines[last.order + 1], false);
 }
 
 /** Pass 5: heading level for each surviving style. */
@@ -234,11 +289,13 @@ export function styledPagesToMarkdown(pages: PdfPage[]): string | null {
     pageLines.push(placed);
     linesByPage.set(placed.page, pageLines);
   }
-  const blockHeights = blockHeightsOf(lines);
-  const candidate = lines.map((placed) => isCandidate(placed, bodyStyle, linesByPage.get(placed.page)!, blockHeights));
+  const rowsByPage = new Map<number, PageRows>();
+  for (const [pageNumber, pageLines] of linesByPage) rowsByPage.set(pageNumber, pageRowsOf(pageLines));
+  const candidate = lines.map((placed) => isCandidate(placed, bodyStyle, rowsByPage.get(placed.page)!));
 
   // Pass 4 (guard 2): a style on too many candidate lines (including joins later
-  // dropped for exceeding 12 words) is emphasis, not a heading level.
+  // dropped for exceeding 12 words) is emphasis, not a heading level. A run that is
+  // part of a wrapped paragraph is not a heading either.
   const allGroups = groupCandidates(lines, candidate);
   const linesPerStyle = new Map<string, number>();
   lines.forEach((placed, i) => {
@@ -247,7 +304,9 @@ export function styledPagesToMarkdown(pages: PdfPage[]): string | null {
     linesPerStyle.set(key, (linesPerStyle.get(key) ?? 0) + 1);
   });
   const groups = allGroups.filter(
-    (group) => (linesPerStyle.get(group.style) ?? 0) <= lines.length * MAX_HEADING_STYLE_SHARE,
+    (group) =>
+      (linesPerStyle.get(group.style) ?? 0) <= lines.length * MAX_HEADING_STYLE_SHARE &&
+      !isWrappedParagraph(group, lines, candidate),
   );
   if (groups.length === 0) return null;
 
@@ -277,9 +336,18 @@ export function styledPagesToMarkdown(pages: PdfPage[]): string | null {
       continue;
     }
     if (headingLineOrders.has(placed.order)) continue;
-    paragraph.push(placed.line.text);
+    // A body line that would read as a Markdown heading is escaped.
+    paragraph.push(/^#{1,6}\s/.test(placed.line.text) ? `\\${placed.line.text}` : placed.line.text);
   }
   flush();
 
   return inferStructure(parts.join("\n\n"), { inferHeadings: false });
+}
+
+/** The page text as MuPDF read it: blocks separated by blank lines, a block's lines by newlines. */
+export function pagesToPlainText(pages: PdfPage[]): string {
+  return pages
+    .flatMap((page) => page.blocks)
+    .map((block) => block.lines.map((line) => line.text).join("\n"))
+    .join("\n\n");
 }
