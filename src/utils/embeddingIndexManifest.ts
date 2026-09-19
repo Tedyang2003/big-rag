@@ -5,7 +5,10 @@ import { coerceEmbeddingVector } from "./coerceEmbedding";
 
 export const EMBEDDING_INDEX_MANIFEST_FILENAME = ".big-rag-embedding.json";
 
-export type IndexFormat = "legacy" | "structured-v1";
+export type IndexFormat = "legacy" | "structured-v1" | "structured-v2";
+
+/** The format new structured indexes are built with. v2 detects PDF headings from font styles and never overlaps chunks. */
+export const STRUCTURED_INDEX_FORMAT = "structured-v2";
 
 export interface EmbeddingIndexManifest {
   embeddingModelId: string;
@@ -34,7 +37,8 @@ export async function readEmbeddingIndexManifest(
       return {
         embeddingModelId: data.embeddingModelId,
         dimensions: data.dimensions,
-        indexFormat: data.indexFormat === "structured-v1" ? "structured-v1" : "legacy",
+        indexFormat:
+          data.indexFormat === "structured-v1" || data.indexFormat === "structured-v2" ? data.indexFormat : "legacy",
       };
     }
     return null;
@@ -156,7 +160,7 @@ export async function checkEmbeddingModelForRetrieval(args: {
 }
 
 export function desiredIndexFormat(structuredIndexing: boolean): IndexFormat {
-  return structuredIndexing ? "structured-v1" : "legacy";
+  return structuredIndexing ? STRUCTURED_INDEX_FORMAT : "legacy";
 }
 
 /**
@@ -199,7 +203,8 @@ export async function indexFormatStatusMessage(
 
 export function indexFormatMismatchMessage(indexed: IndexFormat, desired: IndexFormat): string | null {
   if (indexed === desired) return null;
-  return desired === "structured-v1"
+  if (desired === "legacy") return "Reindex required to switch back to standard indexing.";
+  return indexed === "legacy"
     ? "Reindex required to apply structured indexing."
-    : "Reindex required to switch back to standard indexing.";
+    : "Reindex required to apply improved structured indexing.";
 }

@@ -12,6 +12,7 @@ import { FailedFileRegistry } from "../utils/failedFileRegistry";
 import { coerceEmbeddingVector } from "../utils/coerceEmbedding";
 import { chunkStructured, type StructuredChunk } from "../chunking/structuredChunker";
 import { dayRangeOf, detectDayMonthOrder, documentPostedDate, type DateRange } from "../metadata/dates";
+import { STRUCTURED_INDEX_FORMAT } from "../utils/embeddingIndexManifest";
 
 const EXCLUDE_PROGRESS_THROTTLE = 40;
 
@@ -537,7 +538,7 @@ export class IndexManager {
       startIndex: chunk.startIndex,
       endIndex: chunk.endIndex,
       metadata: {
-        indexFormat: "structured-v1",
+        indexFormat: STRUCTURED_INDEX_FORMAT,
         postedDate: JSON.stringify(postedDate),
         dates: JSON.stringify(chunk.dates),
         sectionPath: chunk.sectionPath,

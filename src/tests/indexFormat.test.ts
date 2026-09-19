@@ -31,11 +31,14 @@ test("a manifest without indexFormat reads as legacy", async () => {
 test("planIndexFormat asks for a rebuild only when an existing index uses the other format", async () => {
   const dir = await tempDir();
   try {
-    assert.deepEqual(await planIndexFormat(dir, 0, true), { indexFormat: "structured-v1", rebuildExistingFiles: false });
-    assert.deepEqual(await planIndexFormat(dir, 10, true), { indexFormat: "structured-v1", rebuildExistingFiles: true });
+    assert.deepEqual(await planIndexFormat(dir, 0, true), { indexFormat: "structured-v2", rebuildExistingFiles: false });
+    assert.deepEqual(await planIndexFormat(dir, 10, true), { indexFormat: "structured-v2", rebuildExistingFiles: true });
 
     await writeEmbeddingIndexManifest(dir, { embeddingModelId: "m", dimensions: 3, indexFormat: "structured-v1" });
-    assert.deepEqual(await planIndexFormat(dir, 10, true), { indexFormat: "structured-v1", rebuildExistingFiles: false });
+    assert.deepEqual(await planIndexFormat(dir, 10, true), { indexFormat: "structured-v2", rebuildExistingFiles: true });
+
+    await writeEmbeddingIndexManifest(dir, { embeddingModelId: "m", dimensions: 3, indexFormat: "structured-v2" });
+    assert.deepEqual(await planIndexFormat(dir, 10, true), { indexFormat: "structured-v2", rebuildExistingFiles: false });
     assert.deepEqual(await planIndexFormat(dir, 10, false), { indexFormat: "legacy", rebuildExistingFiles: true });
   } finally {
     await fs.rm(dir, { recursive: true, force: true });
@@ -43,12 +46,21 @@ test("planIndexFormat asks for a rebuild only when an existing index uses the ot
 });
 
 test("indexFormatMismatchMessage describes the needed reindex", () => {
-  assert.equal(desiredIndexFormat(true), "structured-v1");
+  assert.equal(desiredIndexFormat(true), "structured-v2");
   assert.equal(desiredIndexFormat(false), "legacy");
   assert.equal(indexFormatMismatchMessage("legacy", "legacy"), null);
-  assert.equal(indexFormatMismatchMessage("legacy", "structured-v1"), "Reindex required to apply structured indexing.");
+  assert.equal(indexFormatMismatchMessage("structured-v2", "structured-v2"), null);
+  assert.equal(indexFormatMismatchMessage("legacy", "structured-v2"), "Reindex required to apply structured indexing.");
+  assert.equal(
+    indexFormatMismatchMessage("structured-v1", "structured-v2"),
+    "Reindex required to apply improved structured indexing.",
+  );
   assert.equal(
     indexFormatMismatchMessage("structured-v1", "legacy"),
+    "Reindex required to switch back to standard indexing.",
+  );
+  assert.equal(
+    indexFormatMismatchMessage("structured-v2", "legacy"),
     "Reindex required to switch back to standard indexing.",
   );
 });
@@ -70,7 +82,7 @@ test("indexFormatStatusMessage treats a store without a manifest as legacy", asy
     assert.equal(await indexFormatStatusMessage(dir, true, totalChunks(0)), null);
     assert.equal(statsCalls, 3);
 
-    await writeEmbeddingIndexManifest(dir, { embeddingModelId: "m", dimensions: 3, indexFormat: "structured-v1" });
+    await writeEmbeddingIndexManifest(dir, { embeddingModelId: "m", dimensions: 3, indexFormat: "structured-v2" });
     statsCalls = 0;
     assert.equal(
       await indexFormatStatusMessage(dir, false, totalChunks(10)),
@@ -78,6 +90,20 @@ test("indexFormatStatusMessage treats a store without a manifest as legacy", asy
     );
     assert.equal(await indexFormatStatusMessage(dir, true, totalChunks(10)), null);
     assert.equal(statsCalls, 0, "stats are only read when the manifest is missing");
+  } finally {
+    await fs.rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("a structured-v1 manifest is read back as structured-v1", async () => {
+  const dir = await tempDir();
+  try {
+    await writeEmbeddingIndexManifest(dir, { embeddingModelId: "m", dimensions: 3, indexFormat: "structured-v1" });
+    assert.equal((await readEmbeddingIndexManifest(dir))?.indexFormat, "structured-v1");
+    assert.equal(
+      await indexFormatStatusMessage(dir, true, async () => 10),
+      "Reindex required to apply improved structured indexing.",
+    );
   } finally {
     await fs.rm(dir, { recursive: true, force: true });
   }
