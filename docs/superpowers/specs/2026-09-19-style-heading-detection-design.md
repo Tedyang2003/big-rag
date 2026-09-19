@@ -40,7 +40,7 @@ MuPDF styled text fails over to the next stage when the file cannot be opened or
 
 ### New module `src/parsers/markdown/pdfStyles.ts`
 
-It takes MuPDF structured text (`toStructuredText("preserve-whitespace").asJSON()` per page) and returns normalized Markdown, following the same contract as the other parsers. It runs five passes.
+It takes the lines of MuPDF structured text (`toStructuredText("preserve-whitespace")` per page, read character by character with `walk()` so a line with mixed styles can be recognized; `asJSON()` reports only one font per line) and returns normalized Markdown, following the same contract as the other parsers. It runs five passes.
 
 **Pass 1: collect lines.** For each line, record its text, style and bounding box:
 - the style is the font size rounded to the nearest 0.5pt, plus bold and italic flags from the font weight and name
@@ -68,7 +68,7 @@ Each MuPDF text block becomes a paragraph.
 
 Consecutive candidate lines of the same style on adjacent lines are joined into one heading, for headings that wrap onto a second line. The join counts as one heading and must still be 12 words or fewer after joining. If it isn't, the lines are body text.
 
-**Fallback.** If no heading style survives pass 4, the module emits the paragraphs as plain Markdown and `inferStructure`'s blank-line rule runs as it does today.
+**Fallback.** If no heading style survives pass 4, the MuPDF stage reports that it found no headings and the chain moves on to pdf-parse, which applies `inferStructure`'s blank-line rule exactly as it does today. Running that rule on MuPDF's blocks would instead turn every short single-line block, such as a table cell, into a heading.
 
 ### Guard 3: header title cap (chunker, all formats)
 
@@ -82,7 +82,7 @@ A bold line that stands alone on its row but is not a heading, such as a pull qu
 
 All changes are in `splitOversized` in `src/chunking/structuredChunker.ts`.
 
-**No overlap.** In structured mode each piece starts exactly where the previous piece ended. The Chunk Overlap setting applies to legacy mode only, and its description says so. The context header supplies the section context that overlap used to give.
+**No overlap.** In structured mode each piece starts exactly where the previous piece ended. The chunk overlap setting (`BIG_RAG_CHUNK_OVERLAP`, a fixed default in the plugin) applies to legacy mode only, and the documentation says so. The context header supplies the section context that overlap used to give.
 
 **75% fill rule.** For each piece, `limit` is the furthest word the piece budget allows. The cut point is chosen as follows:
 1. The last paragraph end after the previous cut and at or before `limit`. If it fills at least 75% of `pieceBudget`, cut there.
@@ -128,9 +128,9 @@ A committed dev script, `npm run structure:report`, with `BIG_RAG_DOCS_DIR` poin
 - the parser stage used
 - heading counts by level, and headings per page
 - structured and legacy chunk counts
-- the average fill of split pieces
+- the average fill of structured chunks (header plus text, as a share of the chunk size)
 
-It also prints totals across the folder.
+It also prints totals across the folder. It does not need LM Studio: token counts are estimated at 1.3 tokens per word, and the LM Studio parser stage is skipped. Both modes use the same estimate, so the legacy-to-structured ratio stays comparable.
 
 ### Pass criteria
 
@@ -150,7 +150,7 @@ The user supplies the non-finance PDFs. If none are supplied, public documents o
 - `src/parsers/pdfParser.ts`: stage order, and the new MuPDF styled-text stage
 - `src/chunking/structuredChunker.ts`: no overlap, the fill rule, the title cap
 - `src/ingestion/indexManager.ts`, and the index format helpers and messages: `structured-v2`
-- The Chunk Overlap setting description
+- `README.md` and the chunk overlap wording in `documentation/CLI.md` and `documentation/Evaluation.md`
 - `package.json`: the `structure:report` script, and the script itself under `src/`
 - Tests under `src/tests/`
 - `documentation/` guides: parser order, Chunk Overlap wording, the reindex note
