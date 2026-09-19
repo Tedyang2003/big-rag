@@ -64,7 +64,7 @@ The following values were held constant across every configuration, so that each
 | Setting | Value |
 |---|---|
 | Embedding model (`BIG_RAG_EMBEDDING_MODEL`) | `nomic-ai/nomic-embed-text-v1.5-GGUF` |
-| Chunk size / overlap (`BIG_RAG_CHUNK_SIZE` / `BIG_RAG_CHUNK_OVERLAP`) | 512 / 100 tokens |
+| Chunk size / overlap (`BIG_RAG_CHUNK_SIZE` / `BIG_RAG_CHUNK_OVERLAP`) | 512 / 100 tokens (overlap: older, unstructured format only) |
 | Retrieval limit (`BIG_RAG_RETRIEVAL_LIMIT`) | 5 passages |
 | Affinity threshold (`BIG_RAG_RETRIEVAL_THRESHOLD`) | 0.5 |
 | Context compaction (`BIG_RAG_ENABLE_COMPACTION`) | off |

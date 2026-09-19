@@ -144,7 +144,7 @@ These values are fixed in the plugin (`src/settings/defaults.ts`) and have no se
 | Retrieval limit | 5 | `BIG_RAG_RETRIEVAL_LIMIT` (evaluation) |
 | Affinity threshold | 0.5 | `BIG_RAG_RETRIEVAL_THRESHOLD` (evaluation) |
 | Chunk size (tokens) | 512 | `BIG_RAG_CHUNK_SIZE` |
-| Chunk overlap (tokens) | 100 | `BIG_RAG_CHUNK_OVERLAP` |
+| Chunk overlap (tokens) | 100 (older, unstructured format only) | `BIG_RAG_CHUNK_OVERLAP` |
 | Max concurrent files | 1 | `BIG_RAG_MAX_CONCURRENT` |
 | Parser delay (ms) | 500 | `BIG_RAG_PARSE_DELAY_MS` |
 | OCR | on | `BIG_RAG_ENABLE_OCR` |

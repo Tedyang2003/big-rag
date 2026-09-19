@@ -5,9 +5,9 @@ import { parseDocument } from "./parsers/documentParser";
 import { countPdfPages, DEFAULT_PDF_STAGES, parsePDF } from "./parsers/pdfParser";
 import { markdownToPlain } from "./parsers/markdown/normalizeMarkdown";
 import { parseBlocks } from "./chunking/sections";
-import { chunkStructured } from "./chunking/structuredChunker";
+import { chunkStructured, type StructuredChunk } from "./chunking/structuredChunker";
 import { chunkText } from "./utils/textChunker";
-import { detectDayMonthOrder, documentPostedDate } from "./metadata/dates";
+import { dayRangeOf, detectDayMonthOrder, documentPostedDate } from "./metadata/dates";
 import { readCliIndexingSettings } from "./settings/cliSettings";
 import { parseExcludePatternsFromEnv } from "./utils/fileExcludePatterns";
 
@@ -54,18 +54,29 @@ async function reportFile(file: ScannedFile, root: string, settings: ReturnType<
   for (const block of headingBlocks) headingsByLevel[Math.min(block.level, 3) - 1]++;
 
   const legacy = await chunkText(markdownToPlain(markdown), settings.chunkSize, settings.chunkOverlap, estimateTokens);
-  const postedDate = documentPostedDate(markdown, file.name, file.mtime);
-  const structured = await chunkStructured(markdown, {
-    fileName: file.name,
-    postedDate,
-    chunkSize: settings.chunkSize,
-    countTokens: estimateTokens,
-    dateContext: {
-      order: detectDayMonthOrder(markdown),
-      referenceTime: file.mtime,
-      defaultYear: Number(postedDate.start.slice(0, 4)),
-    },
-  });
+  // Mirrors indexManager.prepareStructuredChunks: chunk without dates if date extraction fails.
+  const base = { fileName: file.name, chunkSize: settings.chunkSize, countTokens: estimateTokens };
+  let structured: StructuredChunk[];
+  try {
+    const postedDate = documentPostedDate(markdown, file.name, file.mtime);
+    structured = await chunkStructured(markdown, {
+      ...base,
+      postedDate,
+      dateContext: {
+        order: detectDayMonthOrder(markdown),
+        referenceTime: file.mtime,
+        defaultYear: Number(postedDate.start.slice(0, 4)),
+      },
+    });
+  } catch (error) {
+    console.warn(`[Structure Report] Date extraction failed for ${file.name}; chunking without dates:`, error);
+    structured = await chunkStructured(markdown, {
+      ...base,
+      postedDate: dayRangeOf(file.mtime),
+      dateContext: {},
+      extractDates: false,
+    });
+  }
   let fillTotal = 0;
   for (const chunk of structured) {
     fillTotal += ((await estimateTokens(chunk.contextHeader)) + (await estimateTokens(chunk.text))) / settings.chunkSize;

@@ -103,4 +103,4 @@ ISC
 - Built with the LM Studio SDK
 - Vector storage by Vectra
 - OCR by Tesseract.js, with MuPDF rendering pages for the PDF fallback
-- Parsing by pdf-parse, mammoth, cheerio, epub2 and jszip
+- Parsing by MuPDF, pdf-parse, mammoth, cheerio, epub2 and jszip

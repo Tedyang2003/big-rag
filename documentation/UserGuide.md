@@ -81,6 +81,8 @@ Indexes built before structured indexing use an older format. The plugin shows *
 
 Structured indexing now finds PDF headings from font styles (bold, italic and larger text) and no longer overlaps chunks. Structured indexes built before this change show *"Reindex required to apply improved structured indexing."* until you reindex.
 
+PDFs are now read with MuPDF first in both modes, so reindexing a standard (legacy) index can also change the text extracted from PDFs.
+
 ## Upgrading from 1.3
 
 Settings moved out of the chat sidebar in 1.4. After upgrading, enter **Documents Directory** and **Vector Store Directory**, plus any custom embedding model, exclude patterns or prompt template, once in Big RAG's global settings. Pointing Vector Store Directory at your existing folder keeps your existing index. Old per-chat values for retrieval limit, threshold, chunk size, overlap, concurrency, parser delay, OCR, structured indexing and compaction are no longer used.
