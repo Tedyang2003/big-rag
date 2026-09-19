@@ -45,7 +45,7 @@ Avoid indexing into the same folder the plugin is using while a chat is also ind
 | `BIG_RAG_FORCE_REINDEX` | `false` | `true` rebuilds every file instead of skipping unchanged ones |
 | `BIG_RAG_EXCLUDE_PATTERNS` | none | Semicolon-separated globs, e.g. `*.png;archive/**` |
 | `BIG_RAG_MAX_CONCURRENT` | `1` | Files processed at once; higher is faster but uses more memory |
-| `BIG_RAG_CHUNK_SIZE` / `BIG_RAG_CHUNK_OVERLAP` | `512` / `100` | Chunk size and overlap in tokens |
+| `BIG_RAG_CHUNK_SIZE` / `BIG_RAG_CHUNK_OVERLAP` | `512` / `100` | Chunk size and overlap in tokens. Overlap applies only to the older, unstructured format; structured chunks never overlap |
 | `BIG_RAG_ENABLE_OCR` | `true` | `false` skips images and the OCR fallback for scanned PDFs |
 | `BIG_RAG_PARSE_DELAY_MS` | `500` | Pause before parsing each file, to avoid overloading LM Studio |
 | `BIG_RAG_FAILURE_REPORT_PATH` | none | Absolute path for a JSON report of every failure and its reason |

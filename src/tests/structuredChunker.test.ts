@@ -26,7 +26,6 @@ function options(overrides: Partial<StructuredChunkOptions> = {}): StructuredChu
     fileName: "incident_roundup.txt",
     postedDate: day("2026-09-20"),
     chunkSize: 110,
-    chunkOverlap: 0,
     countTokens: async (text) => words(text),
     dateContext: {},
     ...overrides,
@@ -88,11 +87,50 @@ test("chunkStructured does not shred a section when the header exceeds the budge
   assert.equal(chunks.map((c) => c.text).join(" ").includes("word49"), true);
 });
 
-test("chunkStructured overlaps only pieces of an oversized section", async () => {
-  const chunks = await chunkStructured(ROUNDUP, options({ chunkOverlap: 10 }));
-  assert.equal(chunks[1].startIndex, chunks[0].endIndex, "packed chunk and first piece do not overlap");
-  assert.ok(chunks[2].startIndex < chunks[1].endIndex, "pieces of incident 2 overlap");
-  assert.equal(chunks[3].startIndex, chunks[2].endIndex, "last piece and next packed chunk do not overlap");
+const sentence = (i: number) => `s${i} alpha beta gamma delta epsilon zeta eta theta iota.`;
+const paragraph = (from: number, count: number) =>
+  Array.from({ length: count }, (_, i) => sentence(from + i)).join(" ");
+// Heading (3 words), then a 30-word paragraph, then a 400-word paragraph of 10-word sentences.
+const LONG_SECTION = `## Long section\n\n${paragraph(0, 3)}\n\n${paragraph(3, 40)}`;
+
+test("chunkStructured never overlaps pieces of an oversized section", async () => {
+  const chunks = await chunkStructured(LONG_SECTION, options());
+  assert.ok(chunks.length > 2, `expected several pieces, got ${chunks.length}`);
+  for (let i = 1; i < chunks.length; i++) {
+    assert.equal(chunks[i].startIndex, chunks[i - 1].endIndex, `chunk ${i} overlaps or skips text`);
+  }
+});
+
+test("chunkStructured keeps every word exactly once and in order", async () => {
+  for (const markdown of [ROUNDUP, LONG_SECTION]) {
+    const chunks = await chunkStructured(markdown, options());
+    assert.deepEqual(
+      chunks.flatMap((chunk) => chunk.text.split(/\s+/).filter(Boolean)),
+      markdown.split(/\s+/).filter(Boolean),
+    );
+  }
+});
+
+test("chunkStructured cuts at a sentence end when the paragraph end would leave the piece under 75% full", async () => {
+  const chunks = await chunkStructured(LONG_SECTION, options());
+  const first = chunks[0];
+  assert.ok(first.endIndex - first.startIndex > 32, "first piece stopped at the short paragraph");
+  assert.ok(first.text.endsWith("."), "first piece ends at a sentence end");
+  assert.ok(words(first.contextHeader) + words(first.text) >= 0.75 * 110, "first piece is at least 75% full");
+});
+
+test("chunkStructured prefers a paragraph end that fills at least 75% of the piece", async () => {
+  // The header takes 9 words, so pieces get 101; the paragraph end at word 83 (3 heading words + 80) is over 75% of that.
+  const markdown = `## Long section\n\n${paragraph(0, 8)}\n\n${paragraph(8, 40)}`;
+  const chunks = await chunkStructured(markdown, options());
+  assert.equal(chunks[0].endIndex - chunks[0].startIndex, 83);
+});
+
+test("chunkStructured cuts at the word limit when a piece has no paragraph or sentence end", async () => {
+  const body = Array.from({ length: 300 }, (_, i) => `w${i}`).join(" ");
+  const chunks = await chunkStructured(`## Long section\n\n${body}`, options());
+  assert.equal(chunks[0].endIndex - chunks[0].startIndex, 101);
+  assert.equal(chunks[1].endIndex - chunks[1].startIndex, 101);
 });
 
 test("chunk word offsets match chunk text length", async () => {
@@ -165,12 +203,12 @@ test("chunkStructured budgets headers at their own token density", async () => {
 
 test("chunkStructured never crawls forward when a split piece ends early", async () => {
   // A short paragraph followed by one long paragraph with no sentence ends: the first
-  // piece ends at the short paragraph's boundary, well before the overlap distance.
+  // piece ends at the short paragraph's boundary, well short of a full piece.
   const shortParagraph = Array.from({ length: 20 }, (_, i) => `intro${i}`).join(" ");
   const longParagraph = Array.from({ length: 600 }, (_, i) => `body${i}`).join(" ");
   const markdown = `## Long section\n\n${shortParagraph}\n\n${longParagraph}`;
 
-  const chunks = await chunkStructured(markdown, options({ chunkSize: 110, chunkOverlap: 50 }));
+  const chunks = await chunkStructured(markdown, options({ chunkSize: 110 }));
 
   for (let i = 1; i < chunks.length; i++) {
     assert.ok(

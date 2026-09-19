@@ -5,6 +5,9 @@ import { buildSections, renderBlock, type Section } from "./sections";
 /** Packed sections beyond this many show only as a count, so false headings cannot bloat the header. */
 const MAX_EXTRA_TITLES = 2;
 
+/** A split piece cut at a paragraph end must fill at least this share of its budget, or a sentence end is used. */
+const MIN_PIECE_FILL = 0.75;
+
 export interface StructuredChunk {
   text: string;
   contextHeader: string;
@@ -18,7 +21,6 @@ export interface StructuredChunkOptions {
   fileName: string;
   postedDate: DateRange;
   chunkSize: number;
-  chunkOverlap: number;
   countTokens: CountTokens;
   dateContext: DateContext;
   /** Set to false to skip all date extraction (fallback when extraction fails). */
@@ -125,6 +127,25 @@ function lastBoundary(bounds: number[], lowerExclusive: number, upperInclusive: 
   return best;
 }
 
+/**
+ * Where a piece of an oversized section ends: the last paragraph end if it fills the piece
+ * enough, otherwise the furthest of the last sentence end and that paragraph end, otherwise
+ * the word limit.
+ */
+function chooseCut(
+  blockEnds: number[],
+  sentences: number[],
+  lowerExclusive: number,
+  limit: number,
+  fullEnough: number,
+): number {
+  const paragraphEnd = lastBoundary(blockEnds, lowerExclusive, limit);
+  if (paragraphEnd !== undefined && paragraphEnd >= fullEnough) return paragraphEnd;
+  const sentenceEnd = lastBoundary(sentences, lowerExclusive, limit);
+  if (sentenceEnd !== undefined && (paragraphEnd === undefined || sentenceEnd > paragraphEnd)) return sentenceEnd;
+  return paragraphEnd ?? limit;
+}
+
 export async function chunkStructured(markdown: string, options: StructuredChunkOptions): Promise<StructuredChunk[]> {
   const withDates = options.extractDates !== false;
   const sections = mergeHeadingOnlySections(buildSections(markdown, options.dateContext, withDates));
@@ -134,7 +155,6 @@ export async function chunkStructured(markdown: string, options: StructuredChunk
   const totalTokens = await options.countTokens(markdown);
   const tokensPerWord = totalTokens > 0 && totalWords > 0 ? totalTokens / totalWords : 1;
   const budgetWords = Math.max(1, Math.round(options.chunkSize / tokensPerWord));
-  const overlapWords = Math.max(0, Math.min(budgetWords - 1, Math.round(options.chunkOverlap / tokensPerWord)));
 
   const textDates = (text: string): DateRange[] => (withDates ? extractDates(text, options.dateContext) : []);
 
@@ -199,27 +219,21 @@ export async function chunkStructured(markdown: string, options: StructuredChunk
       return previous !== undefined && previous > lower ? previous : end + 1;
     };
 
+    // Pieces never overlap: each one starts where the previous one ended.
     let start = 0;
-    let previousEnd = 0;
     while (start < total) {
       const limit = Math.min(total, start + pieceBudget);
-      // Split points must lie beyond the previous piece's end; otherwise a piece that
-      // ended early at a nearby boundary is re-emitted one word at a time.
-      const lower = start === 0 ? Math.max(start, item.headingEnd) : Math.max(start, previousEnd);
+      const lower = start === 0 ? Math.max(start, item.headingEnd) : start;
       let end = limit;
       if (limit < total) {
-        end = lastBoundary(item.blockEnds, lower, limit) ?? lastBoundary(sentences, lower, limit) ?? limit;
+        end = chooseCut(item.blockEnds, sentences, lower, limit, start + Math.ceil(pieceBudget * MIN_PIECE_FILL));
       }
       if (start === 0 && end <= item.headingEnd) {
         end = Math.min(total, item.headingEnd + 1);
       }
       end = avoidHeadingEnd(end, lower);
       emit([item.section], item.tokens.slice(start, end), item.offset + start);
-      if (end >= total) break;
-      // Overlap by at most half the piece just emitted, so short pieces still move forward.
-      const overlap = Math.min(overlapWords, Math.floor((end - start) / 2));
-      previousEnd = end;
-      start = Math.max(start + 1, end - overlap);
+      start = end;
     }
   };
 

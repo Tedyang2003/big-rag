@@ -509,7 +509,6 @@ export class IndexManager {
     const base = {
       fileName: file.name,
       chunkSize: this.options.chunkSize,
-      chunkOverlap: this.options.chunkOverlap,
       countTokens: (t: string) => this.options.embeddingModel.countTokens(t),
     };
 
