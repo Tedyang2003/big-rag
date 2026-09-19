@@ -21,7 +21,7 @@ A spike showed the headings are visible in the PDF itself: filings mark them in 
 ## Non-goals
 
 - No text-pattern rules (such as `Item 7`, `Part II` or numbered headings). They misrepresent documents that use the same words for other purposes.
-- No change to legacy mode, or to DOCX, HTML, PPTX, Markdown or text parsing.
+- No change to legacy chunking, or to DOCX, HTML, PPTX, Markdown or text parsing. The new PDF parser order applies in both modes, so reindexing a legacy index can change PDF text.
 - No change to retrieval.
 - No evening out of the last two pieces of a section. Revisit only if measurement shows many tiny tail pieces.
 
@@ -53,9 +53,10 @@ Each MuPDF text block becomes a paragraph.
 - lines in the same top or bottom 8% band made only of a number, optionally with a `Page` prefix or `of N` suffix (number-only lines elsewhere are table cells and are kept)
 
 **Pass 3: find candidates.** The body style is the style covering the most words. A line is a heading candidate when all of the following hold:
-- the whole line is in one style, and that style is not the body style
+- the whole line is in one style, and that style is at least body size and differs from the body by being larger, bold or italic (smaller text is never a heading)
 - it has 12 words or fewer, contains at least one letter, and does not end in `.`, `,`, `;` or `:`
-- **Guard 1 (own row):** no other line on the same page overlaps it vertically by more than half its height, counting only lines whose block is at most 2 line-heights tall. A heading occupies a row alone. A table row label, table cell or column header shares its row with other short text. Lines in taller blocks are flowing prose, such as the other column of a two-column page, and are ignored.
+- it is not a table row written as one line: it does not have 2 or more numeric words making up at least half its words
+- **Guard 1 (own row):** no other line on the same page overlaps it vertically by more than half its height, counting only other lines of 5 words or fewer. A heading occupies a row alone. A table row label, table cell or column header shares its row with other short text. Longer lines are flowing prose, such as the other column of a two-column page, and are ignored.
 
 **Pass 4: reject over-used styles.**
 - **Guard 2:** a style is dropped as a heading style if its candidate lines (all of them, including lines in joins later rejected for length) make up more than 15% of all lines left after pass 2. A style used that often is emphasis, not a heading level.
@@ -66,9 +67,9 @@ Each MuPDF text block becomes a paragraph.
 - The styles map to `#`, `##` and `###`; any further styles map to `###`.
 - When exactly one heading style remains, it maps to `##`.
 
-Consecutive candidate lines of the same style on the same page, where the next line starts no more than one line height below the previous one, are joined into one heading, for headings that wrap onto a second line. The join counts as one heading and must still be 12 words or fewer after joining. If it isn't, the lines are body text.
+Consecutive candidate lines of the same style on the same page, where the next line starts no more than one line height below the previous one and no more than half a line height above it, are joined into one heading, for headings that wrap onto a second line. The join counts as one heading and must still be 12 words or fewer after joining. If it isn't, the lines are body text. A run is also body text when the line directly before or after it has the same style, is adjacent in the same way, and is not a candidate: it is the first or last line of a wrapped paragraph, such as a footnote. Body lines that start with `# ` are escaped so they cannot become Markdown headings.
 
-**Fallback.** If no heading style survives pass 4, the MuPDF stage reports that it found no headings and the chain moves on to pdf-parse, which applies `inferStructure`'s blank-line rule exactly as it does today. Running that rule on MuPDF's blocks would instead turn every short single-line block, such as a table cell, into a heading.
+**Fallback.** If no heading style survives pass 4, the MuPDF stage reports that it found no headings and the chain moves on to pdf-parse, which applies `inferStructure`'s blank-line rule exactly as it does today. The failure carries MuPDF's plain text; if pdf-parse also fails, that text is used (through `inferStructure`) before OCR, so a PDF with a text layer is never truncated by OCR's page cap. Running that rule on MuPDF's blocks would instead turn every short single-line block, such as a table cell, into a heading.
 
 ### Guard 3: header title cap (chunker, all formats)
 

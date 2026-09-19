@@ -17,6 +17,8 @@
 
 ## Global Constraints
 
+> Amended during execution: the spec's Section 1 is authoritative for heading-detection rules (guard 1 line-length test, numeric rows, wrapped paragraphs, size/emphasis rule, join window, `#` escaping, MuPDF plain-text fallback). Where the constraints below differ, the spec wins.
+
 - **Heading candidates:**
   - 12 words or fewer
   - contain a letter
@@ -1404,7 +1406,7 @@ Check these against the spec:
 - "PDFs with headings" covers at least 90% of the filings that previously found few or no headings
 - the chunk ratio is at most 1.1
 
-- [ ] **Step 2: Spot-check headings.** Run the report with `BIG_RAG_REPORT_HEADINGS=true` on a folder holding eBay 2021, General Mills 2023 and 3M 2016. For each, mark which of the first 20 headings are real. The target is at least 85% real.
+- [ ] **Step 2: Spot-check headings.** Sample 20 headings evenly across each of eBay 2021, General Mills 2023 and 3M 2016 (not the first 20, which are mostly the cover page and contents). Mark which are real, and report cover-page headings separately. The target is at least 85% real.
 - [ ] **Step 3: Repeat Step 2 for 3 to 5 non-finance PDFs** supplied by the user.
-- [ ] **Step 4: Rebuild and re-run the eval.** Rebuild the structured FinanceBench index with `npm run index:cli`, then run Legacy Low, Structured Low and Structured Medium with `npm run eval:run`. Structured final hit must be no worse than Legacy Low.
+- [ ] **Step 4: Rebuild and re-run the eval.** Rebuild both the legacy and the structured FinanceBench indexes with `npm run index:cli` (the parser order changed for both modes), then run Legacy Low, Structured Low and Structured Medium with `npm run eval:run`. Structured final hit must be no worse than Legacy Low.
 - [ ] **Step 5: Report the numbers to the user.** If a criterion fails, bring the failing files back into brainstorming before changing any thresholds.
