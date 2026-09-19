@@ -185,3 +185,16 @@ test("chunkStructured never crawls forward when a split piece ends early", async
   }
   assert.ok(chunks.length <= 16, `expected a handful of chunks, got ${chunks.length}`);
 });
+
+test("chunkStructured lists at most two packed section titles, then a count", async () => {
+  const parts = Array.from({ length: 6 }, (_, i) => [
+    `## Part ${i + 1}`,
+    "",
+    `Short note number ${i + 1} about the part.`,
+    "",
+  ]).flat();
+  const markdown = ["# Report", "", ...parts].join("\n");
+  const chunks = await chunkStructured(markdown, options({ chunkSize: 400 }));
+  assert.equal(chunks.length, 1);
+  assert.equal(chunks[0].sectionPath, "Report > Part 1 ; Part 2 ; Part 3 +3 more");
+});

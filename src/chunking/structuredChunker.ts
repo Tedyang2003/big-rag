@@ -2,6 +2,9 @@ import { type CountTokens } from "../utils/textChunker";
 import { dedupeRanges, extractDates, formatDateRange, type DateContext, type DateRange } from "../metadata/dates";
 import { buildSections, renderBlock, type Section } from "./sections";
 
+/** Packed sections beyond this many show only as a count, so false headings cannot bloat the header. */
+const MAX_EXTRA_TITLES = 2;
+
 export interface StructuredChunk {
   text: string;
   contextHeader: string;
@@ -144,7 +147,10 @@ export async function chunkStructured(markdown: string, options: StructuredChunk
       .filter((s) => s.blocks[0]?.kind === "heading")
       .map((s) => s.path[s.path.length - 1])
       .filter((title): title is string => Boolean(title));
-    const sectionPath = [firstPath, ...extraTitles].filter(Boolean).join(" ; ");
+    const shownTitles = extraTitles.slice(0, MAX_EXTRA_TITLES);
+    const hiddenCount = extraTitles.length - shownTitles.length;
+    const sectionPath =
+      [firstPath, ...shownTitles].filter(Boolean).join(" ; ") + (hiddenCount > 0 ? ` +${hiddenCount} more` : "");
     const dates = dedupeRanges([...group.flatMap((s) => s.dates), ...textDates(text)]);
     const contextHeader = buildContextHeader(options.fileName, options.postedDate, sectionPath, dates);
     return { sectionPath, dates, contextHeader };
