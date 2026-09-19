@@ -87,3 +87,30 @@ test("parsePDF skips OCR when it is disabled and still tries LM Studio last", as
   assert.equal(result.success, true);
   assert.deepEqual(calls, ["mupdf", "pdfParse", "lmStudio"]);
 });
+
+test("parsePDF uses MuPDF's plain text when it found no headings and pdf-parse fails", async () => {
+  const fallbackText = "Plain text MuPDF read from the page, long enough to index on its own.";
+  const { calls, stages } = recordingStages({
+    mupdf: { success: false, reason: "pdf.mupdf-no-headings", fallbackText },
+    pdfParse: { success: false, reason: "pdf.pdfparse-error", details: "bad xref" },
+  });
+  const result = await parsePDF("x.pdf", noClient, true, stages);
+  assert.equal(result.success, true);
+  assert.equal(result.success && result.stage, "mupdf");
+  assert.ok(result.success && result.text.includes("Plain text MuPDF read"));
+  assert.deepEqual(calls, ["mupdf", "pdfParse"]);
+});
+
+test("parsePDF lists the earlier stages' reasons when every stage fails", async () => {
+  const { stages } = recordingStages({
+    mupdf: { success: false, reason: "pdf.mupdf-no-headings" },
+    lmStudio: { success: false, reason: "pdf.lmstudio-error", details: "not loaded" },
+  });
+  const result = await parsePDF("x.pdf", noClient, false, stages);
+  assert.equal(result.success, false);
+  if (result.success) return;
+  assert.equal(result.reason, "pdf.lmstudio-error");
+  assert.ok(result.details?.startsWith("not loaded; earlier: "), result.details);
+  assert.ok(result.details?.includes("pdf.mupdf-no-headings"), result.details);
+  assert.ok(result.details?.includes("pdf.ocr-disabled"), result.details);
+});

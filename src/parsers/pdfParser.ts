@@ -5,7 +5,14 @@ import pdfParse from "pdf-parse";
 import { createWorker } from "tesseract.js";
 import { inferStructure } from "./markdown/inferStructure";
 import { formatOcrPage } from "./markdown/ocrPages";
-import { styleKey, styledPagesToMarkdown, type PdfBlock, type PdfLine, type PdfPage } from "./markdown/pdfStyles";
+import {
+  pagesToPlainText,
+  styleKey,
+  styledPagesToMarkdown,
+  type PdfBlock,
+  type PdfLine,
+  type PdfPage,
+} from "./markdown/pdfStyles";
 
 // mupdf is an ESM module with top-level await — it cannot be require()'d.
 // We load it lazily via dynamic import() so the CJS host doesn't choke on it.
@@ -50,7 +57,10 @@ function readStyledPage(doc: MupdfDocument, pageNumber: number): PdfPage {
         },
         onChar(c, _origin, font, size) {
           chars += c;
-          if (!c.trim()) return;
+          if (!c.trim()) {
+            font.destroy();
+            return;
+          }
           if (font.pointer !== lastFontPointer) {
             const name = font.getName();
             lastFontPointer = font.pointer;
@@ -59,6 +69,8 @@ function readStyledPage(doc: MupdfDocument, pageNumber: number): PdfPage {
               italic: font.isItalic() || ITALIC_FONT.test(name),
             };
           }
+          // Each wrapper holds a reference to the font; release it now rather than at GC.
+          font.destroy();
           const style = { size: Math.round(size * 2) / 2, ...lastFontFlags };
           const key = styleKey(style);
           const entry = styles.get(key) ?? { ...style, count: 0 };
@@ -99,6 +111,8 @@ async function tryMupdfStyledText(filePath: string): Promise<StageResult> {
     doc = mupdf.Document.openDocument(await fs.promises.readFile(filePath), "application/pdf");
     const pages: PdfPage[] = [];
     for (let pageNumber = 0; pageNumber < doc.countPages(); pageNumber++) {
+      // Let other work (such as the LM Studio connection) run during long documents.
+      if (pageNumber > 0 && pageNumber % 10 === 0) await new Promise((resolve) => setImmediate(resolve));
       pages.push(readStyledPage(doc, pageNumber));
     }
     if (pages.every((page) => page.blocks.length === 0)) {
@@ -107,7 +121,7 @@ async function tryMupdfStyledText(filePath: string): Promise<StageResult> {
     const markdown = styledPagesToMarkdown(pages);
     if (markdown === null) {
       console.log(`[PDF Parser] (MuPDF) No heading styles found in ${fileName}; trying pdf-parse`);
-      return { success: false, reason: "pdf.mupdf-no-headings" };
+      return { success: false, reason: "pdf.mupdf-no-headings", fallbackText: pagesToPlainText(pages) };
     }
     if (markdown.length < MIN_TEXT_LENGTH) {
       return { success: false, reason: "pdf.mupdf-empty", details: `length=${markdown.length}` };
@@ -164,6 +178,8 @@ export interface PdfParserFailure {
   success: false;
   reason: PdfFailureReason;
   details?: string;
+  /** Plain text a stage read but could not structure, for use if the later stages fail. */
+  fallbackText?: string;
 }
 
 export type PdfParserResult = PdfParserSuccess | PdfParserFailure;
@@ -476,7 +492,10 @@ export async function parsePDF(
       .map((failure) => `${failure.reason}${failure.details ? ` (${failure.details})` : ""}`)
       .join("; ");
     console.error(`[PDF Parser] Could not extract text from ${filePath}: ${stagesTried}`);
-    return final;
+    const earlier = earlierFailures
+      .map((failure) => `${failure.reason}${failure.details ? ` (${failure.details})` : ""}`)
+      .join("; ");
+    return { ...final, details: `${final.details ? `${final.details}; ` : ""}earlier: ${earlier}` };
   };
 
   const mupdfResult = await stages.mupdf(filePath);
@@ -486,6 +505,14 @@ export async function parsePDF(
   const pdfParseResult = await stages.pdfParse(filePath);
   if (pdfParseResult.success) return pdfParseResult;
   earlierFailures.push(pdfParseResult);
+
+  if (mupdfResult.fallbackText !== undefined) {
+    const plain = inferStructure(mupdfResult.fallbackText);
+    if (plain.length >= MIN_TEXT_LENGTH) {
+      console.log(`[PDF Parser] pdf-parse couldn't read ${fileName}; using MuPDF's plain text instead`);
+      return { success: true, text: plain, stage: "mupdf" };
+    }
+  }
 
   if (enableOCR) {
     console.log(`[PDF Parser] (OCR) No text extracted from ${fileName} with MuPDF or pdf-parse, attempting OCR...`);
