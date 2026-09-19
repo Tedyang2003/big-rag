@@ -22,7 +22,7 @@ Reads PDF, DOCX, PPTX, EPUB, HTML, plain text, Markdown and image files, and nor
 
 #### Resilient PDF Parsing
 
-Each PDF goes through up to three parsers: LM Studio's built-in document parser, then `pdf-parse`, then page images rendered with MuPDF and read with OCR. Scanned and blueprint-style PDFs still get indexed.
+Each PDF is read with MuPDF first, which keeps font styles so headings can be found from bold and larger text. If that finds no headings, `pdf-parse` is used; scanned PDFs go through page images read with OCR, and LM Studio's built-in document parser is the last resort. Scanned and blueprint-style PDFs still get indexed.
 
 #### Table-Aware Office Parsing
 
