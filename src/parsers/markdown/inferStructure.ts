@@ -20,8 +20,9 @@ function isHeadingCandidate(line: string): boolean {
  * Adds Markdown structure to text that has none (PDF, plain text, OCR):
  * short standalone lines become headings, bullet/numbered lines become list
  * items, and wrapped lines are joined into paragraphs.
+ * Pass inferHeadings: false when headings are already marked (for example from PDF font styles).
  */
-export function inferStructure(raw: string): string {
+export function inferStructure(raw: string, options: { inferHeadings?: boolean } = {}): string {
   const lines = raw
     .replace(/\r\n?/g, "\n")
     .split("\n")
@@ -55,7 +56,7 @@ export function inferStructure(raw: string): string {
       seenContent = true;
       continue;
     }
-    if (current.length === 0) {
+    if (options.inferHeadings !== false && current.length === 0) {
       const next = lines[i + 1];
       const followedByBlank = next === undefined || next === "";
       if (isHeadingCandidate(line) && (followedByBlank || !seenContent)) {

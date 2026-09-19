@@ -1,0 +1,143 @@
+import { test } from "node:test";
+import * as assert from "node:assert/strict";
+import { styledPagesToMarkdown, type PdfLine, type PdfPage } from "../parsers/markdown/pdfStyles";
+import { inferStructure } from "../parsers/markdown/inferStructure";
+
+const BODY_TEXT = "The company reported steady results across every region this year.";
+
+function line(text: string, top: number, style: Partial<PdfLine> = {}): PdfLine {
+  return { text, size: 10, bold: false, italic: false, mixed: false, box: [50, top, 550, top + 12], ...style };
+}
+
+type Entry = string | [string, Partial<PdfLine>];
+
+/** One 1000-unit-tall page; each entry is its own block, stacked 20 units apart from y=100. */
+function page(entries: Entry[]): PdfPage {
+  return {
+    height: 1000,
+    blocks: entries.map((entry, i) => {
+      const [text, style] = typeof entry === "string" ? [entry, {}] : entry;
+      return { lines: [line(text, 100 + i * 20, style)] };
+    }),
+  };
+}
+
+const body = (count: number): Entry[] => Array.from({ length: count }, () => BODY_TEXT);
+const bold = (text: string): Entry => [text, { bold: true }];
+const headingLines = (markdown: string | null) => (markdown ?? "").split("\n").filter((l) => /^#{1,6} /.test(l));
+
+test("bold body-size lines become level-2 headings when they are the only heading style", () => {
+  const markdown = styledPagesToMarkdown([
+    page(body(5)),
+    page([bold("Risk Factors"), ...body(10), bold("Liquidity"), ...body(10)]),
+  ]);
+  assert.deepEqual(headingLines(markdown), ["## Risk Factors", "## Liquidity"]);
+  assert.ok(markdown!.includes(`## Risk Factors\n\n${BODY_TEXT}`));
+});
+
+test("heading styles rank by size, then first appearance after page 1, with cover-only styles last", () => {
+  const markdown = styledPagesToMarkdown([
+    page([["Cover Title", { size: 24, bold: true }], ...body(3)]),
+    page([
+      ["Part One", { size: 14, bold: true }],
+      ...body(8),
+      bold("Section A"),
+      ...body(8),
+      ["Detail x", { italic: true }],
+      ...body(8),
+    ]),
+    page([bold("Section B"), ...body(8)]),
+  ]);
+  assert.deepEqual(headingLines(markdown), [
+    "### Cover Title",
+    "# Part One",
+    "## Section A",
+    "### Detail x",
+    "## Section B",
+  ]);
+});
+
+test("repeated page headers, footers and page numbers are removed", () => {
+  const withFurniture = (p: PdfPage, n: number): PdfPage => ({
+    ...p,
+    blocks: [
+      { lines: [line("Acme Corp 2021 Annual Report", 20, { bold: true })] },
+      ...p.blocks,
+      { lines: [line(`Page ${n} of 3`, 960)] },
+    ],
+  });
+  const markdown = styledPagesToMarkdown([
+    withFurniture(page(body(5)), 1),
+    withFurniture(page([bold("Overview"), ...body(5), "7", ...body(5)]), 2),
+    withFurniture(page(body(8)), 3),
+  ]);
+  assert.deepEqual(headingLines(markdown), ["## Overview"]);
+  assert.ok(!markdown!.includes("Acme Corp"), "repeated header removed");
+  assert.ok(!markdown!.includes("Page 2 of 3"), "footer removed");
+  assert.ok(!/^7$/m.test(markdown!), "page number removed");
+});
+
+test("a styled line sharing its row with other text, or with mixed styles, is not a heading", () => {
+  const second = page([
+    bold("Results"),
+    ...body(5),
+    bold("Net sales"),
+    ["Mixed emphasis line", { bold: true, mixed: true }],
+    ...body(5),
+  ]);
+  const row = second.blocks[6].lines[0];
+  const rowTop = row.box[1];
+  row.box = [50, rowTop, 150, rowTop + 12];
+  second.blocks[6].lines.push(line("1,234", rowTop, { box: [400, rowTop, 450, rowTop + 12] }));
+
+  const markdown = styledPagesToMarkdown([page(body(3)), second]);
+  assert.deepEqual(headingLines(markdown), ["## Results"]);
+  assert.ok(markdown!.includes("Net sales"), "row label kept as text");
+});
+
+test("a style used on more than 15% of lines is emphasis, so no headings are found", () => {
+  const markdown = styledPagesToMarkdown([
+    page(body(3)),
+    page(Array.from({ length: 10 }, (_, i) => i).flatMap((i): Entry[] => [bold(`Key point ${i + 1}`), BODY_TEXT, BODY_TEXT])),
+  ]);
+  assert.equal(markdown, null);
+});
+
+test("a document in a single style has no heading styles", () => {
+  assert.equal(styledPagesToMarkdown([page(body(10)), page(body(10))]), null);
+  assert.equal(styledPagesToMarkdown([]), null);
+});
+
+test("wrapped headings are joined, and a joined run over 12 words stays body text", () => {
+  const markdown = styledPagesToMarkdown([
+    page(body(3)),
+    page([
+      bold("Management's Discussion and Analysis"),
+      bold("of Financial Condition"),
+      ...body(6),
+      bold("Overview"),
+      ...body(6),
+      bold("Alpha beta gamma delta epsilon zeta eta"),
+      bold("theta iota kappa lambda mu nu"),
+      ...body(6),
+    ]),
+  ]);
+  assert.deepEqual(headingLines(markdown), [
+    "## Management's Discussion and Analysis of Financial Condition",
+    "## Overview",
+  ]);
+  assert.ok(markdown!.includes("Alpha beta gamma delta epsilon zeta eta"));
+});
+
+test("lines of one block are joined into a paragraph", () => {
+  const second = page([bold("Scope"), "First half of a sentence", ...body(5)]);
+  second.blocks[1].lines.push(line("continues here.", 132));
+  const markdown = styledPagesToMarkdown([page(body(3)), second]);
+  assert.ok(markdown!.includes("## Scope\n\nFirst half of a sentence continues here."));
+});
+
+test("inferStructure keeps short standalone lines as text when heading inference is off", () => {
+  assert.equal(inferStructure("Short line\n\nNext paragraph."), "## Short line\n\nNext paragraph.");
+  assert.equal(inferStructure("Short line\n\nNext paragraph.", { inferHeadings: false }), "Short line\n\nNext paragraph.");
+  assert.equal(inferStructure("## Kept\n\n- item", { inferHeadings: false }), "## Kept\n\n- item");
+});
