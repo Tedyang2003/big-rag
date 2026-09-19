@@ -58,10 +58,12 @@ function furnitureKey(text: string): string {
   return text.replace(/\d+/g, "#").replace(/\s+/g, " ").trim().toLowerCase();
 }
 
+function inBand(line: PdfLine, height: number): boolean {
+  return line.box[1] < height * FURNITURE_BAND || line.box[3] > height * (1 - FURNITURE_BAND);
+}
+
 /** Pass 2: drop page numbers, and headers and footers repeated on at least half the pages. */
 function removeFurniture(pages: PdfPage[]): PlacedLine[] {
-  const inBand = (line: PdfLine, height: number) =>
-    line.box[1] < height * FURNITURE_BAND || line.box[3] > height * (1 - FURNITURE_BAND);
 
   const pagesByKey = new Map<string, Set<number>>();
   if (pages.length >= FURNITURE_MIN_PAGES) {
@@ -86,7 +88,7 @@ function removeFurniture(pages: PdfPage[]): PlacedLine[] {
     page.blocks.forEach((block, blockNumber) => {
       for (const line of block.lines) {
         const text = line.text.replace(/\s+/g, " ").trim();
-        if (!text || PAGE_NUMBER.test(text)) continue;
+        if (!text || (inBand(line, page.height) && PAGE_NUMBER.test(text))) continue;
         if (pagesByKey.size > 0 && isRepeated(line, page.height)) continue;
         kept.push({ line: { ...line, text }, page: pageNumber, block: blockNumber, order: kept.length });
       }
@@ -113,27 +115,60 @@ function bodyStyleOf(lines: PlacedLine[]): string {
   return best;
 }
 
-/** Guard 1: a heading has its row to itself; table cells and row labels share theirs. */
-function sharesRow(target: PlacedLine, pageLines: PlacedLine[]): boolean {
+/** Max bottom minus min top over each block's kept lines, keyed by "page:block". */
+function blockHeightsOf(lines: PlacedLine[]): Map<string, number> {
+  const bounds = new Map<string, { top: number; bottom: number }>();
+  for (const { line, page, block } of lines) {
+    const key = `${page}:${block}`;
+    const existing = bounds.get(key);
+    if (!existing) {
+      bounds.set(key, { top: line.box[1], bottom: line.box[3] });
+    } else {
+      existing.top = Math.min(existing.top, line.box[1]);
+      existing.bottom = Math.max(existing.bottom, line.box[3]);
+    }
+  }
+  const heights = new Map<string, number>();
+  for (const [key, { top, bottom }] of bounds) heights.set(key, bottom - top);
+  return heights;
+}
+
+/**
+ * Guard 1: a heading has its row to itself; table cells and row labels share theirs.
+ * Overlap from another block is only counted when that block is at most 2 line-heights
+ * tall, so flowing prose in the other column of a two-column page is ignored.
+ */
+function sharesRow(target: PlacedLine, pageLines: PlacedLine[], blockHeights: Map<string, number>): boolean {
   const [, top, , bottom] = target.line.box;
   const height = Math.max(bottom - top, 1);
   return pageLines.some((other) => {
     if (other === target) return false;
+    const otherBlockHeight = blockHeights.get(`${other.page}:${other.block}`) ?? 0;
+    if (otherBlockHeight > height * 2) return false;
     const overlap = Math.min(bottom, other.line.box[3]) - Math.max(top, other.line.box[1]);
     return overlap > height * SAME_ROW_OVERLAP;
   });
 }
 
 /** Pass 3: whole-line, non-body, short lines that stand alone on their row. */
-function isCandidate(placed: PlacedLine, bodyStyle: string, pageLines: PlacedLine[]): boolean {
+function isCandidate(
+  placed: PlacedLine,
+  bodyStyle: string,
+  pageLines: PlacedLine[],
+  blockHeights: Map<string, number>,
+): boolean {
   const { line } = placed;
   if (line.mixed || styleKey(line) === bodyStyle) return false;
   if (wordCount(line.text) > MAX_HEADING_WORDS) return false;
   if (!/\p{L}/u.test(line.text) || /[.,;:]$/.test(line.text)) return false;
-  return !sharesRow(placed, pageLines);
+  return !sharesRow(placed, pageLines, blockHeights);
 }
 
-/** Joins consecutive candidate lines of one style on one page; drops joins over 12 words. */
+/**
+ * Joins consecutive candidate lines of one style on one page into a run, but only
+ * when the next line starts no more than one line height below the previous one;
+ * drops joins over 12 words.
+ */
 function groupCandidates(lines: PlacedLine[], candidate: boolean[]): HeadingGroup[] {
   const groups: HeadingGroup[] = [];
   let current: PlacedLine[] = [];
@@ -151,7 +186,13 @@ function groupCandidates(lines: PlacedLine[], candidate: boolean[]): HeadingGrou
       return;
     }
     const previous = current[current.length - 1];
-    if (previous && (previous.page !== placed.page || styleKey(previous.line) !== styleKey(placed.line))) close();
+    if (previous) {
+      const previousHeight = previous.line.box[3] - previous.line.box[1];
+      const gap = placed.line.box[1] - previous.line.box[3];
+      const adjacent =
+        previous.page === placed.page && styleKey(previous.line) === styleKey(placed.line) && gap <= previousHeight;
+      if (!adjacent) close();
+    }
     current.push(placed);
   });
   close();
@@ -193,14 +234,18 @@ export function styledPagesToMarkdown(pages: PdfPage[]): string | null {
     pageLines.push(placed);
     linesByPage.set(placed.page, pageLines);
   }
-  const candidate = lines.map((placed) => isCandidate(placed, bodyStyle, linesByPage.get(placed.page)!));
+  const blockHeights = blockHeightsOf(lines);
+  const candidate = lines.map((placed) => isCandidate(placed, bodyStyle, linesByPage.get(placed.page)!, blockHeights));
 
-  // Pass 4 (guard 2): a style on too many lines is emphasis, not a heading level.
+  // Pass 4 (guard 2): a style on too many candidate lines (including joins later
+  // dropped for exceeding 12 words) is emphasis, not a heading level.
   const allGroups = groupCandidates(lines, candidate);
   const linesPerStyle = new Map<string, number>();
-  for (const group of allGroups) {
-    linesPerStyle.set(group.style, (linesPerStyle.get(group.style) ?? 0) + group.lines.length);
-  }
+  lines.forEach((placed, i) => {
+    if (!candidate[i]) return;
+    const key = styleKey(placed.line);
+    linesPerStyle.set(key, (linesPerStyle.get(key) ?? 0) + 1);
+  });
   const groups = allGroups.filter(
     (group) => (linesPerStyle.get(group.style) ?? 0) <= lines.length * MAX_HEADING_STYLE_SHARE,
   );

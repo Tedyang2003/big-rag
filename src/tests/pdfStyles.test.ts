@@ -66,15 +66,14 @@ test("repeated page headers, footers and page numbers are removed", () => {
       { lines: [line(`Page ${n} of 3`, 960)] },
     ],
   });
-  const markdown = styledPagesToMarkdown([
-    withFurniture(page(body(5)), 1),
-    withFurniture(page([bold("Overview"), ...body(5), "7", ...body(5)]), 2),
-    withFurniture(page(body(8)), 3),
-  ]);
+  const page2 = withFurniture(page([bold("Overview"), ...body(5), ...body(5)]), 2);
+  page2.blocks.push({ lines: [line("7", 940)] });
+  const markdown = styledPagesToMarkdown([withFurniture(page(body(5)), 1), page2, withFurniture(page(body(8)), 3)]);
   assert.deepEqual(headingLines(markdown), ["## Overview"]);
   assert.ok(!markdown!.includes("Acme Corp"), "repeated header removed");
   assert.ok(!markdown!.includes("Page 2 of 3"), "footer removed");
   assert.ok(!/^7$/m.test(markdown!), "page number removed");
+  assert.ok(markdown!.includes(BODY_TEXT));
 });
 
 test("a styled line sharing its row with other text, or with mixed styles, is not a heading", () => {
@@ -119,7 +118,7 @@ test("wrapped headings are joined, and a joined run over 12 words stays body tex
       ...body(6),
       bold("Alpha beta gamma delta epsilon zeta eta"),
       bold("theta iota kappa lambda mu nu"),
-      ...body(6),
+      ...body(15),
     ]),
   ]);
   assert.deepEqual(headingLines(markdown), [
@@ -134,6 +133,59 @@ test("lines of one block are joined into a paragraph", () => {
   second.blocks[1].lines.push(line("continues here.", 132));
   const markdown = styledPagesToMarkdown([page(body(3)), second]);
   assert.ok(markdown!.includes("## Scope\n\nFirst half of a sentence continues here."));
+});
+
+test("a page number is only furniture near the page edge", () => {
+  const second = page([bold("Overview"), ...body(3), "2021", ...body(3)]);
+  second.blocks.push({ lines: [line("7", 960)] });
+  const markdown = styledPagesToMarkdown([page(body(3)), second]);
+  assert.ok(markdown!.includes("2021"), "mid-page number kept");
+  assert.ok(!/^7$/m.test(markdown!), "footer page number dropped");
+});
+
+test("guard 1 ignores overlap from a taller flowing-text block (two-column page)", () => {
+  const second: PdfPage = {
+    height: 1000,
+    blocks: [
+      { lines: [line("Methods", 300, { bold: true, box: [50, 300, 290, 312] })] },
+      {
+        lines: [
+          line("Right column line one.", 280, { box: [310, 280, 550, 292] }),
+          line("Right column line two.", 300, { box: [310, 300, 550, 312] }),
+          line("Right column line three.", 320, { box: [310, 320, 550, 332] }),
+          line("Right column line four.", 340, { box: [310, 340, 550, 352] }),
+          line("Right column line five.", 360, { box: [310, 360, 550, 372] }),
+        ],
+      },
+    ],
+  };
+  const markdown = styledPagesToMarkdown([page(body(3)), second]);
+  assert.deepEqual(headingLines(markdown), ["## Methods"]);
+});
+
+test("guard 2 counts every heading-style candidate line, including dropped joins", () => {
+  const run: Entry[] = [
+    bold("Alpha beta gamma delta epsilon zeta eta theta"),
+    bold("iota kappa lambda mu nu xi omicron pi"),
+  ];
+  const markdown = styledPagesToMarkdown([
+    page(body(3)),
+    page([bold("Heading"), BODY_TEXT, ...run, BODY_TEXT, ...run, BODY_TEXT, ...run]),
+  ]);
+  assert.equal(markdown, null);
+});
+
+test("candidate lines are only joined into one heading when they are vertically adjacent", () => {
+  const second: PdfPage = {
+    height: 1000,
+    blocks: [
+      { lines: [line("Part Two", 100, { bold: true, box: [50, 100, 200, 112] })] },
+      { lines: [line("Item 5", 152, { bold: true, box: [50, 152, 200, 164] })] },
+      ...body(10).map((text, i) => ({ lines: [line(text as string, 200 + i * 20)] })),
+    ],
+  };
+  const markdown = styledPagesToMarkdown([page(body(10)), second]);
+  assert.deepEqual(headingLines(markdown), ["## Part Two", "## Item 5"]);
 });
 
 test("inferStructure keeps short standalone lines as text when heading inference is off", () => {
