@@ -362,3 +362,45 @@ test("low depth reports no lanes per passage", async () => {
   const result = await retrieve("collision", deps, LOW_OPTIONS);
   assert.deepEqual(result.passageLanes, [[]]);
 });
+
+test("at medium depth the diagnostic pool is the fused ranking, not a vector-only search", async () => {
+  const vectorHit = makeResult({ text: "vector hit", id: "chunk-1" });
+  const { deps, searchCalls } = makeDeps([vectorHit]);
+
+  const result = await retrieve(
+    "bus collision on 8 Sep 2026",
+    {
+      ...deps,
+      nowDate: () => new Date(2026, 8, 16),
+      catalog: fakeCatalog({
+        scoreTerms: () => new Map([[2, 5], [3, 1]]),
+        chunksForRanges: () => [3, 4],
+      }),
+      fetchChunks: async (keys) => keys.map((key) => makeResult({ text: `fetched ${key}`, id: key.split("/")[1] })),
+    },
+    { ...LOW_OPTIONS, depth: "medium", retrievalLimit: 1, diagnosticPoolSize: 10 },
+  );
+
+  assert.deepEqual(result.passages.map((passage) => passage.text), ["fetched shard_000/chunk-3"]);
+  // Every lane's candidates appear in the pool, in fused order, so pool metrics measure fusion.
+  assert.deepEqual(result.diagnosticPool.map((passage) => passage.text), [
+    "fetched shard_000/chunk-3",
+    "vector hit",
+    "fetched shard_000/chunk-2",
+    "fetched shard_000/chunk-4",
+  ]);
+  assert.equal(searchCalls.length, 1, "the pool reuses the lanes instead of searching again");
+});
+
+test("at low depth the diagnostic pool is still an unthresholded vector search", async () => {
+  const results = [makeResult({ text: "One." }), makeResult({ text: "Two.", chunkIndex: 5 })];
+  const { deps, searchCalls } = makeDeps(results);
+
+  const output = await retrieve("question", deps, { ...LOW_OPTIONS, retrievalLimit: 1, diagnosticPoolSize: 2 });
+
+  assert.deepEqual(output.diagnosticPool.map((passage) => passage.text), ["One.", "Two."]);
+  assert.deepEqual(searchCalls, [
+    { limit: 1, threshold: 0.5 },
+    { limit: 2, threshold: Number.NEGATIVE_INFINITY },
+  ]);
+});

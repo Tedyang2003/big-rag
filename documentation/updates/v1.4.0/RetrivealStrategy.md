@@ -22,19 +22,7 @@ A passage that literally contains the term a user asked about can lose to one th
 ## New Pipeline
 
 <!-- DIAGRAM PLACEHOLDER: replace the image below with the v1.5.0 retrieval pipeline -->
-![Hybrid Retrieval Pipeline](../../images/HybridRetrievalPipeline.png)
-
-The diagram should show the following components, in order
-
-- User Query
-- Query Embedding and Query Date Reading
-- Vector Lane (Vector Database)
-- Keyword Lane (BM25 over the Chunk Catalog)
-- Date Lane (Chunk Catalog day table)
-- Weight Adjusted Reciprocal Rank Fusion
-- Winning Chunks fetched from the Vector Database
-- Overlap Trimming
-- Prompt Formatting and Citations
+![Hybrid Retrieval Pipeline](../../images/HybridRetrievalPipelineV1.png)
 
 ---
 

@@ -174,6 +174,10 @@ export async function retrieve(
   // dropped later (its fetchChunks lookup came back empty, trimOverlap merged
   // it into a neighbor, or compaction skipped it for budget).
   let winnerLanesByKey: Map<string, string[]> | null = null;
+  // Set only on the catalog path: the fused ranking and every chunk resolved from it,
+  // so the diagnostic pool can measure fusion rather than the vector lane alone.
+  let fusedKeys: string[] | null = null;
+  const resolvedByKey = new Map<string, SearchResult>();
 
   if (catalog) {
     const terms = tokenize(query);
@@ -211,6 +215,7 @@ export async function retrieve(
     options.abortSignal?.throwIfAborted();
 
     const vectorByKey = new Map(searched.map((result) => [chunkKey(result), result]));
+    for (const [key, result] of vectorByKey) resolvedByKey.set(key, result);
     const lanes: RankedLane[] = [
       { name: "vector", weight: options.laneWeights.vector, keys: [...vectorByKey.keys()] },
       { name: "keyword", weight: options.laneWeights.keyword, keys: keywordKeys },
@@ -218,6 +223,7 @@ export async function retrieve(
     ];
 
     const fused = await timed("fuse", async () => fuseLanes(lanes, options.rrfConstant));
+    fusedKeys = fused.map((entry) => entry.key);
     // With compaction on, the compaction stage still needs its wider candidate pool.
     const winnerCount = options.enableContextCompaction
       ? options.retrievalLimit * CONTEXT_COMPACTION_POOL_MULTIPLIER
@@ -225,17 +231,19 @@ export async function retrieve(
     const winners = fused.slice(0, winnerCount);
     winnerLanesByKey = new Map(winners.map((winner) => [winner.key, winner.lanes]));
 
-    const missingKeys = winners.filter((winner) => !vectorByKey.has(winner.key)).map((winner) => winner.key);
-    const fetchedByKey = new Map<string, SearchResult>();
+    // Fetch the winners and, when diagnostics are on, the rest of the pool in one call.
+    const neededKeys = new Set(winners.map((winner) => winner.key));
+    for (const key of fusedKeys.slice(0, options.diagnosticPoolSize ?? 0)) neededKeys.add(key);
+    const missingKeys = [...neededKeys].filter((key) => !resolvedByKey.has(key));
     if (missingKeys.length > 0 && deps.fetchChunks) {
       for (const fetchedChunk of await deps.fetchChunks(missingKeys)) {
-        fetchedByKey.set(chunkKey(fetchedChunk), fetchedChunk);
+        resolvedByKey.set(chunkKey(fetchedChunk), fetchedChunk);
       }
     }
 
     ranked = winners
       .map((winner) => {
-        const source = vectorByKey.get(winner.key) ?? fetchedByKey.get(winner.key);
+        const source = resolvedByKey.get(winner.key);
         return source ? { ...source, score: winner.score } : null;
       })
       .filter((result): result is SearchResult => result !== null);
@@ -255,9 +263,21 @@ export async function retrieve(
     );
   }
 
-  const diagnosticPool = options.diagnosticPoolSize
-    ? await deps.vectorStore.search(queryEmbedding, options.diagnosticPoolSize, Number.NEGATIVE_INFINITY)
-    : [];
+  // At Medium the pool is the fused ranking, so pool metrics measure every lane. At Low
+  // there is no fusion, so it stays an unthresholded vector search.
+  let diagnosticPool: SearchResult[] = [];
+  if (options.diagnosticPoolSize && fusedKeys) {
+    diagnosticPool = fusedKeys
+      .slice(0, options.diagnosticPoolSize)
+      .map((key) => resolvedByKey.get(key))
+      .filter((result): result is SearchResult => result !== undefined);
+  } else if (options.diagnosticPoolSize) {
+    diagnosticPool = await deps.vectorStore.search(
+      queryEmbedding,
+      options.diagnosticPoolSize,
+      Number.NEGATIVE_INFINITY,
+    );
+  }
 
   let passageLanes: string[][] = passages.map(() => []);
   if (winnerLanesByKey) {
