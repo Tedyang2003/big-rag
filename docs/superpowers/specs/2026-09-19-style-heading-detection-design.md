@@ -46,7 +46,7 @@ It takes the lines of MuPDF structured text (`toStructuredText("preserve-whitesp
 - the style is the font size rounded to the nearest 0.5pt, plus bold and italic flags from the font weight and name
 - a line with mixed styles is marked as such
 
-Each MuPDF text block becomes a paragraph.
+Each MuPDF text block becomes a paragraph. Inside a block, lines that sit on the same row (vertical overlap over half the shorter line's height) are merged into one line, ordered left to right. MuPDF splits a numbered heading such as "1 Introduction" into a line per part, and a table row into a line per cell; merging repairs both.
 
 **Pass 2: remove page furniture.** Drop:
 - lines in the top or bottom 8% of the page whose text, with digits normalized, repeats on at least 50% of pages, and only when the document has 3 or more pages
