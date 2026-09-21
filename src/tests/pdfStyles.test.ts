@@ -87,7 +87,9 @@ test("a styled line sharing its row with other text, or with mixed styles, is no
   const row = second.blocks[6].lines[0];
   const rowTop = row.box[1];
   row.box = [50, rowTop, 150, rowTop + 12];
-  second.blocks[6].lines.push(line("1,234", rowTop, { box: [400, rowTop, 450, rowTop + 12] }));
+  // A separate block on the same row: guard 1 (sharesRow) is what must reject this, since
+  // the same-row merge only ever combines lines that share one block.
+  second.blocks.push({ lines: [line("1,234", rowTop, { box: [400, rowTop, 450, rowTop + 12] })] });
 
   const markdown = styledPagesToMarkdown([page(body(3)), second]);
   assert.deepEqual(headingLines(markdown), ["## Results"]);
@@ -224,6 +226,45 @@ test("F2b: a single-line numeric table row is not a heading", () => {
     page(body(5)),
     page([bold("Results"), ...body(8), bold("Net sales 1,000 900"), ...body(8)]),
   ]);
+  assert.deepEqual(headingLines(markdown), ["## Results"]);
+  assert.ok(markdown!.includes("Net sales 1,000 900"));
+});
+
+test("R1: numbered lines sharing a row in one block merge into one heading", () => {
+  const top = 300;
+  const second: PdfPage = {
+    height: 1000,
+    blocks: [
+      {
+        lines: [
+          line("1", top, { size: 14, bold: true, box: [100, top, 110, top + 12] }),
+          line("Introduction", top, { size: 14, bold: true, box: [125, top, 250, top + 12] }),
+        ],
+      },
+      ...body(10).map((text, i) => ({ lines: [line(text as string, top + 40 + i * 20)] })),
+    ],
+  };
+  const markdown = styledPagesToMarkdown([page(body(10)), second]);
+  assert.deepEqual(headingLines(markdown), ["## 1 Introduction"]);
+});
+
+test("R2: a table row split into three lines in one block merges and is rejected as a heading", () => {
+  const top = 500;
+  const second: PdfPage = {
+    height: 1000,
+    blocks: [
+      { lines: [line("Results", 100, { bold: true, box: [50, 100, 200, 112] })] },
+      ...body(10).map((text, i) => ({ lines: [line(text as string, 150 + i * 20)] })),
+      {
+        lines: [
+          line("Net sales", top, { bold: true, box: [50, top, 150, top + 12] }),
+          line("1,000", top, { bold: true, box: [300, top, 350, top + 12] }),
+          line("900", top, { bold: true, box: [400, top, 440, top + 12] }),
+        ],
+      },
+    ],
+  };
+  const markdown = styledPagesToMarkdown([page(body(5)), second]);
   assert.deepEqual(headingLines(markdown), ["## Results"]);
   assert.ok(markdown!.includes("Net sales 1,000 900"));
 });

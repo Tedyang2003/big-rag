@@ -63,8 +63,89 @@ function inBand(line: PdfLine, height: number): boolean {
   return line.box[1] < height * FURNITURE_BAND || line.box[3] > height * (1 - FURNITURE_BAND);
 }
 
+/**
+ * Merges lines that sit on the same row within one block: MuPDF can emit a heading like
+ * "1 Introduction", or a table row, as separate lines at the same y inside one block. Two
+ * lines are on the same row when their vertical overlap is more than half the shorter
+ * line's height. A merged line orders its parts by left edge, joins their texts with a
+ * single space, and takes the union of their boxes; its style is the part with the most
+ * non-space characters, and it is `mixed` when the parts disagree on style or any part
+ * was already mixed. A merged line takes the position of its first part in the block.
+ */
+function mergeSameRowLines(lines: PdfLine[]): PdfLine[] {
+  const n = lines.length;
+  const parent = Array.from({ length: n }, (_, i) => i);
+  const find = (x: number): number => {
+    while (parent[x] !== x) {
+      parent[x] = parent[parent[x]];
+      x = parent[x];
+    }
+    return x;
+  };
+  for (let i = 0; i < n; i++) {
+    for (let j = i + 1; j < n; j++) {
+      const a = lines[i];
+      const b = lines[j];
+      const heightA = a.box[3] - a.box[1];
+      const heightB = b.box[3] - b.box[1];
+      const shorter = Math.min(heightA, heightB);
+      const overlap = Math.min(a.box[3], b.box[3]) - Math.max(a.box[1], b.box[1]);
+      if (shorter > 0 && overlap > shorter * SAME_ROW_OVERLAP) {
+        const ra = find(i);
+        const rb = find(j);
+        if (ra !== rb) parent[ra] = rb;
+      }
+    }
+  }
+  const groups = new Map<number, number[]>();
+  for (let i = 0; i < n; i++) {
+    const root = find(i);
+    const members = groups.get(root) ?? [];
+    members.push(i);
+    groups.set(root, members);
+  }
+  const nonSpaceLength = (text: string) => text.replace(/\s/g, "").length;
+  const merged: { firstIndex: number; line: PdfLine }[] = [];
+  for (const members of groups.values()) {
+    if (members.length === 1) {
+      merged.push({ firstIndex: members[0], line: lines[members[0]] });
+      continue;
+    }
+    const parts = members.map((i) => lines[i]);
+    const byLeft = [...parts].sort((a, b) => a.box[0] - b.box[0]);
+    const text = byLeft.map((part) => part.text).join(" ");
+    const box: [number, number, number, number] = [
+      Math.min(...parts.map((p) => p.box[0])),
+      Math.min(...parts.map((p) => p.box[1])),
+      Math.max(...parts.map((p) => p.box[2])),
+      Math.max(...parts.map((p) => p.box[3])),
+    ];
+    let dominant = parts[0];
+    for (const part of parts) {
+      if (nonSpaceLength(part.text) > nonSpaceLength(dominant.text)) dominant = part;
+    }
+    const stylesDiffer = new Set(parts.map((part) => styleKey(part))).size > 1;
+    const mixed = stylesDiffer || parts.some((part) => part.mixed);
+    merged.push({
+      firstIndex: Math.min(...members),
+      line: { text, size: dominant.size, bold: dominant.bold, italic: dominant.italic, mixed, box },
+    });
+  }
+  merged.sort((a, b) => a.firstIndex - b.firstIndex);
+  return merged.map((entry) => entry.line);
+}
+
+/** Pass 1.5: merge same-row lines within each block, per page. */
+function mergeRowsAcrossPages(pages: PdfPage[]): PdfPage[] {
+  return pages.map((page) => ({
+    ...page,
+    blocks: page.blocks.map((block) => ({ lines: mergeSameRowLines(block.lines) })),
+  }));
+}
+
 /** Pass 2: drop page numbers, and headers and footers repeated on at least half the pages. */
-function removeFurniture(pages: PdfPage[]): PlacedLine[] {
+function removeFurniture(rawPages: PdfPage[]): PlacedLine[] {
+  const pages = mergeRowsAcrossPages(rawPages);
 
   const pagesByKey = new Map<string, Set<number>>();
   if (pages.length >= FURNITURE_MIN_PAGES) {
