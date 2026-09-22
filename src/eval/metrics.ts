@@ -1,11 +1,14 @@
 import { type RetrieveResult, type StageTiming } from "../retrieval/retrieve";
 import { type SearchResult } from "../vectorstore/vectorStore";
+import { joinAdjacentRuns } from "./adjacentRuns";
 import { containsSnippet } from "./matchSnippet";
 import { toRelativeSourcePath, type EvalQuestion } from "./questionSet";
 
 export interface QuestionResult {
   id: string;
   unscorable: boolean;
+  /** Why it could not be scored: the file is missing, or its evidence is not in the index at all. */
+  unscorableReason?: "file-not-indexed" | "evidence-not-in-index";
   finalHit: boolean;
   /** 1-based rank of the first matching passage in the diagnostic pool, or null if absent. */
   poolRank: number | null;
@@ -17,6 +20,9 @@ export interface QuestionResult {
 export interface EvalMetrics {
   scored: number;
   unscorable: number;
+  /** Of the unscorable, how many had no source file in the index and how many had no evidence in it. */
+  unscorableFileNotIndexed: number;
+  unscorableEvidenceNotInIndex: number;
   finalHitRate: number;
   poolHitRate: number;
   filterLoss: number;
@@ -26,11 +32,20 @@ export interface EvalMetrics {
   latency: Record<string, { median: number; p95: number }>;
 }
 
-function isMatch(passage: SearchResult, question: EvalQuestion, documentsDir: string): boolean {
-  return (
-    toRelativeSourcePath(documentsDir, passage.filePath) === question.sourceFile &&
-    containsSnippet(passage.text, question.answerSnippet)
-  );
+/**
+ * Consecutive chunks are matched as one passage: when evidence spans a chunk boundary and
+ * both chunks are retrieved, the model received all of it, so scoring counts it as found.
+ */
+function matchingRunPosition(
+  passages: SearchResult[],
+  question: EvalQuestion,
+  documentsDir: string,
+): number | null {
+  for (const run of joinAdjacentRuns(passages)) {
+    if (toRelativeSourcePath(documentsDir, run.filePath) !== question.sourceFile) continue;
+    if (containsSnippet(run.text, question.answerSnippet)) return run.firstPosition;
+  }
+  return null;
 }
 
 export function scoreQuestion(
@@ -38,11 +53,18 @@ export function scoreQuestion(
   retrieval: RetrieveResult,
   documentsDir: string,
   indexedFiles: Set<string>,
+  questionsWithoutEvidence?: Set<string>,
 ): QuestionResult {
-  if (!indexedFiles.has(question.sourceFile)) {
+  const unscorableReason = !indexedFiles.has(question.sourceFile)
+    ? ("file-not-indexed" as const)
+    : questionsWithoutEvidence?.has(question.id)
+      ? ("evidence-not-in-index" as const)
+      : null;
+  if (unscorableReason) {
     return {
       id: question.id,
       unscorable: true,
+      unscorableReason,
       finalHit: false,
       poolRank: null,
       rightFileWrongPassage: false,
@@ -52,14 +74,14 @@ export function scoreQuestion(
   }
 
   const finalFiles = [...new Set(retrieval.passages.map((p) => toRelativeSourcePath(documentsDir, p.filePath)))];
-  const finalHit = retrieval.passages.some((p) => isMatch(p, question, documentsDir));
-  const poolIndex = retrieval.diagnosticPool.findIndex((p) => isMatch(p, question, documentsDir));
+  const finalHit = matchingRunPosition(retrieval.passages, question, documentsDir) !== null;
+  const poolPosition = matchingRunPosition(retrieval.diagnosticPool, question, documentsDir);
 
   return {
     id: question.id,
     unscorable: false,
     finalHit,
-    poolRank: poolIndex >= 0 ? poolIndex + 1 : null,
+    poolRank: poolPosition,
     rightFileWrongPassage: !finalHit && finalFiles.includes(question.sourceFile),
     finalFiles,
     timings: retrieval.timings,
@@ -99,6 +121,8 @@ export function aggregateMetrics(results: QuestionResult[]): EvalMetrics {
   return {
     scored: n,
     unscorable: results.length - n,
+    unscorableFileNotIndexed: results.filter((r) => r.unscorableReason === "file-not-indexed").length,
+    unscorableEvidenceNotInIndex: results.filter((r) => r.unscorableReason === "evidence-not-in-index").length,
     finalHitRate: rate(scored.filter((r) => r.finalHit).length),
     poolHitRate: rate(ranks.length),
     filterLoss: rate(scored.filter((r) => r.poolRank !== null && !r.finalHit).length),

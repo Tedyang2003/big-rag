@@ -10,6 +10,7 @@ import { formatMetricsTable, runEval } from "./eval/runEval";
 import { readGenerationSettings, readRetrievalSettings } from "./eval/settings";
 import { buildSettingsSnapshot } from "./eval/settingsSnapshot";
 import { isPathIgnored } from "./eval/gitIgnore";
+import { questionsWithoutEvidence } from "./eval/evidencePresence";
 import { FIXED_DEFAULTS } from "./settings/defaults";
 import { getCatalog } from "./retrieval/catalogManager";
 
@@ -147,6 +148,18 @@ async function runRun(client: LMStudioClient, vectorStore: VectorStore, document
         ),
       listIndexedFiles: async () =>
         new Set((await vectorStore.listChunks()).map((c) => toRelativeSourcePath(documentsDir, c.filePath))),
+      questionsWithoutEvidence: async () => {
+        // Read each file as one continuous text: a question whose evidence is not there at
+        // all (missing file, or text that differs from the question set's) cannot be scored.
+        const absent = questionsWithoutEvidence(await vectorStore.listChunks(), questionSet.questions, documentsDir);
+        if (absent.size > 0) {
+          console.log(
+            `[BigRAG Eval] ${absent.size} of ${questionSet.questions.length} questions have no evidence in this ` +
+              `index and are reported as unscorable.`,
+          );
+        }
+        return absent;
+      },
       writeNewFile,
       now: () => new Date(),
     },

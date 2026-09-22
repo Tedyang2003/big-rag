@@ -6,6 +6,8 @@ import { type QuestionSet } from "./questionSet";
 export interface RunEvalDeps {
   retrieve: (query: string) => Promise<RetrieveResult>;
   listIndexedFiles: () => Promise<Set<string>>;
+  /** Ids whose evidence is absent from this index; they are reported unscorable, not missed. */
+  questionsWithoutEvidence?: () => Promise<Set<string>>;
   writeNewFile: (filePath: string, content: string) => Promise<void>;
   now: () => Date;
 }
@@ -29,11 +31,12 @@ export async function runEval(
   options: RunEvalOptions,
 ): Promise<{ report: EvalReport; reportPath: string }> {
   const indexedFiles = await deps.listIndexedFiles();
+  const withoutEvidence = (await deps.questionsWithoutEvidence?.()) ?? new Set<string>();
   const questions: QuestionResult[] = [];
 
   for (const question of options.questionSet.questions) {
     const retrieval = await deps.retrieve(question.question);
-    questions.push(scoreQuestion(question, retrieval, options.documentsDir, indexedFiles));
+    questions.push(scoreQuestion(question, retrieval, options.documentsDir, indexedFiles, withoutEvidence));
   }
 
   const metrics = aggregateMetrics(questions);
@@ -64,7 +67,8 @@ function percent(value: number): string {
 export function formatMetricsTable(metrics: EvalMetrics, diagnosticPoolSize = 50): string {
   const rows: Array<[string, string]> = [
     ["Questions scored", String(metrics.scored)],
-    ["Unscorable (file not indexed)", String(metrics.unscorable)],
+    ["Unscorable: file not indexed", String(metrics.unscorableFileNotIndexed)],
+    ["Unscorable: evidence not in the index", String(metrics.unscorableEvidenceNotInIndex)],
     ["Final hit rate", percent(metrics.finalHitRate)],
     [`Pool hit rate (top ${diagnosticPoolSize})`, percent(metrics.poolHitRate)],
     ["Filter loss", percent(metrics.filterLoss)],

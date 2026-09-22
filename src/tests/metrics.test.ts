@@ -97,3 +97,50 @@ test("aggregateMetrics handles no scorable questions", () => {
   assert.equal(metrics.medianPoolRank, null);
   assert.deepEqual(metrics.latency, {});
 });
+
+test("evidence split across two retrieved chunks counts as a hit", () => {
+  const question = {
+    id: "q1",
+    question: "what were capital expenditures",
+    sourceFile: "a.pdf",
+    answerSnippet: "net income 5349 depreciation and amortization 1488",
+  };
+  const passage = (chunkIndex: number, text: string) => ({
+    id: `c${chunkIndex}`,
+    text,
+    score: 0.8,
+    filePath: "/docs/a.pdf",
+    fileName: "a.pdf",
+    chunkIndex,
+    shardName: "shard_000",
+    metadata: {},
+  });
+  const retrieval = {
+    passages: [passage(7, "cash flows from operating activities net income 5349"), passage(8, "depreciation and amortization 1488 pension contributions")],
+    diagnosticPool: [],
+    timings: [],
+    laneCounts: { vector: 2, keyword: 0, date: 0 },
+    passageLanes: [[], []],
+    dayRanges: [],
+  };
+
+  const result = scoreQuestion(question, retrieval, "/docs", new Set(["a.pdf"]));
+  assert.equal(result.finalHit, true, "the model received both halves, so it counts");
+});
+
+test("a question whose evidence is not in the index is unscorable, not a miss", () => {
+  const question = { id: "q2", question: "q", sourceFile: "a.pdf", answerSnippet: "table of contents acme" };
+  const retrieval = {
+    passages: [],
+    diagnosticPool: [],
+    timings: [],
+    laneCounts: { vector: 0, keyword: 0, date: 0 },
+    passageLanes: [],
+    dayRanges: [],
+  };
+
+  const result = scoreQuestion(question, retrieval, "/docs", new Set(["a.pdf"]), new Set(["q2"]));
+  assert.equal(result.unscorable, true);
+  assert.equal(result.unscorableReason, "evidence-not-in-index");
+  assert.equal(aggregateMetrics([result]).unscorableEvidenceNotInIndex, 1);
+});

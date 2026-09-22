@@ -105,6 +105,8 @@ test("formatMetricsTable includes the headline metrics", () => {
   const table = formatMetricsTable({
     scored: 4,
     unscorable: 1,
+    unscorableFileNotIndexed: 1,
+    unscorableEvidenceNotInIndex: 0,
     finalHitRate: 0.25,
     poolHitRate: 0.5,
     filterLoss: 0.25,
@@ -124,6 +126,8 @@ test("formatMetricsTable labels the pool with a custom diagnostic pool size", ()
     {
       scored: 4,
       unscorable: 1,
+      unscorableFileNotIndexed: 1,
+      unscorableEvidenceNotInIndex: 0,
       finalHitRate: 0.25,
       poolHitRate: 0.5,
       filterLoss: 0.25,
