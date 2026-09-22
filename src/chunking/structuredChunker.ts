@@ -1,7 +1,7 @@
 import { type CountTokens } from "../utils/textChunker";
 import { dedupeRanges, extractDates, formatDateRange, type DateContext, type DateRange } from "../metadata/dates";
 import { buildSections, renderBlock, type Section } from "./sections";
-import { linariseTables } from "./linariseTables";
+import { linariseTables, startsNewTable } from "./linariseTables";
 
 /** Packed sections beyond this many show only as a count, so false headings cannot bloat the header. */
 const MAX_EXTRA_TITLES = 2;
@@ -104,15 +104,30 @@ function tokenizeSection(section: Section, offset: number): SectionTokens {
   let inLeadingHeadingRun = true;
   const tables: TableRange[] = [];
   let openTable: { start: number; headerText: string } | null = null;
+  let previousRowCells: string[] | null = null;
   section.blocks.forEach((block) => {
-    const blockWords = renderBlock(block).split(/\s+/).filter(Boolean);
+    const rendered = renderBlock(block);
+    const blockWords = rendered.split(/\s+/).filter(Boolean);
     blockWords.forEach((word, i) => tokens.push({ word, separator: i === blockWords.length - 1 ? "\n" : " " }));
     if (block.kind === "tableRow") {
-      if (!openTable) openTable = { start: tokens.length - blockWords.length, headerText: renderBlock(block) };
-    } else if (openTable) {
-      const opened = openTable as { start: number; headerText: string };
-      tables.push({ ...opened, end: tokens.length - blockWords.length });
-      openTable = null;
+      const cells = rendered.split(" | ").map((cell) => cell.trim());
+      const rowStart = tokens.length - blockWords.length;
+      // Two tables can sit directly against each other with no blank line between them. The
+      // same rule linariseTables uses to reset its header closes the open range here, so a
+      // repeated header is always the header of the piece's own table.
+      if (openTable && previousRowCells && startsNewTable(previousRowCells, cells)) {
+        tables.push({ ...(openTable as { start: number; headerText: string }), end: rowStart });
+        openTable = null;
+      }
+      if (!openTable) openTable = { start: rowStart, headerText: rendered };
+      previousRowCells = cells;
+    } else {
+      previousRowCells = null;
+      if (openTable) {
+        const opened = openTable as { start: number; headerText: string };
+        tables.push({ ...opened, end: tokens.length - blockWords.length });
+        openTable = null;
+      }
     }
     if (block.kind === "heading") {
       // Every heading's end is tracked separately so it never becomes a split
@@ -278,10 +293,13 @@ export async function chunkStructured(markdown: string, options: StructuredChunk
         } else {
           end = lastBoundary(item.blockEnds, lower, limit) ?? end;
         }
+      } else {
+        // Only when the table branch did not choose `end`: nudging past a heading end can
+        // otherwise land one token inside a table's first row.
+        end = avoidHeadingEnd(end, lower);
       }
-      end = avoidHeadingEnd(end, lower);
 
-      const openedIn = tableAt(start) ?? item.tables.find((table) => table.start === start);
+      const openedIn = tableAt(start);
       const repeatHeader = openedIn && start > openedIn.start ? openedIn.headerText : "";
       emit([item.section], item.tokens.slice(start, end), item.offset + start, repeatHeader);
       start = end;

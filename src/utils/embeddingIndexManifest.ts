@@ -128,6 +128,20 @@ export async function checkEmbeddingModelForRetrieval(args: {
 
   const manifest = await readEmbeddingIndexManifest(vectorStoreDir);
   if (!manifest) {
+    // Those chunks were embedded before manifests existed, so they carry no prefixes. A model
+    // that now prefixes its queries would score them against unprefixed vectors, which is the
+    // silent degradation the prefix check exists to prevent, so refuse rather than warn.
+    if (prefixConventionFor(resolvedModelId) === "nomic") {
+      return {
+        ok: false,
+        logMessage:
+          `Embedding prefix mismatch: index has chunks but no manifest, so it was built without prefixes, ` +
+          `and "${resolvedModelId}" expects "nomic" prefixes. Reindex required.`,
+        userMessage:
+          "The document index was built before this version's embedding change, so searches would score badly. " +
+          "Reindex your documents to rebuild it.",
+      };
+    }
     const key = path.resolve(vectorStoreDir);
     if (!legacyWarnedDirs.has(key)) {
       legacyWarnedDirs.add(key);

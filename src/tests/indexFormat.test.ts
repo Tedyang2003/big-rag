@@ -198,3 +198,28 @@ test("retrieval refuses an index built under a different prefix convention", asy
     await fs.rm(dir, { recursive: true, force: true });
   }
 });
+
+test("retrieval refuses a manifest-less index for a nomic model and allows it for another", async () => {
+  const dir = await tempDir();
+  try {
+    const embeddingModel = { embed: async () => ({ embedding: [1, 2, 3] }) } as never;
+    const nomic = await checkEmbeddingModelForRetrieval({
+      vectorStoreDir: dir,
+      resolvedModelId: "nomic-ai/nomic-embed-text-v1.5-GGUF",
+      totalChunks: 10,
+      embeddingModel,
+    });
+    assert.equal(nomic.ok, false);
+    if (!nomic.ok) assert.match(nomic.userMessage, /[Rr]eindex/);
+
+    const other = await checkEmbeddingModelForRetrieval({
+      vectorStoreDir: dir,
+      resolvedModelId: "some-other-model",
+      totalChunks: 10,
+      embeddingModel,
+    });
+    assert.equal(other.ok, true);
+  } finally {
+    await fs.rm(dir, { recursive: true, force: true });
+  }
+});

@@ -275,3 +275,77 @@ test("a chunk of prose has no separate embedded form", async () => {
   const chunks = await chunkStructured(ROUNDUP, options());
   for (const chunk of chunks) assert.equal(chunk.embedText, undefined);
 });
+
+const HEADER_A = "Years ended December 31 | 2018 | 2017";
+const HEADER_B = "Segment | Americas | Europe";
+const TWO_TABLES = [
+  "## Two tables back to back",
+  "",
+  HEADER_A,
+  ...Array.from({ length: 30 }, (_, i) => `Line item ${i} | ${i}00 | ${i}50`),
+  HEADER_B,
+  ...Array.from({ length: 30 }, (_, i) => `Sales unit ${i} | ${i}00 | ${i}50`),
+].join("\n");
+
+test("two adjacent tables split across pieces repeat their own headers", async () => {
+  const chunks = await chunkStructured(TWO_TABLES, options({ chunkSize: 110 }));
+
+  assert.ok(
+    chunks.some((chunk) => chunk.text.startsWith(HEADER_B)),
+    "no piece repeats the second table's header",
+  );
+  for (const chunk of chunks) {
+    if (chunk.text.startsWith(HEADER_A)) {
+      assert.ok(!chunk.text.includes("Sales unit"), `first table's header repeated over the second table's rows`);
+    }
+    if (chunk.text.startsWith(HEADER_B)) {
+      assert.ok(!chunk.text.includes("Line item"), `second table's header repeated over the first table's rows`);
+    }
+  }
+});
+
+test("the second table's rows are linearised with its own columns", async () => {
+  const chunks = await chunkStructured(TWO_TABLES, options({ chunkSize: 4000 }));
+  const embedded = chunks.map((chunk) => chunk.embedText ?? chunk.text).join("\n");
+  assert.ok(embedded.includes("Sales unit 0 — Americas: 000; Europe: 050"), embedded.slice(0, 400));
+});
+
+test("a heading directly above a table never leaves a piece starting mid-row", async () => {
+  const markdown = [
+    "## Cash flows",
+    "",
+    "Years ended December 31 | 2018 | 2017",
+    ...Array.from({ length: 60 }, (_, i) => `Line item ${i} | ${i}00 | ${i}50`),
+  ].join("\n");
+  for (const chunkSize of [30, 40, 50, 60, 80, 110]) {
+    const chunks = await chunkStructured(markdown, options({ chunkSize }));
+    for (const chunk of chunks) {
+      for (const line of chunk.text.split("\n")) {
+        if (!line.includes(" | ")) continue;
+        assert.equal(line.split(" | ").length, 3, `row was cut at chunkSize ${chunkSize}: ${JSON.stringify(line)}`);
+      }
+    }
+  }
+});
+
+test("chunkStructured loses no word of a table, and only repeats the header row", async () => {
+  const chunks = await chunkStructured(TABLE_SECTION, options({ chunkSize: 110 }));
+  const tally = (text: string) => {
+    const counts = new Map<string, number>();
+    for (const word of text.split(/\s+/).filter(Boolean)) counts.set(word, (counts.get(word) ?? 0) + 1);
+    return counts;
+  };
+  const source = tally(TABLE_SECTION);
+  const produced = tally(chunks.map((chunk) => chunk.text).join("\n"));
+  const headerWords = new Set("Years ended December 31 | 2018 | 2017".split(/\s+/).filter(Boolean));
+
+  for (const [word, count] of source) {
+    assert.ok((produced.get(word) ?? 0) >= count, `word lost: ${word}`);
+  }
+  for (const [word, count] of produced) {
+    assert.ok(source.has(word), `word invented: ${word}`);
+    if (count > (source.get(word) ?? 0)) {
+      assert.ok(headerWords.has(word), `word repeated but not part of the header row: ${word}`);
+    }
+  }
+});
