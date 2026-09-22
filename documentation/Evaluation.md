@@ -123,6 +123,7 @@ npm run eval:run
 # Structured + Hybrid
 $env:BIG_RAG_DB_DIR="D:\Projects\SAIC\SNIP\plugin_dev\big-rag\eval\vdbs\structured"
 $env:BIG_RAG_RETRIEVAL_DEPTH="medium"
+$env:BIG_RAG_CATALOG_MAX_CHUNKS="250000"
 npm run eval:run
 
 ```
