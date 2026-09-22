@@ -389,12 +389,13 @@ test("at medium depth the diagnostic pool is the fused ranking, not a vector-onl
   );
 
   assert.deepEqual(result.passages.map((passage) => passage.text), ["fetched shard_000/chunk-3"]);
-  // Every lane's candidates appear in the pool, in fused order, so pool metrics measure fusion.
+  // The pool is the fused ranking, so pool metrics measure fusion rather than the vector lane
+  // alone. chunk-3 tops it because the keyword lane found it and its date matches; chunk-4 is
+  // in the query's date range but no lane retrieved it, so a date alone does not admit it.
   assert.deepEqual(result.diagnosticPool.map((passage) => passage.text), [
     "fetched shard_000/chunk-3",
     "vector hit",
     "fetched shard_000/chunk-2",
-    "fetched shard_000/chunk-4",
   ]);
   assert.equal(searchCalls.length, 1, "the pool reuses the lanes instead of searching again");
 });
@@ -438,4 +439,50 @@ test("a lane takes at most laneCandidatesPerFile chunks from one document", asyn
     result.passages.some((passage) => passage.text === "vector hit"),
     "the vector lane's passage is no longer crowded out",
   );
+});
+
+test("a date match lifts a chunk the other lanes found, and never introduces one they did not", async () => {
+  // The vector lane ranks chunk-1 then chunk-2; only chunk-2 is dated in the question's year.
+  const { deps } = makeDeps([
+    makeResult({ text: "wrong year", id: "chunk-1" }),
+    makeResult({ text: "right year", id: "chunk-2" }),
+  ]);
+
+  const result = await retrieve(
+    "what were the results in FY2026",
+    {
+      ...deps,
+      nowDate: () => new Date(2026, 8, 16),
+      catalog: fakeCatalog({
+        // chunk-2 was retrieved; chunk-7 is in the right year but nobody found it.
+        chunksForRanges: () => [2, 7],
+      }),
+      fetchChunks: async (keys) => keys.map((key) => makeResult({ text: `fetched ${key}`, id: key.split("/")[1] })),
+    },
+    { ...LOW_OPTIONS, depth: "medium", retrievalLimit: 5 },
+  );
+
+  assert.deepEqual(result.passages.map((passage) => passage.text), ["right year", "wrong year"]);
+  assert.ok(
+    !result.passages.some((passage) => passage.text.includes("chunk-7")),
+    "a chunk no lane retrieved is not pulled in by its date alone",
+  );
+  assert.deepEqual(result.passageLanes[0], ["vector", "date"]);
+  assert.equal(result.laneCounts.date, 1);
+});
+
+test("a question with no date leaves the ranking untouched", async () => {
+  const { deps } = makeDeps([
+    makeResult({ text: "first", id: "chunk-1" }),
+    makeResult({ text: "second", id: "chunk-2" }),
+  ]);
+
+  const result = await retrieve(
+    "what were the results",
+    { ...deps, catalog: fakeCatalog({ chunksForRanges: () => [2] }), fetchChunks: async () => [] },
+    { ...LOW_OPTIONS, depth: "medium", retrievalLimit: 5 },
+  );
+
+  assert.deepEqual(result.passages.map((passage) => passage.text), ["first", "second"]);
+  assert.equal(result.laneCounts.date, 0);
 });

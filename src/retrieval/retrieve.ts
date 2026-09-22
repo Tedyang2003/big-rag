@@ -221,31 +221,17 @@ export async function retrieve(
     );
     options.abortSignal?.throwIfAborted();
 
-    const dateKeys = await timed("dateLane", () =>
+    // Dates are a boost, not a source of candidates. A year says which documents are
+    // eligible, not which passage answers the question, so a chunk is never retrieved
+    // because of its date - it is only lifted once another lane has found it.
+    const datedKeys = await timed("dateLane", () =>
       safeLane("date", async () => {
         dayRanges = queryDayRanges(query, {
           now: deps.nowDate?.() ?? new Date(),
           yearsPresent: catalog.yearsPresent(),
         });
         if (dayRanges.length === 0) return [];
-        const matched = catalog.chunksForRanges(dayRanges);
-        const ordered = new Map<number, number>();
-        let rank = matched.length;
-        for (const chunkNumber of matched.sort(
-          (a, b) =>
-            (keywordScores.get(b) ?? 0) - (keywordScores.get(a) ?? 0) ||
-            catalog.latestDayOf(b) - catalog.latestDayOf(a) ||
-            a - b,
-        )) {
-          ordered.set(chunkNumber, rank--);
-        }
-        return topKeys(
-          ordered,
-          options.laneCandidates,
-          (n) => catalog.keyOf(n),
-          (n) => catalog.fileOf(n),
-          options.laneCandidatesPerFile,
-        );
+        return catalog.chunksForRanges(dayRanges).map((chunkNumber) => catalog.keyOf(chunkNumber));
       }),
     );
     options.abortSignal?.throwIfAborted();
@@ -255,10 +241,21 @@ export async function retrieve(
     const lanes: RankedLane[] = [
       { name: "vector", weight: options.laneWeights.vector, keys: [...vectorByKey.keys()] },
       { name: "keyword", weight: options.laneWeights.keyword, keys: keywordKeys },
-      { name: "date", weight: options.laneWeights.date, keys: dateKeys },
     ];
 
-    const fused = await timed("fuse", async () => fuseLanes(lanes, options.rrfConstant));
+    const dated = new Set(datedKeys);
+    const dateBoost = options.laneWeights.date / (options.rrfConstant + 1);
+    const fused = await timed("fuse", async () => {
+      const ranking = fuseLanes(lanes, options.rrfConstant);
+      if (dated.size === 0) return ranking;
+      for (const entry of ranking) {
+        if (!dated.has(entry.key)) continue;
+        // Worth as much as topping the date lane was, so the boost keeps its old strength.
+        entry.score += dateBoost;
+        entry.lanes.push("date");
+      }
+      return ranking.sort((a, b) => b.score - a.score);
+    });
     fusedKeys = fused.map((entry) => entry.key);
     // With compaction on, the compaction stage still needs its wider candidate pool.
     const winnerCount = options.enableContextCompaction
