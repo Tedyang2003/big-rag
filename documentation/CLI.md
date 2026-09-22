@@ -64,7 +64,7 @@ Set `BIG_RAG_FAILURE_REPORT_PATH` to an absolute path, for example `C:\temp\inde
 $env:BIG_RAG_DOCS_DIR = "D:\docs"; npm run structure:report
 ```
 
-For each file it prints the parser used, headings found at each level and per page, tables detected and their row count, legacy and structured chunk counts, and how full structured chunks are on average; totals follow at the end. Set `BIG_RAG_REPORT_HEADINGS=true` to also list each file's first 20 headings. Token counts are estimated at 1.3 per word, so chunk counts are close to, not exactly, what indexing produces. `BIG_RAG_CHUNK_SIZE`, `BIG_RAG_CHUNK_OVERLAP`, `BIG_RAG_ENABLE_OCR` and `BIG_RAG_EXCLUDE_PATTERNS` apply as they do for indexing.
+For each file it prints the parser used, headings found at each level and per page, tables detected and their row count, single-line pipe text that isn't a table, legacy and structured chunk counts, and how full structured chunks are on average; totals follow at the end. Set `BIG_RAG_REPORT_HEADINGS=true` to also list each file's first 20 headings. Token counts are estimated at 1.3 per word, so chunk counts are close to, not exactly, what indexing produces. `BIG_RAG_CHUNK_SIZE`, `BIG_RAG_CHUNK_OVERLAP`, `BIG_RAG_ENABLE_OCR` and `BIG_RAG_EXCLUDE_PATTERNS` apply as they do for indexing.
 
 ### Building Indexes for Comparison
 

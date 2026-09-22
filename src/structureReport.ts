@@ -32,6 +32,7 @@ interface FileReport {
   headings: string[];
   tables: number;
   tableRows: number;
+  pipeLines: number;
   legacyChunks: number;
   structuredChunks: number;
   fillTotal: number;
@@ -56,20 +57,32 @@ async function reportFile(file: ScannedFile, root: string, settings: ReturnType<
   const headingsByLevel: [number, number, number] = [0, 0, 0];
   for (const block of headingBlocks) headingsByLevel[Math.min(block.level, 3) - 1]++;
 
-  // A table is a run of consecutive rows; counting runs rather than rows says how many
-  // tables a document has, which is what tells you whether detection is working.
+  // A table is a run of two or more consecutive rows. parseBlocks turns any single line
+  // containing " | " into a tableRow block, including lines that are not tables at all
+  // (a Python type union, a table-of-contents dotted-leader line); a run of exactly one
+  // is one of those, not a table, so it is counted separately as a "pipe line" rather
+  // than folded into the table count.
   let tables = 0;
   let tableRows = 0;
-  let inTable = false;
+  let pipeLines = 0;
+  let runLength = 0;
+  const closeRun = () => {
+    if (runLength >= 2) {
+      tables++;
+      tableRows += runLength;
+    } else if (runLength === 1) {
+      pipeLines++;
+    }
+    runLength = 0;
+  };
   for (const block of blocks) {
     if (block.kind === "tableRow") {
-      tableRows++;
-      if (!inTable) tables++;
-      inTable = true;
+      runLength++;
     } else {
-      inTable = false;
+      closeRun();
     }
   }
+  closeRun();
 
   const legacy = await chunkText(markdownToPlain(markdown), settings.chunkSize, settings.chunkOverlap, estimateTokens);
   // Mirrors indexManager.prepareStructuredChunks: chunk without dates if date extraction fails.
@@ -108,6 +121,7 @@ async function reportFile(file: ScannedFile, root: string, settings: ReturnType<
     headings: headingBlocks.map((block) => `${"#".repeat(block.level)} ${block.text}`),
     tables,
     tableRows,
+    pipeLines,
     legacyChunks: legacy.length,
     structuredChunks: structured.length,
     fillTotal,
@@ -147,7 +161,7 @@ async function main() {
     const fill = report.structuredChunks > 0 ? Math.round((100 * report.fillTotal) / report.structuredChunks) : 0;
     console.log(
       `${report.file}  parser=${report.parser}  pages=${report.pages ?? "-"}  ` +
-        `headings=${report.headingsByLevel.join("/")}  perPage=${perPage}  tables=${report.tables}/${report.tableRows}r  ` +
+        `headings=${report.headingsByLevel.join("/")}  perPage=${perPage}  tables=${report.tables}/${report.tableRows}r  pipes=${report.pipeLines}  ` +
         `legacy=${report.legacyChunks}  structured=${report.structuredChunks}  fill=${fill}%`,
     );
     if (listHeadings) {
@@ -167,7 +181,8 @@ async function main() {
   console.log(
     `Tables: ${reports.reduce((sum, report) => sum + report.tables, 0)} ` +
       `(${reports.reduce((sum, report) => sum + report.tableRows, 0)} rows), ` +
-      `in ${reports.filter((report) => report.tables > 0).length}/${reports.length} files`,
+      `in ${reports.filter((report) => report.tables > 0).length}/${reports.length} files, ` +
+      `pipe lines ${reports.reduce((sum, report) => sum + report.pipeLines, 0)}`,
   );
   console.log(
     `Chunks: legacy ${legacy}, structured ${structured}, ratio ${legacy > 0 ? (structured / legacy).toFixed(2) : "-"}`,
