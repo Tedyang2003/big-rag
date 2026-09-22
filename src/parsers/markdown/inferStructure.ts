@@ -50,14 +50,6 @@ export function inferStructure(raw: string, options: { inferHeadings?: boolean }
       seenContent = true;
       continue;
     }
-    // A table row is its own block: joining rows into a paragraph would destroy the
-    // columns that the row separators are there to preserve.
-    if (line.includes(" | ")) {
-      flush();
-      blocks.push(line);
-      seenContent = true;
-      continue;
-    }
     if (LIST_ITEM.test(line)) {
       flush();
       current = [normalizeListItem(line)];

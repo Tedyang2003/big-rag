@@ -66,7 +66,7 @@ test("the header is the first row with a label in its first cell", () => {
     ],
     612,
   );
-  assert.equal(rows.get(0)?.isHeader, false);
+  assert.equal(rows.get(0), undefined, "the numeric-only line above the table is not part of it");
   assert.equal(rows.get(1)?.isHeader, true);
 });
 
@@ -76,6 +76,58 @@ test("an all-numeric table falls back to its first row as the header", () => {
     612,
   );
   assert.equal(rows.get(0)?.isHeader, true);
+});
+
+test("a run starts at its header row: leading numeric-first-cell lines are not table rows", () => {
+  const columns = [60, 300, 400];
+  const rows = findTableRows(
+    [
+      row(["2018", "1,577", "1,373"], columns, 100),
+      row(["Capital expenditures", "1,577", "1,373"], columns, 120),
+      row(["Depreciation", "1,488", "1,544"], columns, 140),
+    ],
+    612,
+  );
+  assert.equal(rows.get(0), undefined, "the numeric-first-cell lead row is not a table row");
+  assert.equal(rows.get(1)?.isHeader, true);
+  assert.deepEqual(rows.get(1)?.cells, ["Capital expenditures", "1,577", "1,373"]);
+  assert.equal(rows.get(2)?.isHeader, false);
+  assert.deepEqual(rows.get(2)?.cells, ["Depreciation", "1,488", "1,544"]);
+});
+
+test("three consecutive bullet lines produce no rows", () => {
+  const bullet = (text: string, top: number) => row(["•", text], [60, 90], top);
+  const rows = findTableRows(
+    [
+      bullet("worldwide economic, political, and capital markets conditions", 100),
+      bullet("new business opportunities and product development", 120),
+      bullet("the outcome of contingencies, such as legal proceedings", 140),
+    ],
+    612,
+  );
+  assert.equal(rows.size, 0);
+});
+
+test("two consecutive aligned prose lines with no numeric cell anywhere produce no rows", () => {
+  const columns = [60, 300];
+  const rows = findTableRows(
+    [row(["Overview", "Results of Operations"], columns, 100), row(["Segments", "Geographic Areas"], columns, 120)],
+    612,
+  );
+  assert.equal(rows.size, 0);
+});
+
+test("a two-column prose page produces no rows", () => {
+  const columns = [60, 310];
+  const rows = findTableRows(
+    [
+      row(["Left column line one of the flowing text here.", "Right column line one of the flowing text here."], columns, 100),
+      row(["Left column line two of the flowing text here.", "Right column line two of the flowing text here."], columns, 120),
+      row(["Left column line three of the flowing text here.", "Right column line three of the flowing text here."], columns, 140),
+    ],
+    612,
+  );
+  assert.equal(rows.size, 0);
 });
 
 test("isNumericCell reads money, percentages and bracketed negatives", () => {

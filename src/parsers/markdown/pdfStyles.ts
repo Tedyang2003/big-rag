@@ -448,7 +448,11 @@ export function styledPagesToMarkdown(pages: PdfPage[]): string | null {
     if (headingLineOrders.has(placed.order)) continue;
     const row = rowByOrder.get(placed.order);
     if (row) {
-      paragraph.push(row);
+      // A table row is its own block: leaving it in `paragraph` would let it get joined
+      // into surrounding prose (and, later, reflowed by inferStructure) with the column
+      // separators still there but the columns themselves gone.
+      flush();
+      parts.push(row);
       continue;
     }
     // A body line that would read as a Markdown heading is escaped.
