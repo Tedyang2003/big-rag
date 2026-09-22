@@ -53,6 +53,7 @@ test("retrieve searches with retrievalLimit and threshold when compaction is off
     enableContextCompaction: false,
     depth: "low",
     laneCandidates: 30,
+    laneCandidatesPerFile: 3,
     rrfConstant: 60,
     laneWeights: { vector: 1, keyword: 1, date: 1 },
   });
@@ -81,6 +82,7 @@ test("retrieve trims overlapping adjacent chunks", async () => {
     enableContextCompaction: false,
     depth: "low",
     laneCandidates: 30,
+    laneCandidatesPerFile: 3,
     rrfConstant: 60,
     laneWeights: { vector: 1, keyword: 1, date: 1 },
   });
@@ -104,6 +106,7 @@ test("retrieve widens the pool and fills the token budget when compaction is on"
     enableContextCompaction: true,
     depth: "low",
     laneCandidates: 30,
+    laneCandidatesPerFile: 3,
     rrfConstant: 60,
     laneWeights: { vector: 1, keyword: 1, date: 1 },
   });
@@ -128,6 +131,7 @@ test("retrieve collects an unthresholded diagnostic pool when requested", async 
     diagnosticPoolSize: 50,
     depth: "low",
     laneCandidates: 30,
+    laneCandidatesPerFile: 3,
     rrfConstant: 60,
     laneWeights: { vector: 1, keyword: 1, date: 1 },
   });
@@ -155,6 +159,7 @@ test("retrieve stops before searching when aborted after embedding the query", a
         abortSignal: controller.signal,
         depth: "low",
         laneCandidates: 30,
+        laneCandidatesPerFile: 3,
         rrfConstant: 60,
         laneWeights: { vector: 1, keyword: 1, date: 1 },
       }),
@@ -170,6 +175,7 @@ const LOW_OPTIONS = {
   enableContextCompaction: false,
   depth: "low" as const,
   laneCandidates: 30,
+  laneCandidatesPerFile: 3,
   rrfConstant: 60,
   laneWeights: { vector: 1, keyword: 1, date: 1 },
 };
@@ -180,6 +186,7 @@ function fakeCatalog(overrides: Partial<CatalogLanes> = {}): CatalogLanes {
     scoreTerms: () => new Map<number, number>(),
     chunksForRanges: () => [],
     keyOf: (chunkNumber) => `shard_000/chunk-${chunkNumber}`,
+    fileOf: (chunkNumber) => `/docs/file-${chunkNumber}.md`,
     latestDayOf: () => 0,
     yearsPresent: () => [2026],
     ...overrides,
@@ -403,4 +410,32 @@ test("at low depth the diagnostic pool is still an unthresholded vector search",
     { limit: 1, threshold: 0.5 },
     { limit: 2, threshold: Number.NEGATIVE_INFINITY },
   ]);
+});
+
+test("a lane takes at most laneCandidatesPerFile chunks from one document", async () => {
+  const { deps } = makeDeps([makeResult({ text: "vector hit", id: "chunk-99" })]);
+  const fetched: string[][] = [];
+  // Chunks 1-6 are all in one file and all score well on the query terms.
+  const result = await retrieve(
+    "ulta beauty wages expense fiscal 2023",
+    {
+      ...deps,
+      catalog: fakeCatalog({
+        scoreTerms: () => new Map([[1, 9], [2, 8], [3, 7], [4, 6], [5, 5], [6, 4]]),
+        fileOf: () => "/docs/one-filing.pdf",
+      }),
+      fetchChunks: async (keys) => {
+        fetched.push(keys);
+        return keys.map((key) => makeResult({ text: `fetched ${key}`, id: key.split("/")[1] }));
+      },
+    },
+    { ...LOW_OPTIONS, depth: "medium", retrievalLimit: 5, laneCandidatesPerFile: 2 },
+  );
+
+  const keywordChunks = result.passages.filter((passage) => passage.text.startsWith("fetched"));
+  assert.equal(keywordChunks.length, 2, "the keyword lane contributed only two chunks from that file");
+  assert.ok(
+    result.passages.some((passage) => passage.text === "vector hit"),
+    "the vector lane's passage is no longer crowded out",
+  );
 });

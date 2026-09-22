@@ -14,6 +14,7 @@ export const FIXED_DEFAULTS = {
   structuredIndexing: true,
   enableContextCompaction: false,
   laneCandidates: 30,
+  laneCandidatesPerFile: 3,
   rrfConstant: 60,
   laneWeightVector: 1,
   laneWeightKeyword: 1,

@@ -19,6 +19,7 @@ export interface ResolvedSettings {
   reindexMode: ReindexMode;
   retrievalDepth: RetrievalDepth;
   laneCandidates: number;
+  laneCandidatesPerFile: number;
   rrfConstant: number;
   laneWeightVector: number;
   laneWeightKeyword: number;

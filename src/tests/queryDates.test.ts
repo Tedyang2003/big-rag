@@ -58,3 +58,26 @@ test("questions with no date produce no ranges", () => {
 test("toDayNumber uses the local calendar day", () => {
   assert.equal(toDayNumber(new Date(2026, 0, 5)), 20260105);
 });
+
+test("a fiscal year or bare year in a question becomes that calendar year", () => {
+  const year = (y: number) => [{ start: y * 10000 + 101, end: y * 10000 + 1231 }];
+  assert.deepEqual(queryDayRanges("What was Ulta Beauty's wages expense in FY2023?"), year(2023));
+  assert.deepEqual(queryDayRanges("Boeing legal battles from FY 2022"), year(2022));
+  assert.deepEqual(queryDayRanges("revenue for fiscal 2021"), year(2021));
+  assert.deepEqual(queryDayRanges("geographies American Express operates in as of 2022"), year(2022));
+  assert.deepEqual(queryDayRanges("what happened in 2019"), year(2019));
+});
+
+test("a year that is part of a full date, a quarter or a version is not read as a bare year", () => {
+  assert.deepEqual(queryDayRanges("incidents on 8 Sep 2026"), [{ start: 20260908, end: 20260908 }]);
+  assert.deepEqual(queryDayRanges("results for Q3 2026"), [{ start: 20260701, end: 20260930 }]);
+  assert.deepEqual(queryDayRanges("upgrade to version 2019 of the tool"), []);
+  assert.deepEqual(queryDayRanges("a payment of 2023 dollars"), []);
+});
+
+test("several years in one question are returned most recent first", () => {
+  assert.deepEqual(queryDayRanges("compare FY2021 with FY2023"), [
+    { start: 20230101, end: 20231231 },
+    { start: 20210101, end: 20211231 },
+  ]);
+});

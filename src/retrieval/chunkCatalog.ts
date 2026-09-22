@@ -151,6 +151,11 @@ export class ChunkCatalog {
     return this.file.wordTableSkipped === this.file.chunkCount > maxChunks;
   }
 
+  /** The file a chunk came from, used to stop one document filling a lane. */
+  fileOf(chunkNumber: number): string {
+    return this.file.chunks[chunkNumber]?.filePath ?? "";
+  }
+
   keyOf(chunkNumber: number): string {
     return this.file.chunks[chunkNumber]?.key ?? "";
   }

@@ -128,6 +128,28 @@ function yearlessRanges(question: string, now: Date, yearsPresent: number[] | un
     });
 }
 
+const YEAR_ONLY = /(?<![\w.$-])(?:fy\s*|fiscal\s+(?:year\s+)?)?((?:19|20)\d{2})(?![\w.%-])/gi;
+const NOT_A_YEAR_BEFORE = /(?:\$|usd|eur|gbp|versions?)\s*$/i;
+const NOT_A_YEAR_AFTER = /^\s*(?:dollars|usd|eur|euros|gbp|pounds)\b/i;
+
+/**
+ * Years a question names on their own, as "2022", "FY2023" or "fiscal year 2021". Questions
+ * about filings usually date them this way rather than with a full date, and a document's
+ * year is what separates one annual report from the nine others that read almost the same.
+ */
+function bareYearRanges(question: string): DayRange[] {
+  const years = new Set<number>();
+  for (const match of question.matchAll(YEAR_ONLY)) {
+    const before = question.slice(0, match.index ?? 0).trimEnd();
+    const after = question.slice((match.index ?? 0) + match[0].length);
+    if (NOT_A_YEAR_BEFORE.test(before) || NOT_A_YEAR_AFTER.test(after)) continue;
+    years.add(Number(match[1]));
+  }
+  return [...years]
+    .sort((a, b) => b - a)
+    .map((year) => ({ start: year * 10000 + 101, end: year * 10000 + 1231 }));
+}
+
 /**
  * Day ranges the question refers to, most recent first. Empty when it names no date,
  * in which case the caller skips the date lane.
@@ -142,5 +164,8 @@ export function queryDayRanges(question: string, options: QueryDateOptions = {})
   const extracted = extractDates(question, { referenceTime: now });
   if (extracted.length > 0) return extracted.map(rangeFromExtracted);
 
-  return yearlessRanges(question, now, options.yearsPresent);
+  const yearless = yearlessRanges(question, now, options.yearsPresent);
+  if (yearless.length > 0) return yearless;
+
+  return bareYearRanges(question);
 }

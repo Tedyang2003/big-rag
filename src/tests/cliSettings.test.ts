@@ -16,6 +16,7 @@ test("FIXED_DEFAULTS holds the spec's fixed values", () => {
     structuredIndexing: true,
     enableContextCompaction: false,
     laneCandidates: 30,
+    laneCandidatesPerFile: 3,
     rrfConstant: 60,
     laneWeightVector: 1,
     laneWeightKeyword: 1,

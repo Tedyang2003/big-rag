@@ -31,6 +31,7 @@ export interface CatalogLanes {
   scoreTerms(terms: string[]): Map<number, number>;
   chunksForRanges(ranges: DayRange[]): number[];
   keyOf(chunkNumber: number): string;
+  fileOf(chunkNumber: number): string;
   latestDayOf(chunkNumber: number): number;
   yearsPresent(): number[];
 }
@@ -67,6 +68,8 @@ export interface RetrieveOptions {
   depth: RetrievalDepth;
   /** Candidates each lane contributes to fusion. */
   laneCandidates: number;
+  /** Of those, at most this many may come from one document. */
+  laneCandidatesPerFile: number;
   rrfConstant: number;
   laneWeights: { vector: number; keyword: number; date: number };
 }
@@ -112,12 +115,32 @@ async function compactResultsToBudget(
   return compacted;
 }
 
-function topKeys(scores: Map<number, number>, limit: number, keyOf: (n: number) => string): string[] {
-  return [...scores.entries()]
-    .sort((a, b) => b[1] - a[1] || a[0] - b[0])
-    .slice(0, limit)
-    .map(([chunkNumber]) => keyOf(chunkNumber))
-    .filter((key) => key.length > 0);
+/**
+ * Takes the best `limit` chunks, but at most `perFile` from any one document. Keyword and
+ * date signals identify documents rather than passages - every chunk of a filing contains
+ * its company's name and shares its posted date - so without a cap one document can fill a
+ * lane with boilerplate and outvote the lane that ranks passages.
+ */
+function topKeys(
+  scores: Map<number, number>,
+  limit: number,
+  keyOf: (n: number) => string,
+  fileOf: (n: number) => string,
+  perFile: number,
+): string[] {
+  const taken = new Map<string, number>();
+  const keys: string[] = [];
+  for (const [chunkNumber] of [...scores.entries()].sort((a, b) => b[1] - a[1] || a[0] - b[0])) {
+    const file = fileOf(chunkNumber);
+    const used = taken.get(file) ?? 0;
+    if (used >= perFile) continue;
+    const key = keyOf(chunkNumber);
+    if (key.length === 0) continue;
+    taken.set(file, used + 1);
+    keys.push(key);
+    if (keys.length >= limit) break;
+  }
+  return keys;
 }
 
 /** Runs a lane, returning an empty list if it fails so one lane cannot fail the query. */
@@ -187,7 +210,13 @@ export async function retrieve(
       safeLane("keyword", async () => {
         if (!catalog.hasWordTable || terms.length === 0) return [];
         for (const [chunkNumber, score] of catalog.scoreTerms(terms)) keywordScores.set(chunkNumber, score);
-        return topKeys(keywordScores, options.laneCandidates, (n) => catalog.keyOf(n));
+        return topKeys(
+          keywordScores,
+          options.laneCandidates,
+          (n) => catalog.keyOf(n),
+          (n) => catalog.fileOf(n),
+          options.laneCandidatesPerFile,
+        );
       }),
     );
     options.abortSignal?.throwIfAborted();
@@ -200,16 +229,23 @@ export async function retrieve(
         });
         if (dayRanges.length === 0) return [];
         const matched = catalog.chunksForRanges(dayRanges);
-        return matched
-          .sort(
-            (a, b) =>
-              (keywordScores.get(b) ?? 0) - (keywordScores.get(a) ?? 0) ||
-              catalog.latestDayOf(b) - catalog.latestDayOf(a) ||
-              a - b,
-          )
-          .slice(0, options.laneCandidates)
-          .map((chunkNumber) => catalog.keyOf(chunkNumber))
-          .filter((key) => key.length > 0);
+        const ordered = new Map<number, number>();
+        let rank = matched.length;
+        for (const chunkNumber of matched.sort(
+          (a, b) =>
+            (keywordScores.get(b) ?? 0) - (keywordScores.get(a) ?? 0) ||
+            catalog.latestDayOf(b) - catalog.latestDayOf(a) ||
+            a - b,
+        )) {
+          ordered.set(chunkNumber, rank--);
+        }
+        return topKeys(
+          ordered,
+          options.laneCandidates,
+          (n) => catalog.keyOf(n),
+          (n) => catalog.fileOf(n),
+          options.laneCandidatesPerFile,
+        );
       }),
     );
     options.abortSignal?.throwIfAborted();

@@ -518,6 +518,7 @@ export async function preprocess(
         enableContextCompaction,
         depth: retrievalDepth,
         laneCandidates: settings.laneCandidates,
+        laneCandidatesPerFile: settings.laneCandidatesPerFile,
         rrfConstant: settings.rrfConstant,
         laneWeights: {
           vector: settings.laneWeightVector,
