@@ -91,7 +91,9 @@ export function findTableRows(lines: PdfLine[], pageWidth: number): Map<number, 
       const header = headerIndex(run);
       const tableRun = run.slice(header);
       const hasNumericCell = tableRun.some((line) => (line.cells ?? []).some((cell) => isNumericCell(cell.text)));
-      if (hasNumericCell) {
+      // The MIN_RUN_ROWS guard above applies to the candidate run; trimming the leading
+      // numeric-first-cell lines can leave fewer rows, and one row is never a table.
+      if (hasNumericCell && tableRun.length >= MIN_RUN_ROWS) {
         tableRun.forEach((line, i) => {
           rows.set(index + header + i, { cells: (line.cells ?? []).map((cell) => cell.text), isHeader: i === 0 });
         });

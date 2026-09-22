@@ -134,3 +134,9 @@ test("isNumericCell reads money, percentages and bracketed negatives", () => {
   for (const value of ["1,577", "$1,577", "(221)", "3.20", "12%", "-5"]) assert.equal(isNumericCell(value), true, value);
   for (const value of ["Capital expenditures", "2018 total", "—", ""]) assert.equal(isNumericCell(value), false, value);
 });
+
+test("a lone numeric lead row above a single figure line is not a table", () => {
+  const columns = [60, 300];
+  const rows = findTableRows([row(["2018", "1,577"], columns, 100), row(["Capex", "1,577"], columns, 120)], 612);
+  assert.equal(rows.size, 0, "trimming the lead row leaves one row, which is not a table");
+});
