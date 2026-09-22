@@ -30,6 +30,8 @@ interface FileReport {
   pages: number | null;
   headingsByLevel: [number, number, number];
   headings: string[];
+  tables: number;
+  tableRows: number;
   legacyChunks: number;
   structuredChunks: number;
   fillTotal: number;
@@ -49,9 +51,25 @@ async function reportFile(file: ScannedFile, root: string, settings: ReturnType<
   if (!parsed) return null;
   const markdown = parsed.text;
 
-  const headingBlocks = parseBlocks(markdown).filter((block) => block.kind === "heading");
+  const blocks = parseBlocks(markdown);
+  const headingBlocks = blocks.filter((block) => block.kind === "heading");
   const headingsByLevel: [number, number, number] = [0, 0, 0];
   for (const block of headingBlocks) headingsByLevel[Math.min(block.level, 3) - 1]++;
+
+  // A table is a run of consecutive rows; counting runs rather than rows says how many
+  // tables a document has, which is what tells you whether detection is working.
+  let tables = 0;
+  let tableRows = 0;
+  let inTable = false;
+  for (const block of blocks) {
+    if (block.kind === "tableRow") {
+      tableRows++;
+      if (!inTable) tables++;
+      inTable = true;
+    } else {
+      inTable = false;
+    }
+  }
 
   const legacy = await chunkText(markdownToPlain(markdown), settings.chunkSize, settings.chunkOverlap, estimateTokens);
   // Mirrors indexManager.prepareStructuredChunks: chunk without dates if date extraction fails.
@@ -88,6 +106,8 @@ async function reportFile(file: ScannedFile, root: string, settings: ReturnType<
     pages: file.extension === ".pdf" ? await countPdfPages(file.path) : null,
     headingsByLevel,
     headings: headingBlocks.map((block) => `${"#".repeat(block.level)} ${block.text}`),
+    tables,
+    tableRows,
     legacyChunks: legacy.length,
     structuredChunks: structured.length,
     fillTotal,
@@ -127,7 +147,7 @@ async function main() {
     const fill = report.structuredChunks > 0 ? Math.round((100 * report.fillTotal) / report.structuredChunks) : 0;
     console.log(
       `${report.file}  parser=${report.parser}  pages=${report.pages ?? "-"}  ` +
-        `headings=${report.headingsByLevel.join("/")}  perPage=${perPage}  ` +
+        `headings=${report.headingsByLevel.join("/")}  perPage=${perPage}  tables=${report.tables}/${report.tableRows}r  ` +
         `legacy=${report.legacyChunks}  structured=${report.structuredChunks}  fill=${fill}%`,
     );
     if (listHeadings) {
@@ -144,6 +164,11 @@ async function main() {
   console.log(`Files: ${files.length} (failed ${failed})`);
   console.log(`PDFs with headings: ${pdfsWithHeadings.length}/${pdfs.length}`);
   console.log(`Parsers: ${JSON.stringify(countBy(reports.map((report) => report.parser)))}`);
+  console.log(
+    `Tables: ${reports.reduce((sum, report) => sum + report.tables, 0)} ` +
+      `(${reports.reduce((sum, report) => sum + report.tableRows, 0)} rows), ` +
+      `in ${reports.filter((report) => report.tables > 0).length}/${reports.length} files`,
+  );
   console.log(
     `Chunks: legacy ${legacy}, structured ${structured}, ratio ${legacy > 0 ? (structured / legacy).toFixed(2) : "-"}`,
   );
