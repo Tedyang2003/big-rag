@@ -81,6 +81,8 @@ Indexes built before structured indexing use an older format. The plugin shows *
 
 Structured indexing now finds PDF headings from font styles (bold, italic and larger text) and no longer overlaps chunks. Structured indexes built before this change show *"Reindex required to apply improved structured indexing."* until you reindex.
 
+From this version, tables in PDFs are indexed as rows of cells rather than a run of text, and each row is matched by the words that name its values. A passage can therefore be found by text that differs slightly from what the citation shows: the citation shows the table, while search matched a form of it that names each value by its column. Structured indexes built before this change show *"Reindex required to apply improved structured indexing."* until you reindex.
+
 PDFs are now read with MuPDF first in both modes, so reindexing a standard (legacy) index can also change the text extracted from PDFs.
 
 ## Upgrading from 1.3

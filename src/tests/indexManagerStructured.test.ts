@@ -57,7 +57,7 @@ test("IndexManager stores structured chunks with headers and rebuilds legacy chu
     const structured = await store.listChunks();
 
     assert.ok(structured.length > 0);
-    assert.ok(structured.every((chunk) => chunk.metadata.indexFormat === "structured-v2"), "no legacy chunks remain");
+    assert.ok(structured.every((chunk) => chunk.metadata.indexFormat === "structured-v3"), "no legacy chunks remain");
 
     const first = structured.find((chunk) => chunk.chunkIndex === 0)!;
     assert.match(String(first.metadata.contextHeader), /^\[File: incident_roundup\.txt \| Posted: 2026-09-20/);
@@ -65,6 +65,10 @@ test("IndexManager stores structured chunks with headers and rebuilds legacy chu
     assert.ok(Array.isArray(JSON.parse(String(first.metadata.dates))));
     assert.ok(!first.text.startsWith("[File:"), "stored text excludes the header");
     assert.ok(embedded.some((text) => text.startsWith("[File: incident_roundup.txt")), "embedding input includes the header");
+    assert.ok(
+      structured.every((chunk) => typeof chunk.metadata.contextHeader === "string"),
+      "structured chunks keep their context header",
+    );
   } finally {
     await fs.rm(docsDir, { recursive: true, force: true });
     await fs.rm(dbDir, { recursive: true, force: true });
@@ -199,7 +203,7 @@ test("a failed format rebuild's dropped legacy chunks are not resurrected by a l
     const after = await reopened.listChunks();
     assert.ok(after.length > 0);
     assert.ok(
-      after.every((chunk) => chunk.metadata.indexFormat === "structured-v2"),
+      after.every((chunk) => chunk.metadata.indexFormat === "structured-v3"),
       "no legacy chunks may be resurrected",
     );
     assert.ok(after.every((chunk) => chunk.fileName === "b_working.txt"));

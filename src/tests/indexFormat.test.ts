@@ -31,14 +31,14 @@ test("a manifest without indexFormat reads as legacy", async () => {
 test("planIndexFormat asks for a rebuild only when an existing index uses the other format", async () => {
   const dir = await tempDir();
   try {
-    assert.deepEqual(await planIndexFormat(dir, 0, true), { indexFormat: "structured-v2", rebuildExistingFiles: false });
-    assert.deepEqual(await planIndexFormat(dir, 10, true), { indexFormat: "structured-v2", rebuildExistingFiles: true });
+    assert.deepEqual(await planIndexFormat(dir, 0, true), { indexFormat: "structured-v3", rebuildExistingFiles: false });
+    assert.deepEqual(await planIndexFormat(dir, 10, true), { indexFormat: "structured-v3", rebuildExistingFiles: true });
 
     await writeEmbeddingIndexManifest(dir, { embeddingModelId: "m", dimensions: 3, indexFormat: "structured-v1" });
-    assert.deepEqual(await planIndexFormat(dir, 10, true), { indexFormat: "structured-v2", rebuildExistingFiles: true });
+    assert.deepEqual(await planIndexFormat(dir, 10, true), { indexFormat: "structured-v3", rebuildExistingFiles: true });
 
-    await writeEmbeddingIndexManifest(dir, { embeddingModelId: "m", dimensions: 3, indexFormat: "structured-v2" });
-    assert.deepEqual(await planIndexFormat(dir, 10, true), { indexFormat: "structured-v2", rebuildExistingFiles: false });
+    await writeEmbeddingIndexManifest(dir, { embeddingModelId: "m", dimensions: 3, indexFormat: "structured-v3" });
+    assert.deepEqual(await planIndexFormat(dir, 10, true), { indexFormat: "structured-v3", rebuildExistingFiles: false });
     assert.deepEqual(await planIndexFormat(dir, 10, false), { indexFormat: "legacy", rebuildExistingFiles: true });
   } finally {
     await fs.rm(dir, { recursive: true, force: true });
@@ -46,13 +46,13 @@ test("planIndexFormat asks for a rebuild only when an existing index uses the ot
 });
 
 test("indexFormatMismatchMessage describes the needed reindex", () => {
-  assert.equal(desiredIndexFormat(true), "structured-v2");
+  assert.equal(desiredIndexFormat(true), "structured-v3");
   assert.equal(desiredIndexFormat(false), "legacy");
   assert.equal(indexFormatMismatchMessage("legacy", "legacy"), null);
-  assert.equal(indexFormatMismatchMessage("structured-v2", "structured-v2"), null);
-  assert.equal(indexFormatMismatchMessage("legacy", "structured-v2"), "Reindex required to apply structured indexing.");
+  assert.equal(indexFormatMismatchMessage("structured-v3", "structured-v3"), null);
+  assert.equal(indexFormatMismatchMessage("legacy", "structured-v3"), "Reindex required to apply structured indexing.");
   assert.equal(
-    indexFormatMismatchMessage("structured-v1", "structured-v2"),
+    indexFormatMismatchMessage("structured-v1", "structured-v3"),
     "Reindex required to apply improved structured indexing.",
   );
   assert.equal(
@@ -60,9 +60,18 @@ test("indexFormatMismatchMessage describes the needed reindex", () => {
     "Reindex required to switch back to standard indexing.",
   );
   assert.equal(
-    indexFormatMismatchMessage("structured-v2", "legacy"),
+    indexFormatMismatchMessage("structured-v3", "legacy"),
     "Reindex required to switch back to standard indexing.",
   );
+});
+
+test("a structured-v2 index asks for the improved reindex", () => {
+  assert.equal(desiredIndexFormat(true), "structured-v3");
+  assert.equal(
+    indexFormatMismatchMessage("structured-v2", "structured-v3"),
+    "Reindex required to apply improved structured indexing.",
+  );
+  assert.equal(indexFormatMismatchMessage("structured-v3", "structured-v3"), null);
 });
 
 test("indexFormatStatusMessage treats a store without a manifest as legacy", async () => {
@@ -82,7 +91,7 @@ test("indexFormatStatusMessage treats a store without a manifest as legacy", asy
     assert.equal(await indexFormatStatusMessage(dir, true, totalChunks(0)), null);
     assert.equal(statsCalls, 3);
 
-    await writeEmbeddingIndexManifest(dir, { embeddingModelId: "m", dimensions: 3, indexFormat: "structured-v2" });
+    await writeEmbeddingIndexManifest(dir, { embeddingModelId: "m", dimensions: 3, indexFormat: "structured-v3" });
     statsCalls = 0;
     assert.equal(
       await indexFormatStatusMessage(dir, false, totalChunks(10)),

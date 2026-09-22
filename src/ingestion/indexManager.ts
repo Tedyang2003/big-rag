@@ -534,7 +534,7 @@ export class IndexManager {
 
     return chunks.map((chunk) => ({
       text: chunk.text,
-      embedText: `${chunk.contextHeader}\n${chunk.text}`,
+      embedText: `${chunk.contextHeader}\n${chunk.embedText ?? chunk.text}`,
       startIndex: chunk.startIndex,
       endIndex: chunk.endIndex,
       metadata: {

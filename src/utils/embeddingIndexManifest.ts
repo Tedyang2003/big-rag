@@ -5,10 +5,10 @@ import { coerceEmbeddingVector } from "./coerceEmbedding";
 
 export const EMBEDDING_INDEX_MANIFEST_FILENAME = ".big-rag-embedding.json";
 
-export type IndexFormat = "legacy" | "structured-v1" | "structured-v2";
+export type IndexFormat = "legacy" | "structured-v1" | "structured-v2" | "structured-v3";
 
-/** The format new structured indexes are built with. v2 detects PDF headings from font styles and never overlaps chunks. */
-export const STRUCTURED_INDEX_FORMAT = "structured-v2";
+/** The format new structured indexes are built with. v3 gives PDF tables rows and columns. */
+export const STRUCTURED_INDEX_FORMAT = "structured-v3";
 
 export interface EmbeddingIndexManifest {
   embeddingModelId: string;
@@ -38,7 +38,11 @@ export async function readEmbeddingIndexManifest(
         embeddingModelId: data.embeddingModelId,
         dimensions: data.dimensions,
         indexFormat:
-          data.indexFormat === "structured-v1" || data.indexFormat === "structured-v2" ? data.indexFormat : "legacy",
+          data.indexFormat === "structured-v1" ||
+          data.indexFormat === "structured-v2" ||
+          data.indexFormat === "structured-v3"
+            ? data.indexFormat
+            : "legacy",
       };
     }
     return null;
