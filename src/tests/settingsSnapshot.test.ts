@@ -28,14 +28,24 @@ function args(vectorStoreDir: string) {
 test("the eval settings snapshot records the manifest's index format", async () => {
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), "big-rag-snapshot-"));
   try {
-    await writeEmbeddingIndexManifest(dir, { embeddingModelId: "embed-model", dimensions: 3, indexFormat: "structured-v1" });
+    await writeEmbeddingIndexManifest(dir, {
+      embeddingModelId: "embed-model",
+      dimensions: 3,
+      indexFormat: "structured-v1",
+      embeddingPrefixes: "none",
+    });
     const snapshot = await buildSettingsSnapshot(args(dir));
     assert.equal(snapshot.indexFormat, "structured-v1");
     assert.equal(snapshot.retrievalLimit, 5);
     assert.equal(snapshot.retrievalDepth, "medium");
     assert.equal(snapshot.diagnosticPoolSize, 50);
     assert.equal(snapshot.embeddingModelId, "embed-model");
-    assert.deepEqual(snapshot.indexManifest, { embeddingModelId: "embed-model", dimensions: 3, indexFormat: "structured-v1" });
+    assert.deepEqual(snapshot.indexManifest, {
+      embeddingModelId: "embed-model",
+      dimensions: 3,
+      indexFormat: "structured-v1",
+      embeddingPrefixes: "none",
+    });
     assert.equal(snapshot.totalChunks, 7);
     assert.equal(snapshot.questionsFile, "/eval/questions.json");
     assert.equal(snapshot.questionCount, 1);

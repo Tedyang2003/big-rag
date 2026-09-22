@@ -77,6 +77,7 @@ export async function runIndexingJob({
     vectorStore,
     vectorStoreDir,
     embeddingModel,
+    embeddingModelId: resolvedModelId,
     client,
     chunkSize,
     chunkOverlap,

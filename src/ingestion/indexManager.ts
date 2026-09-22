@@ -13,6 +13,7 @@ import { coerceEmbeddingVector } from "../utils/coerceEmbedding";
 import { chunkStructured, type StructuredChunk } from "../chunking/structuredChunker";
 import { dayRangeOf, detectDayMonthOrder, documentPostedDate, type DateRange } from "../metadata/dates";
 import { STRUCTURED_INDEX_FORMAT } from "../utils/embeddingIndexManifest";
+import { documentText } from "../utils/embeddingPrefix";
 
 const EXCLUDE_PROGRESS_THROTTLE = 40;
 
@@ -46,6 +47,8 @@ export interface IndexingOptions {
   vectorStore: VectorStore;
   vectorStoreDir: string;
   embeddingModel: EmbeddingDynamicHandle;
+  /** The resolved id of that model, for the prefix convention it expects. */
+  embeddingModelId: string;
   client: LMStudioClient;
   chunkSize: number;
   chunkOverlap: number;
@@ -398,7 +401,9 @@ export class IndexManager {
 
         try {
           // Generate embedding
-          const embeddingResult = await embeddingModel.embed(chunk.embedText);
+          const embeddingResult = await embeddingModel.embed(
+            documentText(this.options.embeddingModelId, chunk.embedText),
+          );
           const embedding = coerceEmbeddingVector(embeddingResult.embedding);
 
           documentChunks.push({

@@ -34,10 +34,20 @@ test("planIndexFormat asks for a rebuild only when an existing index uses the ot
     assert.deepEqual(await planIndexFormat(dir, 0, true), { indexFormat: "structured-v3", rebuildExistingFiles: false });
     assert.deepEqual(await planIndexFormat(dir, 10, true), { indexFormat: "structured-v3", rebuildExistingFiles: true });
 
-    await writeEmbeddingIndexManifest(dir, { embeddingModelId: "m", dimensions: 3, indexFormat: "structured-v1" });
+    await writeEmbeddingIndexManifest(dir, {
+      embeddingModelId: "m",
+      dimensions: 3,
+      indexFormat: "structured-v1",
+      embeddingPrefixes: "none",
+    });
     assert.deepEqual(await planIndexFormat(dir, 10, true), { indexFormat: "structured-v3", rebuildExistingFiles: true });
 
-    await writeEmbeddingIndexManifest(dir, { embeddingModelId: "m", dimensions: 3, indexFormat: "structured-v3" });
+    await writeEmbeddingIndexManifest(dir, {
+      embeddingModelId: "m",
+      dimensions: 3,
+      indexFormat: "structured-v3",
+      embeddingPrefixes: "none",
+    });
     assert.deepEqual(await planIndexFormat(dir, 10, true), { indexFormat: "structured-v3", rebuildExistingFiles: false });
     assert.deepEqual(await planIndexFormat(dir, 10, false), { indexFormat: "legacy", rebuildExistingFiles: true });
   } finally {
@@ -91,7 +101,12 @@ test("indexFormatStatusMessage treats a store without a manifest as legacy", asy
     assert.equal(await indexFormatStatusMessage(dir, true, totalChunks(0)), null);
     assert.equal(statsCalls, 3);
 
-    await writeEmbeddingIndexManifest(dir, { embeddingModelId: "m", dimensions: 3, indexFormat: "structured-v3" });
+    await writeEmbeddingIndexManifest(dir, {
+      embeddingModelId: "m",
+      dimensions: 3,
+      indexFormat: "structured-v3",
+      embeddingPrefixes: "none",
+    });
     statsCalls = 0;
     assert.equal(
       await indexFormatStatusMessage(dir, false, totalChunks(10)),
@@ -107,12 +122,33 @@ test("indexFormatStatusMessage treats a store without a manifest as legacy", asy
 test("a structured-v1 manifest is read back as structured-v1", async () => {
   const dir = await tempDir();
   try {
-    await writeEmbeddingIndexManifest(dir, { embeddingModelId: "m", dimensions: 3, indexFormat: "structured-v1" });
+    await writeEmbeddingIndexManifest(dir, {
+      embeddingModelId: "m",
+      dimensions: 3,
+      indexFormat: "structured-v1",
+      embeddingPrefixes: "none",
+    });
     assert.equal((await readEmbeddingIndexManifest(dir))?.indexFormat, "structured-v1");
     assert.equal(
       await indexFormatStatusMessage(dir, true, async () => 10),
       "Reindex required to apply improved structured indexing.",
     );
+  } finally {
+    await fs.rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("an index built under a different prefix convention is refused", async () => {
+  const dir = await tempDir();
+  try {
+    await writeEmbeddingIndexManifest(dir, {
+      embeddingModelId: "m",
+      dimensions: 3,
+      indexFormat: "structured-v3",
+      embeddingPrefixes: "none",
+    });
+    const manifest = await readEmbeddingIndexManifest(dir);
+    assert.equal(manifest?.embeddingPrefixes, "none");
   } finally {
     await fs.rm(dir, { recursive: true, force: true });
   }

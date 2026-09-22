@@ -21,6 +21,7 @@ import {
   deleteEmbeddingIndexManifest,
   indexFormatStatusMessage,
 } from "./utils/embeddingIndexManifest";
+import { documentText, queryText } from "./utils/embeddingPrefix";
 import * as path from "path";
 import { runIndexingJob } from "./ingestion/runIndexing";
 import { retrieve } from "./retrieval/retrieve";
@@ -505,8 +506,10 @@ export async function preprocess(
       userPrompt,
       {
         vectorStore,
-        embedQuery: async (text) => (await embeddingModel.embed(text)).embedding,
-        embedSentences: (sentences) => embeddingModel.embed(sentences),
+        embedQuery: async (text) =>
+          (await embeddingModel.embed(queryText(resolvedEmbeddingModelId, text))).embedding,
+        embedSentences: (sentences) =>
+          embeddingModel.embed(sentences.map((sentence) => documentText(resolvedEmbeddingModelId, sentence))),
         countTokens: (text) => embeddingModel.countTokens(text),
         catalog,
         fetchChunks: (keys) => store.getChunksByKeys(keys),

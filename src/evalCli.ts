@@ -4,6 +4,7 @@ import { resolveEmbeddingModelId } from "./config";
 import { VectorStore } from "./vectorstore/vectorStore";
 import { retrieve, CONTEXT_COMPACTION_POOL_MULTIPLIER } from "./retrieval/retrieve";
 import { checkEmbeddingModelForRetrieval } from "./utils/embeddingIndexManifest";
+import { documentText, queryText } from "./utils/embeddingPrefix";
 import { buildQuestionPrompt, generateQuestions, QUESTION_JSON_SCHEMA } from "./eval/generateQuestions";
 import { loadQuestionSet, toRelativeSourcePath, writeNewFile } from "./eval/questionSet";
 import { formatMetricsTable, runEval } from "./eval/runEval";
@@ -127,8 +128,9 @@ async function runRun(client: LMStudioClient, vectorStore: VectorStore, document
           query,
           {
             vectorStore,
-            embedQuery: async (text) => (await embeddingModel.embed(text)).embedding,
-            embedSentences: (sentences) => embeddingModel.embed(sentences),
+            embedQuery: async (text) => (await embeddingModel.embed(queryText(embeddingModelId, text))).embedding,
+            embedSentences: (sentences) =>
+              embeddingModel.embed(sentences.map((sentence) => documentText(embeddingModelId, sentence))),
             countTokens: (text) => embeddingModel.countTokens(text),
             catalog: catalogOutcome.catalog,
             fetchChunks: (keys) => vectorStore.getChunksByKeys(keys),

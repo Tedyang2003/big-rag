@@ -2,6 +2,7 @@ import * as fs from "fs/promises";
 import * as path from "path";
 import { type EmbeddingDynamicHandle } from "@lmstudio/sdk";
 import { coerceEmbeddingVector } from "./coerceEmbedding";
+import { prefixConventionFor, type EmbeddingPrefixes } from "./embeddingPrefix";
 
 export const EMBEDDING_INDEX_MANIFEST_FILENAME = ".big-rag-embedding.json";
 
@@ -14,6 +15,8 @@ export interface EmbeddingIndexManifest {
   embeddingModelId: string;
   dimensions: number;
   indexFormat: IndexFormat;
+  /** Which embedding prefix convention the stored vectors were built with. */
+  embeddingPrefixes: EmbeddingPrefixes;
 }
 
 export function getEmbeddingManifestPath(vectorStoreDir: string): string {
@@ -43,6 +46,7 @@ export async function readEmbeddingIndexManifest(
           data.indexFormat === "structured-v3"
             ? data.indexFormat
             : "legacy",
+        embeddingPrefixes: data.embeddingPrefixes === "nomic" ? "nomic" : "none",
       };
     }
     return null;
@@ -95,6 +99,7 @@ export async function syncEmbeddingManifestAfterIndexing(
     embeddingModelId: resolvedModelId,
     dimensions,
     indexFormat,
+    embeddingPrefixes: prefixConventionFor(resolvedModelId),
   });
 }
 
@@ -143,6 +148,20 @@ export async function checkEmbeddingModelForRetrieval(args: {
       userMessage:
         `The document index was built with embedding model "${manifest.embeddingModelId}", but the plugin is set to "${resolvedModelId}". ` +
         `Either switch the Embedding Model setting back, or reindex your documents after changing the model.`,
+    };
+  }
+
+  const expectedPrefixes = prefixConventionFor(resolvedModelId);
+  if (manifest.embeddingPrefixes !== expectedPrefixes) {
+    const logMessage =
+      `Embedding prefix mismatch: index was built with "${manifest.embeddingPrefixes}" prefixes but ` +
+      `"${resolvedModelId}" expects "${expectedPrefixes}". Reindex required.`;
+    return {
+      ok: false,
+      logMessage,
+      userMessage:
+        "The document index was built before this version's embedding change, so searches would score badly. " +
+        "Reindex your documents to rebuild it.",
     };
   }
 

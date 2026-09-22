@@ -60,6 +60,7 @@ async function main() {
     vectorStore,
     vectorStoreDir,
     embeddingModel,
+    embeddingModelId: resolvedEmbeddingModelId,
     client,
     chunkSize,
     chunkOverlap,

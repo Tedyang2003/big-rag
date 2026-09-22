@@ -85,6 +85,8 @@ From this version, tables in PDFs are indexed as rows of cells rather than a run
 
 PDFs are now read with MuPDF first in both modes, so reindexing a standard (legacy) index can also change the text extracted from PDFs.
 
+Indexes are also embedded the way the Nomic models expect, which improves how closely a question matches the passages that answer it. This too needs a reindex: the plugin refuses an index built the old way rather than searching it badly.
+
 ## Upgrading from 1.3
 
 Settings moved out of the chat sidebar in 1.4. After upgrading, enter **Documents Directory** and **Vector Store Directory**, plus any custom embedding model, exclude patterns or prompt template, once in Big RAG's global settings. Pointing Vector Store Directory at your existing folder keeps your existing index. Old per-chat values for retrieval limit, threshold, chunk size, overlap, concurrency, parser delay, OCR, structured indexing and compaction are no longer used.
