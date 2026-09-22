@@ -194,13 +194,19 @@ export async function planIndexFormat(
   vectorStoreDir: string,
   totalChunks: number,
   structuredIndexing: boolean,
+  resolvedModelId: string,
 ): Promise<{ indexFormat: IndexFormat; rebuildExistingFiles: boolean }> {
   const indexFormat = desiredIndexFormat(structuredIndexing);
   if (totalChunks === 0) {
     return { indexFormat, rebuildExistingFiles: false };
   }
   const manifest = await readEmbeddingIndexManifest(vectorStoreDir);
-  return { indexFormat, rebuildExistingFiles: (manifest?.indexFormat ?? "legacy") !== indexFormat };
+  // The stored vectors must match both the chunk format and the embedding prefix
+  // convention: a run that skipped every file would otherwise rewrite the manifest
+  // and leave prefixed queries scoring against unprefixed vectors.
+  const formatChanged = (manifest?.indexFormat ?? "legacy") !== indexFormat;
+  const prefixesChanged = (manifest?.embeddingPrefixes ?? "none") !== prefixConventionFor(resolvedModelId);
+  return { indexFormat, rebuildExistingFiles: formatChanged || prefixesChanged };
 }
 
 /**

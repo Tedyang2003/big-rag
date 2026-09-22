@@ -50,6 +50,7 @@ async function main() {
     vectorStoreDir,
     statsBefore.totalChunks,
     structuredIndexing,
+    resolvedEmbeddingModelId,
   );
   if (rebuildExistingFiles) {
     console.log(`[BigRAG CLI] Index format changes to ${indexFormat}; rebuilding every file.`);

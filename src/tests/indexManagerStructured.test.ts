@@ -76,6 +76,51 @@ test("IndexManager stores structured chunks with headers and rebuilds legacy chu
   }
 });
 
+test("a Nomic embedding model gets its documents prefixed with search_document: ", async () => {
+  const docsDir = await fs.mkdtemp(path.join(os.tmpdir(), "big-rag-docs-"));
+  const dbDir = await fs.mkdtemp(path.join(os.tmpdir(), "big-rag-db-"));
+  try {
+    await fs.writeFile(path.join(docsDir, "incident_roundup.txt"), ROUNDUP_TEXT);
+    const store = new VectorStore(dbDir);
+    await store.initialize();
+
+    const embedded: string[] = [];
+    const embeddingModel = {
+      embed: async (text: string) => {
+        embedded.push(text);
+        return { embedding: [1, 0, 0] };
+      },
+      countTokens: async (text: string) => text.split(/\s+/).filter(Boolean).length,
+    } as unknown as EmbeddingDynamicHandle;
+
+    await new IndexManager({
+      documentsDir: docsDir,
+      vectorStore: store,
+      vectorStoreDir: dbDir,
+      embeddingModel,
+      embeddingModelId: "nomic-ai/nomic-embed-text-v1.5-GGUF",
+      client: {} as LMStudioClient,
+      chunkSize: 200,
+      chunkOverlap: 0,
+      maxConcurrent: 1,
+      enableOCR: false,
+      autoReindex: true,
+      parseDelayMs: 0,
+      structuredIndexing: true,
+      rebuildExistingFiles: false,
+    }).index();
+
+    assert.ok(embedded.length > 0);
+    assert.ok(
+      embedded.every((text) => text.startsWith("search_document: ")),
+      "every embedded chunk is prefixed for the Nomic model",
+    );
+  } finally {
+    await fs.rm(docsDir, { recursive: true, force: true });
+    await fs.rm(dbDir, { recursive: true, force: true });
+  }
+});
+
 test("a failed format rebuild does not strand the file's old-format chunks", async () => {
   const docsDir = await fs.mkdtemp(path.join(os.tmpdir(), "big-rag-docs-"));
   const dbDir = await fs.mkdtemp(path.join(os.tmpdir(), "big-rag-db-"));

@@ -4,6 +4,7 @@ import * as fs from "fs/promises";
 import * as os from "os";
 import * as path from "path";
 import {
+  checkEmbeddingModelForRetrieval,
   desiredIndexFormat,
   getEmbeddingManifestPath,
   indexFormatMismatchMessage,
@@ -31,8 +32,8 @@ test("a manifest without indexFormat reads as legacy", async () => {
 test("planIndexFormat asks for a rebuild only when an existing index uses the other format", async () => {
   const dir = await tempDir();
   try {
-    assert.deepEqual(await planIndexFormat(dir, 0, true), { indexFormat: "structured-v3", rebuildExistingFiles: false });
-    assert.deepEqual(await planIndexFormat(dir, 10, true), { indexFormat: "structured-v3", rebuildExistingFiles: true });
+    assert.deepEqual(await planIndexFormat(dir, 0, true, "m"), { indexFormat: "structured-v3", rebuildExistingFiles: false });
+    assert.deepEqual(await planIndexFormat(dir, 10, true, "m"), { indexFormat: "structured-v3", rebuildExistingFiles: true });
 
     await writeEmbeddingIndexManifest(dir, {
       embeddingModelId: "m",
@@ -40,7 +41,7 @@ test("planIndexFormat asks for a rebuild only when an existing index uses the ot
       indexFormat: "structured-v1",
       embeddingPrefixes: "none",
     });
-    assert.deepEqual(await planIndexFormat(dir, 10, true), { indexFormat: "structured-v3", rebuildExistingFiles: true });
+    assert.deepEqual(await planIndexFormat(dir, 10, true, "m"), { indexFormat: "structured-v3", rebuildExistingFiles: true });
 
     await writeEmbeddingIndexManifest(dir, {
       embeddingModelId: "m",
@@ -48,8 +49,30 @@ test("planIndexFormat asks for a rebuild only when an existing index uses the ot
       indexFormat: "structured-v3",
       embeddingPrefixes: "none",
     });
-    assert.deepEqual(await planIndexFormat(dir, 10, true), { indexFormat: "structured-v3", rebuildExistingFiles: false });
-    assert.deepEqual(await planIndexFormat(dir, 10, false), { indexFormat: "legacy", rebuildExistingFiles: true });
+    assert.deepEqual(await planIndexFormat(dir, 10, true, "m"), { indexFormat: "structured-v3", rebuildExistingFiles: false });
+    assert.deepEqual(await planIndexFormat(dir, 10, false, "m"), { indexFormat: "legacy", rebuildExistingFiles: true });
+  } finally {
+    await fs.rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("a prefix-convention change forces every file to be rebuilt", async () => {
+  const dir = await tempDir();
+  try {
+    await writeEmbeddingIndexManifest(dir, {
+      embeddingModelId: "m",
+      dimensions: 3,
+      indexFormat: "structured-v3",
+      embeddingPrefixes: "none",
+    });
+    assert.deepEqual(await planIndexFormat(dir, 10, true, "nomic-ai/nomic-embed-text-v1.5-GGUF"), {
+      indexFormat: "structured-v3",
+      rebuildExistingFiles: true,
+    });
+    assert.deepEqual(await planIndexFormat(dir, 10, true, "some-other-model"), {
+      indexFormat: "structured-v3",
+      rebuildExistingFiles: false,
+    });
   } finally {
     await fs.rm(dir, { recursive: true, force: true });
   }
@@ -138,7 +161,7 @@ test("a structured-v1 manifest is read back as structured-v1", async () => {
   }
 });
 
-test("an index built under a different prefix convention is refused", async () => {
+test("a manifest round-trips its embeddingPrefixes field", async () => {
   const dir = await tempDir();
   try {
     await writeEmbeddingIndexManifest(dir, {
@@ -149,6 +172,28 @@ test("an index built under a different prefix convention is refused", async () =
     });
     const manifest = await readEmbeddingIndexManifest(dir);
     assert.equal(manifest?.embeddingPrefixes, "none");
+  } finally {
+    await fs.rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("retrieval refuses an index built under a different prefix convention", async () => {
+  const dir = await tempDir();
+  try {
+    await writeEmbeddingIndexManifest(dir, {
+      embeddingModelId: "nomic-ai/nomic-embed-text-v1.5-GGUF",
+      dimensions: 3,
+      indexFormat: "structured-v3",
+      embeddingPrefixes: "none",
+    });
+    const check = await checkEmbeddingModelForRetrieval({
+      vectorStoreDir: dir,
+      resolvedModelId: "nomic-ai/nomic-embed-text-v1.5-GGUF",
+      totalChunks: 10,
+      embeddingModel: { embed: async () => ({ embedding: [1, 2, 3] }) } as never,
+    });
+    assert.equal(check.ok, false);
+    if (!check.ok) assert.match(check.userMessage, /[Rr]eindex/);
   } finally {
     await fs.rm(dir, { recursive: true, force: true });
   }

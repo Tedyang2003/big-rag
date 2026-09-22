@@ -70,6 +70,7 @@ export async function runIndexingJob({
     vectorStoreDir,
     statsBefore.totalChunks,
     structuredIndexing,
+    resolvedModelId,
   );
 
   const indexManager = new IndexManager({
