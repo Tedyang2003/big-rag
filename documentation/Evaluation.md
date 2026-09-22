@@ -162,9 +162,11 @@ Median / 95th percentile per question, in milliseconds.
 
 Search scans every chunk, so its cost grows with the index: about 5.5 seconds per question at 116,741 chunks. 150 questions take roughly 35 minutes per run.
 
-### Where Retrieval Lands
+### Where Retrieval Lands (Structured, Low Depth)
 
-Every scored question, by how close the returned passages came (Structured, Low depth):
+The figures in this section and the next describe **vector-only retrieval over the structured index**. Hybrid retrieval merges keyword and date signals on top and is expected to change the wrong-document share in particular; its own breakdown will be added once that run completes.
+
+Every scored question, by how close the returned passages came:
 
 | Outcome | Questions | Share |
 |---|---|---|
@@ -189,9 +191,9 @@ Twenty ranks span two hundredths of a similarity point. Keyword and date signals
 
 **Wrong passage.** The right filing is retrieved, but a narrative section outranks the statement holding the number. A table row loses its column headers when chunked, so it embeds poorly against a natural-language question. Hybrid retrieval will not fix this; carrying table headers into chunks would.
 
-### Why Found Answers Do Not Reach the Model
+### Why Found Answers Do Not Reach the Model (Structured, Low Depth)
 
-For Structured at Low depth, 27 questions had the answer in the top 50 but only 9 reached the model. Where the other 18 sat:
+27 questions had the answer in the top 50 but only 9 reached the model. Where the other 18 sat:
 
 | Cause | Questions |
 |---|---|
