@@ -6,8 +6,8 @@ import { type QuestionSet } from "./questionSet";
 export interface RunEvalDeps {
   retrieve: (query: string) => Promise<RetrieveResult>;
   listIndexedFiles: () => Promise<Set<string>>;
-  /** Ids whose evidence is absent from this index; they are reported unscorable, not missed. */
-  questionsWithoutEvidence?: () => Promise<Set<string>>;
+  /** Where each question's evidence sits in this index; a null entry is reported unscorable. */
+  locateEvidence?: () => Promise<Map<string, import("./evidencePresence").EvidenceLocation | null>>;
   writeNewFile: (filePath: string, content: string) => Promise<void>;
   now: () => Date;
 }
@@ -31,12 +31,12 @@ export async function runEval(
   options: RunEvalOptions,
 ): Promise<{ report: EvalReport; reportPath: string }> {
   const indexedFiles = await deps.listIndexedFiles();
-  const withoutEvidence = (await deps.questionsWithoutEvidence?.()) ?? new Set<string>();
+  const evidenceByQuestion = await deps.locateEvidence?.();
   const questions: QuestionResult[] = [];
 
   for (const question of options.questionSet.questions) {
     const retrieval = await deps.retrieve(question.question);
-    questions.push(scoreQuestion(question, retrieval, options.documentsDir, indexedFiles, withoutEvidence));
+    questions.push(scoreQuestion(question, retrieval, options.documentsDir, indexedFiles, evidenceByQuestion));
   }
 
   const metrics = aggregateMetrics(questions);

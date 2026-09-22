@@ -1,6 +1,7 @@
 import { type RetrieveResult, type StageTiming } from "../retrieval/retrieve";
 import { type SearchResult } from "../vectorstore/vectorStore";
 import { joinAdjacentRuns } from "./adjacentRuns";
+import { type EvidenceLocation } from "./evidencePresence";
 import { containsSnippet } from "./matchSnippet";
 import { toRelativeSourcePath, type EvalQuestion } from "./questionSet";
 
@@ -14,7 +15,19 @@ export interface QuestionResult {
   poolRank: number | null;
   rightFileWrongPassage: boolean;
   finalFiles: string[];
+  /** Each returned passage, so a report can be read without re-running retrieval. */
+  returned: ReturnedPassage[];
+  /** Where the evidence sits in this index, or null when it is not there. */
+  evidence: EvidenceLocation | null;
   timings: StageTiming[];
+}
+
+export interface ReturnedPassage {
+  file: string;
+  chunkIndex: number;
+  sectionPath: string;
+  /** Lanes that ranked it; empty at Low depth. */
+  lanes: string[];
 }
 
 export interface EvalMetrics {
@@ -53,13 +66,20 @@ export function scoreQuestion(
   retrieval: RetrieveResult,
   documentsDir: string,
   indexedFiles: Set<string>,
-  questionsWithoutEvidence?: Set<string>,
+  evidenceByQuestion?: Map<string, EvidenceLocation | null>,
 ): QuestionResult {
+  const evidence = evidenceByQuestion?.get(question.id) ?? null;
   const unscorableReason = !indexedFiles.has(question.sourceFile)
     ? ("file-not-indexed" as const)
-    : questionsWithoutEvidence?.has(question.id)
+    : evidenceByQuestion?.has(question.id) && evidence === null
       ? ("evidence-not-in-index" as const)
       : null;
+  const returned: ReturnedPassage[] = retrieval.passages.map((passage, i) => ({
+    file: toRelativeSourcePath(documentsDir, passage.filePath),
+    chunkIndex: passage.chunkIndex,
+    sectionPath: String(passage.metadata?.sectionPath ?? ""),
+    lanes: retrieval.passageLanes[i] ?? [],
+  }));
   if (unscorableReason) {
     return {
       id: question.id,
@@ -69,6 +89,8 @@ export function scoreQuestion(
       poolRank: null,
       rightFileWrongPassage: false,
       finalFiles: [],
+      returned,
+      evidence,
       timings: retrieval.timings,
     };
   }
@@ -84,6 +106,8 @@ export function scoreQuestion(
     poolRank: poolPosition,
     rightFileWrongPassage: !finalHit && finalFiles.includes(question.sourceFile),
     finalFiles,
+    returned,
+    evidence,
     timings: retrieval.timings,
   };
 }

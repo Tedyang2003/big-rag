@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import * as assert from "node:assert/strict";
 import { joinAdjacentRuns } from "../eval/adjacentRuns";
-import { questionsWithoutEvidence } from "../eval/evidencePresence";
+import { locateEvidence } from "../eval/evidencePresence";
 import { type IndexedChunk, type SearchResult } from "../vectorstore/vectorStore";
 
 function passage(overrides: Partial<SearchResult> & { text: string; chunkIndex: number }): SearchResult {
@@ -51,6 +51,11 @@ test("a run remembers the best position any of its chunks held", () => {
   assert.equal(joined?.firstPosition, 2, "the run is ranked by its highest-placed chunk");
 });
 
+/** Ids whose evidence is not in the index at all. */
+function absentIds(chunks: IndexedChunk[], questions: Parameters<typeof locateEvidence>[1], dir: string): string[] {
+  return [...locateEvidence(chunks, questions, dir)].filter(([, where]) => where === null).map(([id]) => id);
+}
+
 function chunk(overrides: Partial<IndexedChunk> & { text: string; chunkIndex: number }): IndexedChunk {
   return {
     id: `chunk-${overrides.chunkIndex}`,
@@ -67,7 +72,7 @@ test("evidence spanning two chunks counts as present in the index", () => {
     chunk({ text: "alpha beta gamma", chunkIndex: 0 }),
     chunk({ text: "delta epsilon zeta", chunkIndex: 1 }),
   ];
-  const absent = questionsWithoutEvidence(chunks, [
+  const absent = absentIds(chunks, [
     { id: "spans", question: "q", sourceFile: "a.pdf", answerSnippet: "gamma delta epsilon" },
     { id: "inside", question: "q", sourceFile: "a.pdf", answerSnippet: "alpha beta" },
     { id: "missing", question: "q", sourceFile: "a.pdf", answerSnippet: "nowhere to be found" },
@@ -82,7 +87,7 @@ test("overlapping legacy chunks are stitched on their word offsets, not repeated
     { ...chunk({ text: "alpha beta gamma", chunkIndex: 0 }), metadata: { startIndex: 0, endIndex: 3 } },
     { ...chunk({ text: "gamma delta epsilon", chunkIndex: 1 }), metadata: { startIndex: 2, endIndex: 5 } },
   ];
-  const absent = questionsWithoutEvidence(chunks, [
+  const absent = absentIds(chunks, [
     { id: "across", question: "q", sourceFile: "a.pdf", answerSnippet: "alpha beta gamma delta" },
   ], "/docs");
 
@@ -90,9 +95,22 @@ test("overlapping legacy chunks are stitched on their word offsets, not repeated
 });
 
 test("evidence in a file that is not indexed is reported as absent", () => {
-  const absent = questionsWithoutEvidence([chunk({ text: "alpha beta", chunkIndex: 0 })], [
+  const absent = absentIds([chunk({ text: "alpha beta", chunkIndex: 0 })], [
     { id: "elsewhere", question: "q", sourceFile: "b.pdf", answerSnippet: "alpha beta" },
   ], "/docs");
 
   assert.deepEqual([...absent], ["elsewhere"]);
+});
+
+test("evidence spanning two chunks records where it starts and how far it runs", () => {
+  const chunks = [
+    chunk({ text: "alpha beta gamma", chunkIndex: 0 }),
+    { ...chunk({ text: "delta epsilon zeta", chunkIndex: 1 }), metadata: { startIndex: 3, endIndex: 6, sectionPath: "Notes > Cash" } },
+  ];
+  const where = locateEvidence(chunks, [
+    { id: "spans", question: "q", sourceFile: "a.pdf", answerSnippet: "gamma delta epsilon" },
+  ], "/docs").get("spans");
+
+  assert.equal(where?.firstChunkIndex, 0);
+  assert.equal(where?.chunkSpan, 2, "retrieval must return both chunks to score this question");
 });

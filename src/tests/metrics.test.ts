@@ -65,6 +65,8 @@ function qr(overrides: Partial<QuestionResult>): QuestionResult {
     poolRank: null,
     rightFileWrongPassage: false,
     finalFiles: [],
+    returned: [],
+    evidence: null,
     timings: [],
     ...overrides,
   };
@@ -139,7 +141,7 @@ test("a question whose evidence is not in the index is unscorable, not a miss", 
     dayRanges: [],
   };
 
-  const result = scoreQuestion(question, retrieval, "/docs", new Set(["a.pdf"]), new Set(["q2"]));
+  const result = scoreQuestion(question, retrieval, "/docs", new Set(["a.pdf"]), new Map([["q2", null]]));
   assert.equal(result.unscorable, true);
   assert.equal(result.unscorableReason, "evidence-not-in-index");
   assert.equal(aggregateMetrics([result]).unscorableEvidenceNotInIndex, 1);
