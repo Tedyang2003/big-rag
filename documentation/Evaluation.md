@@ -150,16 +150,18 @@ FinanceBench, 368 files, 363 unique. Indexes rebuilt 21 September 2026 with the 
 |---|---|---|---|
 | Questions scored | 88 | 88 | 88 |
 | Unscorable (evidence not in the index) | 62 | 62 | 62 |
-| Final hit rate | 8.0% (7) | **10.2% (9)** | 6.8% (6) |
-| Pool hit rate (top 50) | 15.9% (14) | **30.7% (27)** | 26.1% (23) |
-| Filter loss | 9.1% | 20.5% | 19.3% |
-| Right file, wrong passage | 42.0% | 37.5% | 39.8% |
-| Median answer rank in pool | 9 | 9 | 9 |
-| Mean reciprocal rank | 0.046 | **0.099** | 0.088 |
+| Final hit rate | 8.0% (7) | 10.2% (9) | **10.2% (9)** |
+| Pool hit rate (top 50) | 15.9% (14) | **30.7% (27)** | 28.4% (25) |
+| Filter loss | 9.1% | 20.5% | 18.2% |
+| Right file, wrong passage | 42.0% | 37.5% | 60.2% |
+| Median answer rank in pool | 9 | 9 | **6** |
+| Mean reciprocal rank | 0.046 | 0.099 | **0.122** |
 
 Structured indexing roughly doubles what retrieval finds: the answer reaches the top 50 for 27 questions against legacy's 14, and mean reciprocal rank doubles. Final hits move less, from 7 to 9, because most of those newly found answers rank below the top 5 and never reach the model.
 
-Hybrid retrieval, with all three lanes weighted equally, is worse than vector search alone on this dataset. See the run log entry below for why.
+Hybrid retrieval matches vector search on hits and beats it on ranking: mean reciprocal rank rises 23%, the median rank of the answer halves from 9 to 6, and the right document is retrieved for 62 of 88 questions against 42. It reached that state only after three rounds of fixes — the first version was worse than vector search alone. See the run log.
+
+The figures above are for the Structured + Hybrid configuration as it stands after those fixes.
 
 ### Latency
 
@@ -167,10 +169,10 @@ Median / 95th percentile per question, in milliseconds.
 
 | Stage | Legacy Chunking | Structured | Structured + Hybrid |
 |---|---|---|---|
-| Query embedding | 29 / 40 | 30 / 41 | 26 / 40 |
-| Vector search | 3,746 / 4,334 | 5,515 / 5,841 | 6,737 / 7,894 |
-| Keyword lane | n/a | n/a | 60 / 98 |
-| Date lane | n/a | n/a | 2 / 3 |
+| Query embedding | 29 / 40 | 30 / 41 | 26 / 36 |
+| Vector search | 3,746 / 4,334 | 5,515 / 5,841 | 6,545 / 7,235 |
+| Keyword lane | n/a | n/a | 56 / 100 |
+| Date lane | n/a | n/a | 6 / 8 |
 | Fusion | n/a | n/a | 0 / 0 |
 | Overlap trimming | 0 / 0 | 0 / 0 | 0 / 0 |
 
@@ -245,11 +247,31 @@ The lanes are cheap — keyword 60ms, date 2ms, fusion under 1ms, against a 6.7 
 
 One caveat on the pool figure. Each lane contributes 30 candidates, so a fused pool of 50 can only draw from the vector lane's top 30. Four answers at vector ranks 35, 35, 38 and 50 were structurally excluded, which accounts for most of the drop from 27 to 23. The final-hit drop is unaffected: all nine of Low's hits ranked within the top 5 and were available to fusion.
 
-**Hybrid retrieval should not ship in this configuration.** Candidate fixes, none of which need a reindex: cap the candidates each lane may contribute from a single document; exclude the posted date from the date lane so only dates written inside a section vote; weight the vector lane above the others. The eval should also give the vector lane at least as many candidates as the diagnostic pool size, so pool comparisons between depths are honest.
+**22 September 2026 — attributing the damage.** Retrieving the four demoted questions again and printing which lane ranked each returned passage showed two things at once:
+
+- **The date lane never fired.** Every question reported no date ranges. They ask about "FY2022", "as of 2022", "FY 2023", and the query parser ignored bare years and fiscal-year phrasing. The lane built to separate one year's filing from another sat out every question it was designed for.
+- **The keyword lane promoted boilerplate.** For "Did Ulta Beauty's wages expense as a percent of net sales increase in FY2023?", four of the five returned passages were `About Ulta Beauty` and `Forward-Looking Statements` sections from three different quarters. They score well on the company name and "fiscal 2023" and contain nothing.
+
+**22 September 2026 — three fixes, measured one round at a time.**
+
+1. *Years are read from questions.* `FY2023`, `fiscal year 2021`, `as of 2022` and a plain `in 2019` each become that calendar year, with guards so `$2023`, `version 2019` and `2023 dollars` do not count.
+2. *A lane may take at most three candidates from one document* (`laneCandidatesPerFile`), so one filing's boilerplate cannot fill a lane.
+3. *Dates became a boost rather than a source of candidates.* A date says which documents are eligible, not which passage answers a question, so a chunk is never retrieved because of its date — it is only lifted once another lane has found it. The boost is worth what topping the date lane used to be worth.
+
+| Configuration | Hits | Right doc, wrong passage | Wrong document | Wrong company | MRR | Median rank |
+|---|---|---|---|---|---|---|
+| Structured, Low | 9 | 33 | 37 | 9 | 0.099 | 9 |
+| Hybrid, equal lanes | 6 | 35 | 36 | 11 | 0.088 | 9 |
+| Hybrid + years + per-document cap | 8 | 41 | **18** | 21 | 0.091 | 14 |
+| Hybrid + date boost | **9** | 53 | **16** | **10** | **0.122** | **6** |
+
+Reading years halved the wrong-document failures (37 to 18) but doubled wrong-company ones (9 to 21), because "FY2023" matches every company's 2023 filing. Making dates a boost kept the first effect and removed the second. The lanes cost 56ms and 6ms against a 6.5 second vector search.
+
+**Hybrid retrieval is worth keeping, on this evidence.** It picks the right document for 62 of 88 questions against 42 for vector search alone, ranks the answer higher, and costs nothing measurable. Final hits do not improve, because the remaining barrier is choosing the right passage *within* the right document — see the open question below.
 
 ### Open Questions
 
-- **Can hybrid retrieval be made to help?** At equal weights it makes things worse (see the log). The lanes are aimed at the right failure — the wrong document — but they vote by document instead of by passage. Per-document candidate caps, dropping the posted date, and weighting the vector lane higher are untested.
+- **Why is the right passage not chosen inside the right document?** This is now the largest bucket: 53 of 88 questions retrieve the correct filing and return the wrong part of it. The working hypothesis is that the answer is usually a row in a financial statement, which loses its column headers when chunked and embeds poorly against a natural-language question, while a narrative section discussing the same topic embeds well. **Untested** — it needs the 53 to be examined before any work is built on it.
 - **Can table rows keep their column headers?** That would address the 38% that reach the right document and pick the wrong passage.
 - **Are the embeddings calibrated for the threshold?** Two answers ranked first and were still cut by the 0.5 threshold. The plugin does not add Nomic's `search_query:` and `search_document:` prefixes, which flattens the score distribution. Testing this needs a reindex.
 - **Would a second dataset help?** FinanceBench is table-heavy filings with near-duplicate documents — the hardest case for embeddings and unrepresentative of narrative documents.
