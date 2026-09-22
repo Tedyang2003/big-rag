@@ -14,6 +14,7 @@ type Entry = string | [string, Partial<PdfLine>];
 /** One 1000-unit-tall page; each entry is its own block, stacked 20 units apart from y=100. */
 function page(entries: Entry[]): PdfPage {
   return {
+    width: 612,
     height: 1000,
     blocks: entries.map((entry, i) => {
       const [text, style] = typeof entry === "string" ? [entry, {}] : entry;
@@ -147,6 +148,7 @@ test("a page number is only furniture near the page edge", () => {
 
 test("guard 1 ignores overlap from long flowing-text lines (two-column page)", () => {
   const second: PdfPage = {
+    width: 612,
     height: 1000,
     blocks: [
       { lines: [line("Methods", 300, { bold: true, box: [50, 300, 290, 312] })] },
@@ -179,6 +181,7 @@ test("guard 2 counts every heading-style candidate line, including dropped joins
 
 test("candidate lines are only joined into one heading when they are vertically adjacent", () => {
   const second: PdfPage = {
+    width: 612,
     height: 1000,
     blocks: [
       { lines: [line("Part Two", 100, { bold: true, box: [50, 100, 200, 112] })] },
@@ -209,6 +212,7 @@ test("F1: a wrapped paragraph in a heading-like style is body text, not a headin
 test("F2a: a label column beside a tall number column is a table, not headings", () => {
   const labels = ["Revenue", "Costs", "Taxes", "Margin", "Assets", "Debt", "Equity", "Cash"];
   const second: PdfPage = {
+    width: 612,
     height: 1000,
     blocks: [
       { lines: labels.map((text, i) => line(text, 300 + i * 20, { bold: true, box: [50, 300 + i * 20, 200, 312 + i * 20] })) },
@@ -233,6 +237,7 @@ test("F2b: a single-line numeric table row is not a heading", () => {
 test("R1: numbered lines sharing a row in one block merge into one heading", () => {
   const top = 300;
   const second: PdfPage = {
+    width: 612,
     height: 1000,
     blocks: [
       {
@@ -251,6 +256,7 @@ test("R1: numbered lines sharing a row in one block merge into one heading", () 
 test("R2: a table row split into three lines in one block merges and is rejected as a heading", () => {
   const top = 500;
   const second: PdfPage = {
+    width: 612,
     height: 1000,
     blocks: [
       { lines: [line("Results", 100, { bold: true, box: [50, 100, 200, 112] })] },
@@ -271,6 +277,7 @@ test("R2: a table row split into three lines in one block merges and is rejected
 
 test("F3: a candidate that starts far above the previous one is not joined to it", () => {
   const second: PdfPage = {
+    width: 612,
     height: 1000,
     blocks: [
       { lines: [line("Left Column Heading", 500, { bold: true, box: [50, 500, 290, 512] })] },
@@ -308,4 +315,21 @@ test("inferStructure keeps short standalone lines as text when heading inference
   assert.equal(inferStructure("Short line\n\nNext paragraph."), "## Short line\n\nNext paragraph.");
   assert.equal(inferStructure("Short line\n\nNext paragraph.", { inferHeadings: false }), "Short line\n\nNext paragraph.");
   assert.equal(inferStructure("## Kept\n\n- item", { inferHeadings: false }), "## Kept\n\n- item");
+});
+
+test("a line merged from several pieces keeps their order and text", () => {
+  const rowBlock = {
+    lines: [
+      line("1,577", 300, { box: [400, 300, 450, 312] }),
+      line("Capital expenditures", 300, { box: [60, 300, 200, 312] }),
+    ],
+  };
+  const second = page(body(8));
+  const markdown = styledPagesToMarkdown([
+    page([bold("Cash Flows"), ...body(6)]),
+    { ...second, blocks: [rowBlock, ...second.blocks] },
+  ]);
+
+  assert.ok(markdown !== null, "the document still has headings");
+  assert.ok(markdown!.includes("Capital expenditures 1,577"), "pieces read left to right");
 });

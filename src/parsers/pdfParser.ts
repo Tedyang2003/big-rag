@@ -97,7 +97,7 @@ function readStyledPage(doc: MupdfDocument, pageNumber: number): PdfPage {
     } finally {
       stext.destroy();
     }
-    return { height: bounds[3] - bounds[1], blocks };
+    return { width: bounds[2] - bounds[0], height: bounds[3] - bounds[1], blocks };
   } finally {
     page.destroy();
   }

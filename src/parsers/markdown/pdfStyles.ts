@@ -1,5 +1,12 @@
 import { inferStructure } from "./inferStructure";
 
+/** One piece of a merged row: its text and horizontal extent. */
+export interface PdfCell {
+  text: string;
+  x0: number;
+  x1: number;
+}
+
 /** One line of PDF text with the style most of its characters use. */
 export interface PdfLine {
   text: string;
@@ -11,6 +18,8 @@ export interface PdfLine {
   mixed: boolean;
   /** Left, top, right, bottom in page units, y growing downwards. */
   box: [number, number, number, number];
+  /** Set when this line was merged from several pieces on one row, ordered left to right. */
+  cells?: PdfCell[];
 }
 
 export interface PdfBlock {
@@ -18,6 +27,7 @@ export interface PdfBlock {
 }
 
 export interface PdfPage {
+  width: number;
   height: number;
   blocks: PdfBlock[];
 }
@@ -126,9 +136,10 @@ function mergeSameRowLines(lines: PdfLine[]): PdfLine[] {
     }
     const stylesDiffer = new Set(parts.map((part) => styleKey(part))).size > 1;
     const mixed = stylesDiffer || parts.some((part) => part.mixed);
+    const cells = byLeft.map((part) => ({ text: part.text, x0: part.box[0], x1: part.box[2] }));
     merged.push({
       firstIndex: Math.min(...members),
-      line: { text, size: dominant.size, bold: dominant.bold, italic: dominant.italic, mixed, box },
+      line: { text, size: dominant.size, bold: dominant.bold, italic: dominant.italic, mixed, box, cells },
     });
   }
   merged.sort((a, b) => a.firstIndex - b.firstIndex);
