@@ -267,11 +267,32 @@ One caveat on the pool figure. Each lane contributes 30 candidates, so a fused p
 
 Reading years halved the wrong-document failures (37 to 18) but doubled wrong-company ones (9 to 21), because "FY2023" matches every company's 2023 filing. Making dates a boost kept the first effect and removed the second. The lanes cost 56ms and 6ms against a 6.5 second vector search.
 
+**22 September 2026 — why the right document still yields the wrong passage.** Reports now record each returned passage's section and chunk index, and where the evidence sits, so this was read from one run rather than re-retrieved.
+
+Of the 53 questions that retrieve the right document and miss:
+
+| Where the returned passages sat | Questions |
+|---|---|
+| Elsewhere in the document entirely | 45 |
+| Within 2 chunks of the evidence | 6 |
+| Same section, wrong piece of it | 2 |
+
+Chunk boundaries are not the barrier: the evidence fits in a single chunk for 36 of the 53, and for 66 of all 88 scorable questions.
+
+The sections tell the story. The evidence sits in financial statements — `Consolidated Statements of Operations`, `ITEM 8. FINANCIAL STATEMENTS AND SUPPLEMENTARY DATA`, `Consolidated Statements of Comprehensive Income`, `(Dollars in millions, except per share data)`. What comes back instead is narrative: `FINANCIAL CONDITION AND LIQUIDITY` (7 times), `About Ulta Beauty` (3), `Non-GAAP Measures`, `Digital Media > Strategy`, `Business Environment and Trends`.
+
+A question written in English embeds close to prose discussing a topic and far from a grid of numbers, even when the grid holds the answer. Two things compound this:
+
+1. **PDF tables reach the index with no structure at all.** No chunk in the structured index contains a `cell | cell` row, though the DOCX, HTML and PPTX parsers produce them. A statement arrives as `Net costs for significant litigation 1,414 — 2,291 2,291 476 1,815 3.20 Divestiture costs — — 60 60 13 47 0.08`: labels and numbers on one line, with no way to tell which number belongs to which column or year.
+2. **The keyword lane should rescue these** — a row label such as "capital expenditures" appears verbatim — but it spends its candidates on boilerplate that matches the company name.
+
+Also visible in the new fields: nearly every returned passage carries the date boost (97 of 265 as vector+date, 95 as keyword+date). Dates apply uniformly across a document, so they help choose documents and cannot discriminate within one, exactly as designed.
+
 **Hybrid retrieval is worth keeping, on this evidence.** It picks the right document for 62 of 88 questions against 42 for vector search alone, ranks the answer higher, and costs nothing measurable. Final hits do not improve, because the remaining barrier is choosing the right passage *within* the right document — see the open question below.
 
 ### Open Questions
 
-- **Why is the right passage not chosen inside the right document?** This is now the largest bucket: 53 of 88 questions retrieve the correct filing and return the wrong part of it. The working hypothesis is that the answer is usually a row in a financial statement, which loses its column headers when chunked and embeds poorly against a natural-language question, while a narrative section discussing the same topic embeds well. **Untested** — it needs the 53 to be examined before any work is built on it.
+- **Can PDF tables be given structure?** See the 22 September finding below: the answer is usually in a financial statement, and statements reach the index as a run-on line of labels and numbers with no rows or columns. This is the largest remaining bucket.
 - **Can table rows keep their column headers?** That would address the 38% that reach the right document and pick the wrong passage.
 - **Are the embeddings calibrated for the threshold?** Two answers ranked first and were still cut by the 0.5 threshold. The plugin does not add Nomic's `search_query:` and `search_document:` prefixes, which flattens the score distribution. Testing this needs a reindex.
 - **Would a second dataset help?** FinanceBench is table-heavy filings with near-duplicate documents — the hardest case for embeddings and unrepresentative of narrative documents.
