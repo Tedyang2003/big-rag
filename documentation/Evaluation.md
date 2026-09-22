@@ -140,6 +140,8 @@ A question counts as a **hit** when the whole answer snippet appears in the pass
 
 On FinanceBench, 62 of 150 questions are unscorable for that second reason. Their evidence comes from the dataset's own PDF extraction and starts with page furniture (`Table of Contents`, a page number) that the parser strips, or differs from our text in other small ways. **88 questions remain, and every run is scored over those same 88.**
 
+Chunks of a split table repeat the table's header row. The evidence check reconstructs each file by joining its chunks, so those repeated words appear twice in the reconstruction, and evidence straddling a split-table boundary can read as unscorable. Treat a change in the unscorable count after a table-affecting change as a property of the measurement, not only of the index.
+
 Rates are therefore over scorable questions only. Because 88 is a small number, one question is worth 1.1% — treat differences of one or two questions as noise.
 
 ## Results
