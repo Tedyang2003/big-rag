@@ -1,6 +1,7 @@
 import { type CountTokens } from "../utils/textChunker";
 import { dedupeRanges, extractDates, formatDateRange, type DateContext, type DateRange } from "../metadata/dates";
 import { buildSections, renderBlock, type Section } from "./sections";
+import { linariseTables } from "./linariseTables";
 
 /** Packed sections beyond this many show only as a count, so false headings cannot bloat the header. */
 const MAX_EXTRA_TITLES = 2;
@@ -10,6 +11,8 @@ const MIN_PIECE_FILL = 0.75;
 
 export interface StructuredChunk {
   text: string;
+  /** The form that gets embedded, when it differs from `text` (tables are linearised). */
+  embedText?: string;
   contextHeader: string;
   sectionPath: string;
   dates: DateRange[];
@@ -33,6 +36,14 @@ interface Token {
   separator: string;
 }
 
+interface TableRange {
+  /** Token offsets within the section. */
+  start: number;
+  end: number;
+  /** The run's first row, repeated at the top of any piece that starts inside the table. */
+  headerText: string;
+}
+
 interface SectionTokens {
   section: Section;
   tokens: Token[];
@@ -40,6 +51,7 @@ interface SectionTokens {
   blockEnds: number[];
   headingEnd: number;
   headingEnds: number[];
+  tables: TableRange[];
 }
 
 function wordCount(text: string): number {
@@ -90,9 +102,18 @@ function tokenizeSection(section: Section, offset: number): SectionTokens {
   const headingEnds: number[] = [];
   let headingEnd = 0;
   let inLeadingHeadingRun = true;
+  const tables: TableRange[] = [];
+  let openTable: { start: number; headerText: string } | null = null;
   section.blocks.forEach((block) => {
     const blockWords = renderBlock(block).split(/\s+/).filter(Boolean);
     blockWords.forEach((word, i) => tokens.push({ word, separator: i === blockWords.length - 1 ? "\n" : " " }));
+    if (block.kind === "tableRow") {
+      if (!openTable) openTable = { start: tokens.length - blockWords.length, headerText: renderBlock(block) };
+    } else if (openTable) {
+      const opened = openTable as { start: number; headerText: string };
+      tables.push({ ...opened, end: tokens.length - blockWords.length });
+      openTable = null;
+    }
     if (block.kind === "heading") {
       // Every heading's end is tracked separately so it never becomes a split
       // boundary; the leading run of consecutive headings also advances
@@ -104,7 +125,11 @@ function tokenizeSection(section: Section, offset: number): SectionTokens {
       blockEnds.push(tokens.length);
     }
   });
-  return { section, tokens, offset, blockEnds, headingEnd, headingEnds };
+  if (openTable) {
+    const closing = openTable as { start: number; headerText: string };
+    tables.push({ ...closing, end: tokens.length });
+  }
+  return { section, tokens, offset, blockEnds, headingEnd, headingEnds, tables };
 }
 
 function tokensToText(tokens: Token[]): string {
@@ -187,10 +212,20 @@ export async function chunkStructured(markdown: string, options: StructuredChunk
     Math.ceil((wordCount(header) * headerTokensPerWord) / tokensPerWord);
 
   const chunks: StructuredChunk[] = [];
-  const emit = (group: Section[], tokens: Token[], startIndex: number) => {
-    const text = tokensToText(tokens);
+  const emit = (group: Section[], tokens: Token[], startIndex: number, prefix = "") => {
+    const body = tokensToText(tokens);
+    const text = prefix ? `${prefix}\n${body}` : body;
     const { sectionPath, dates, contextHeader } = describe(group, text);
-    chunks.push({ text, contextHeader, sectionPath, dates, startIndex, endIndex: startIndex + tokens.length });
+    const embedded = linariseTables(text);
+    chunks.push({
+      text,
+      embedText: embedded === text ? undefined : embedded,
+      contextHeader,
+      sectionPath,
+      dates,
+      startIndex,
+      endIndex: startIndex + tokens.length,
+    });
   };
 
   const fits = (items: SectionTokens[]): boolean => {
@@ -212,6 +247,8 @@ export async function chunkStructured(markdown: string, options: StructuredChunk
     const sentences = sentenceEnds(item.tokens);
     const total = item.tokens.length;
     const headingEndSet = new Set(item.headingEnds);
+    const tableAt = (position: number): TableRange | undefined =>
+      item.tables.find((table) => position > table.start && position < table.end);
 
     const avoidHeadingEnd = (end: number, lower: number): number => {
       if (end >= total || !headingEndSet.has(end)) return end;
@@ -231,8 +268,22 @@ export async function chunkStructured(markdown: string, options: StructuredChunk
       if (start === 0 && end <= item.headingEnd) {
         end = Math.min(total, item.headingEnd + 1);
       }
+
+      // A table is kept whole when it can be: cut before it starts, or, when the piece already
+      // begins inside one, only at a row boundary.
+      const straddled = tableAt(end);
+      if (straddled) {
+        if (straddled.start > lower) {
+          end = straddled.start;
+        } else {
+          end = lastBoundary(item.blockEnds, lower, limit) ?? end;
+        }
+      }
       end = avoidHeadingEnd(end, lower);
-      emit([item.section], item.tokens.slice(start, end), item.offset + start);
+
+      const openedIn = tableAt(start) ?? item.tables.find((table) => table.start === start);
+      const repeatHeader = openedIn && start > openedIn.start ? openedIn.headerText : "";
+      emit([item.section], item.tokens.slice(start, end), item.offset + start, repeatHeader);
       start = end;
     }
   };

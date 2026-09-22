@@ -236,3 +236,42 @@ test("chunkStructured lists at most two packed section titles, then a count", as
   assert.equal(chunks.length, 1);
   assert.equal(chunks[0].sectionPath, "Report > Part 1 ; Part 2 ; Part 3 +3 more");
 });
+
+const TABLE_SECTION = [
+  "## Consolidated Statement of Cash Flows",
+  "",
+  "Years ended December 31 | 2018 | 2017",
+  ...Array.from({ length: 40 }, (_, i) => `Line item ${i} | ${i}00 | ${i}50`),
+].join("\n");
+
+test("a table that fits stays whole and needs no linearised copy of its prose", async () => {
+  const markdown = ["## Small table", "", "Year | Amount", "2018 | 1,577", "2019 | 1,700"].join("\n");
+  const chunks = await chunkStructured(markdown, options({ chunkSize: 400 }));
+
+  assert.equal(chunks.length, 1);
+  assert.ok(chunks[0].text.includes("2018 | 1,577"), "the grid is what the reader sees");
+  assert.ok(chunks[0].embedText?.includes("2018 — Amount: 1,577"), "the linearised form is what gets embedded");
+});
+
+test("a table too large for one chunk splits between rows and repeats its header", async () => {
+  const chunks = await chunkStructured(TABLE_SECTION, options({ chunkSize: 110 }));
+
+  assert.ok(chunks.length > 1, `expected several pieces, got ${chunks.length}`);
+  for (const chunk of chunks.slice(1)) {
+    assert.ok(
+      chunk.text.startsWith("Years ended December 31 | 2018 | 2017"),
+      `piece does not repeat the header: ${chunk.text.slice(0, 60)}`,
+    );
+  }
+  for (const chunk of chunks) {
+    for (const line of chunk.text.split("\n")) {
+      if (!line.includes(" | ")) continue;
+      assert.equal(line.split(" | ").length, 3, `row was cut in half: ${line}`);
+    }
+  }
+});
+
+test("a chunk of prose has no separate embedded form", async () => {
+  const chunks = await chunkStructured(ROUNDUP, options());
+  for (const chunk of chunks) assert.equal(chunk.embedText, undefined);
+});
