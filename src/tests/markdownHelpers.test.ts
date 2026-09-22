@@ -47,6 +47,16 @@ test("inferStructure returns an empty string for blank input", () => {
   assert.equal(inferStructure("  \n\n \t"), "");
 });
 
+test("inferStructure keeps consecutive table rows as separate blocks", () => {
+  const out = inferStructure("Years ended | 2018 | 2017\nCapital expenditures | 1,577 | 1,373\nDepreciation | 1,488 | 1,544");
+  assert.equal(out, "Years ended | 2018 | 2017\n\nCapital expenditures | 1,577 | 1,373\n\nDepreciation | 1,488 | 1,544");
+});
+
+test("inferStructure keeps a table row out of the paragraph around it", () => {
+  const out = inferStructure("Some prose leading in.\nYears ended | 2018\nMore prose after.", { inferHeadings: false });
+  assert.equal(out, "Some prose leading in.\n\nYears ended | 2018\n\nMore prose after.");
+});
+
 test("htmlToMarkdown converts headings, paragraphs, lists, and tables", () => {
   const html = `
     <html><head><style>body{}</style><script>alert(1)</script></head><body>
