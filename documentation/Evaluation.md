@@ -148,16 +148,18 @@ FinanceBench, 368 files, 363 unique. Indexes rebuilt 21 September 2026 with the 
 
 | Metric | Legacy Chunking | Structured | Structured + Hybrid |
 |---|---|---|---|
-| Questions scored | 88 | 88 | pending |
-| Unscorable (evidence not in the index) | 62 | 62 | pending |
-| Final hit rate | 8.0% (7) | **10.2% (9)** | pending |
-| Pool hit rate (top 50) | 15.9% (14) | **30.7% (27)** | pending |
-| Filter loss | 9.1% | 20.5% | pending |
-| Right file, wrong passage | 42.0% | 37.5% | pending |
-| Median answer rank in pool | 9 | 9 | pending |
-| Mean reciprocal rank | 0.046 | **0.099** | pending |
+| Questions scored | 88 | 88 | 88 |
+| Unscorable (evidence not in the index) | 62 | 62 | 62 |
+| Final hit rate | 8.0% (7) | **10.2% (9)** | 6.8% (6) |
+| Pool hit rate (top 50) | 15.9% (14) | **30.7% (27)** | 26.1% (23) |
+| Filter loss | 9.1% | 20.5% | 19.3% |
+| Right file, wrong passage | 42.0% | 37.5% | 39.8% |
+| Median answer rank in pool | 9 | 9 | 9 |
+| Mean reciprocal rank | 0.046 | **0.099** | 0.088 |
 
 Structured indexing roughly doubles what retrieval finds: the answer reaches the top 50 for 27 questions against legacy's 14, and mean reciprocal rank doubles. Final hits move less, from 7 to 9, because most of those newly found answers rank below the top 5 and never reach the model.
+
+Hybrid retrieval, with all three lanes weighted equally, is worse than vector search alone on this dataset. See the run log entry below for why.
 
 ### Latency
 
@@ -165,9 +167,12 @@ Median / 95th percentile per question, in milliseconds.
 
 | Stage | Legacy Chunking | Structured | Structured + Hybrid |
 |---|---|---|---|
-| Query embedding | 29 / 40 | 30 / 41 | pending |
-| Vector search | 3,746 / 4,334 | 5,515 / 5,841 | pending |
-| Overlap trimming | 0 / 0 | 0 / 0 | pending |
+| Query embedding | 29 / 40 | 30 / 41 | 26 / 40 |
+| Vector search | 3,746 / 4,334 | 5,515 / 5,841 | 6,737 / 7,894 |
+| Keyword lane | n/a | n/a | 60 / 98 |
+| Date lane | n/a | n/a | 2 / 3 |
+| Fusion | n/a | n/a | 0 / 0 |
+| Overlap trimming | 0 / 0 | 0 / 0 | 0 / 0 |
 
 Search scans every chunk, so its cost grows with the index: about 5.5 seconds per question at 116,741 chunks. 150 questions take roughly 35 minutes per run.
 
@@ -222,11 +227,29 @@ Raising the threshold or the limit would convert a few of these, but neither cha
 1. *The diagnostic pool ignored fusion.* At Medium depth the pool was always a plain vector search, so pool hit rate and mean reciprocal rank described the vector lane alone. Structured Low and Structured + Hybrid reported identical pool figures because they were measuring the same thing. The pool is now the fused ranking at Medium.
 2. *Scoring was stricter than reality.* Requiring the whole snippet inside one chunk meant 56% of questions could not be scored by any system. Adjacent chunks are now matched together, and questions whose evidence is absent from the index are reported as unscorable.
 
-**22 September 2026 — re-runs under the new scoring.** Legacy and Structured as in the table above. Structured + Hybrid pending.
+**22 September 2026 — re-runs under the new scoring.** Legacy and Structured as in the table above. Structured indexing roughly doubles what retrieval finds (27 answers in the top 50 against 14) and doubles mean reciprocal rank.
+
+**22 September 2026 — hybrid retrieval is worse than vector search alone, at equal lane weights.** Final hits fell from 9 to 6 against Structured at Low depth. Four answers the vector lane had ranked near the top were demoted out of the returned five:
+
+```
+pool rank, vector-only → fused
+   5 → 11
+   5 →  9
+   2 → 11
+   1 →  7     ← was the single best match in the index
+```
+
+Fusion gained one question and lost four. The cause is visible in the two extra lanes: **they rank by document, while the vector lane ranks by passage.** Every chunk of a 3M filing contains "3M", and every chunk inherits its document's posted date, so a question naming a company and a year matches thousands of chunks equally. Each lane then contributes 30 near-interchangeable candidates from the right documents, and with equal weights those outvote the one lane that distinguishes passages.
+
+The lanes are cheap — keyword 60ms, date 2ms, fusion under 1ms, against a 6.7 second vector search — so this is a question of signal quality, not cost.
+
+One caveat on the pool figure. Each lane contributes 30 candidates, so a fused pool of 50 can only draw from the vector lane's top 30. Four answers at vector ranks 35, 35, 38 and 50 were structurally excluded, which accounts for most of the drop from 27 to 23. The final-hit drop is unaffected: all nine of Low's hits ranked within the top 5 and were available to fusion.
+
+**Hybrid retrieval should not ship in this configuration.** Candidate fixes, none of which need a reindex: cap the candidates each lane may contribute from a single document; exclude the posted date from the date lane so only dates written inside a section vote; weight the vector lane above the others. The eval should also give the vector lane at least as many candidates as the diagnostic pool size, so pool comparisons between depths are honest.
 
 ### Open Questions
 
-- **Does hybrid retrieval fix the wrong-document problem?** Keyword and date signals are aimed at exactly that failure, and the fused pool is now measured. This is the next run.
+- **Can hybrid retrieval be made to help?** At equal weights it makes things worse (see the log). The lanes are aimed at the right failure — the wrong document — but they vote by document instead of by passage. Per-document candidate caps, dropping the posted date, and weighting the vector lane higher are untested.
 - **Can table rows keep their column headers?** That would address the 38% that reach the right document and pick the wrong passage.
 - **Are the embeddings calibrated for the threshold?** Two answers ranked first and were still cut by the 0.5 threshold. The plugin does not add Nomic's `search_query:` and `search_document:` prefixes, which flattens the score distribution. Testing this needs a reindex.
 - **Would a second dataset help?** FinanceBench is table-heavy filings with near-duplicate documents — the hardest case for embeddings and unrepresentative of narrative documents.
