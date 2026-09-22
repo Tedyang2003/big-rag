@@ -79,7 +79,15 @@ The Structured + Hybrid configuration additionally uses the following fusion val
 | Rank fusion constant | 60 |
 | Lane weights (meaning / keyword / date) | 1 / 1 / 1 |
 | BM25 k1 / b | 1.2 / 0.75 |
-| Keyword index chunk ceiling | 50,000 |
+| Keyword index chunk ceiling (`BIG_RAG_CATALOG_MAX_CHUNKS`) | 250,000 |
+
+The keyword index is skipped above that ceiling, to bound memory. The default is 50,000, and the structured FinanceBench index holds 116,741 chunks, so the ceiling must be raised for a hybrid run:
+
+```
+$env:BIG_RAG_CATALOG_MAX_CHUNKS="250000"
+```
+
+Without it the run prints `Keyword search is off: the index has 116741 chunks, above the 50000 chunk ceiling` and measures hybrid retrieval with its keyword lane missing. Check for that line before trusting a hybrid result.
 
 ---
 
