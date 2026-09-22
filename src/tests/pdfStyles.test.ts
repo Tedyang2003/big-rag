@@ -333,3 +333,30 @@ test("a line merged from several pieces keeps their order and text", () => {
   assert.ok(markdown !== null, "the document still has headings");
   assert.ok(markdown!.includes("Capital expenditures 1,577"), "pieces read left to right");
 });
+
+test("a table in a PDF becomes rows of cells", () => {
+  const cellLine = (texts: string[], xs: number[], top: number) => ({
+    text: texts.join(" "),
+    size: 10,
+    bold: false,
+    italic: false,
+    mixed: false,
+    box: [xs[0], top, 550, top + 12] as [number, number, number, number],
+    cells: texts.map((text, i) => ({ text, x0: xs[i], x1: xs[i] + 40 })),
+  });
+  const columns = [60, 300, 400];
+  const tablePage: PdfPage = {
+    width: 612,
+    height: 1000,
+    blocks: [
+      { lines: [cellLine(["Years ended", "2018", "2017"], columns, 100)] },
+      { lines: [cellLine(["Capital expenditures", "1,577", "1,373"], columns, 120)] },
+      ...page(body(8)).blocks,
+    ],
+  };
+
+  const markdown = styledPagesToMarkdown([page([bold("Cash Flows"), ...body(6)]), tablePage]);
+
+  assert.ok(markdown!.includes("Years ended | 2018 | 2017"), "header row");
+  assert.ok(markdown!.includes("Capital expenditures | 1,577 | 1,373"), "data row");
+});

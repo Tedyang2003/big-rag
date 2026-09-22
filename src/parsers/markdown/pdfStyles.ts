@@ -1,4 +1,5 @@
 import { inferStructure } from "./inferStructure";
+import { findTableRows } from "./pdfTables";
 
 /** One piece of a merged row: its text and horizontal extent. */
 export interface PdfCell {
@@ -410,6 +411,23 @@ export function styledPagesToMarkdown(pages: PdfPage[]): string | null {
     for (const placed of group.lines) headingLineOrders.add(placed.order);
   }
 
+  // Table rows are grouped by page, not by block: MuPDF emits a table's rows as separate
+  // blocks, so per-block detection could never form a run of two. The key is the page only;
+  // findTableRows still bounds a run to consecutive, column-aligned lines within it.
+  const rowByOrder = new Map<number, string>();
+  const pageLinesForTables = new Map<number, PlacedLine[]>();
+  for (const placed of lines) {
+    const list = pageLinesForTables.get(placed.page) ?? [];
+    list.push(placed);
+    pageLinesForTables.set(placed.page, list);
+  }
+  for (const [pageNumber, placedLines] of pageLinesForTables) {
+    const pageWidth = pages[pageNumber]?.width ?? 612;
+    for (const [index, row] of findTableRows(placedLines.map((p) => p.line), pageWidth)) {
+      rowByOrder.set(placedLines[index].order, row.cells.join(" | "));
+    }
+  }
+
   const parts: string[] = [];
   let paragraph: string[] = [];
   let currentBlock = "";
@@ -428,6 +446,11 @@ export function styledPagesToMarkdown(pages: PdfPage[]): string | null {
       continue;
     }
     if (headingLineOrders.has(placed.order)) continue;
+    const row = rowByOrder.get(placed.order);
+    if (row) {
+      paragraph.push(row);
+      continue;
+    }
     // A body line that would read as a Markdown heading is escaped.
     paragraph.push(/^#{1,6}\s/.test(placed.line.text) ? `\\${placed.line.text}` : placed.line.text);
   }
