@@ -46,7 +46,7 @@ The same-row merge inside a MuPDF block currently joins a row's pieces with spac
 
 ### Find table runs, conservatively
 
-Walking a block's kept lines in reading order:
+Walking a page's kept lines in reading order (MuPDF emits each row of a table as its own block, so runs are found per page, not per block):
 
 - A line is **row-like** when it merged from two or more cells.
 - A **table run** is two or more consecutive row-like lines whose cells align: the same number of cells, each starting within 3% of page width of the cell above it.
@@ -57,7 +57,7 @@ A run of two aligned lines that is not really a table — a two-column list, a f
 
 ### Pick the header
 
-Within a run, the header is the first row where more than half the cells are non-numeric, provided some later row contains a numeric cell. Otherwise it is the run's first row. This chooses `Years ended December 31 | 2018 | 2017 | 2016` over a spanning title row such as `(Millions)`.
+Within a run, the header is the first row whose **first cell** is non-numeric; otherwise the run's first row. A real statement header is mostly years — `Years ended December 31 | 2018 | 2017 | 2016` is three-quarters numeric — so a rule counting non-numeric cells across the row could never select one. What distinguishes a header is that its first cell labels the rows beneath it.
 
 A cell counts as numeric when, after stripping `$ % ( ) , .` and a leading `-`, it is non-empty and all digits.
 
