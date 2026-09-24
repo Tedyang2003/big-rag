@@ -89,24 +89,24 @@ The previous build, before tables and prefixes, gave Legacy 7 hits and Structure
 | Right document, wrong passage | 41 | 41 |
 | Different company | 7 | 6 |
 
-Nine times in ten the right company is found. Hybrid's date and keyword signals previously cut the wrong-document share by more than half, converting it into right-document-wrong-passage.
+Nine times in ten the right company is found. On the previous build, hybrid's date and keyword signals cut the wrong-document share from 37 to 16, converting most of it into right-document-wrong-passage; that has not yet been re-measured on this one.
 
 **Statements remain the stubborn case.** Of the 31 questions whose evidence sits in a financial statement, 2 are hits — up from 1 before tables. The gains landed elsewhere: 7 of 39 for press releases and short sections, 2 of 2 for notes to the accounts, 1 of 16 for MD&A narrative. Recovering the grid was necessary but has not been sufficient; a statement chunk is still hundreds of words of figures in which one linearised row is easily diluted.
 
-**Why found answers do not reach the model.** Structured surfaces 26 answers in the top 50 and returns 12. The rest sit at ranks 6 to 34 — below the five-passage limit rather than cut by the threshold. Returning 10 passages instead of 5 would convert several, but it treats the symptom: the goal is the answer at rank 1, not a longer list.
+**Why found answers do not reach the model.** Structured surfaces 26 answers in the top 50 and returns 12. The other 14 sit at ranks 1, 4, 6, 8, 8, 12, 16, 17, 22, 23, 27, 28, 29 and 34 — two inside the top five, so cut by the 0.5 threshold, and twelve below the five-passage limit. Returning 10 passages instead of 5 would convert a few, but it treats the symptom: the goal is the answer at rank 1, not a longer list.
 
 **What the questions actually ask.** Classifying all 88:
 
 | Type | Questions | Hits |
 |---|---|---|
-| Direct lookup | 42 | 6 |
-| Derived metric — must be computed | 24 | 1 |
-| Judgement call | 11 | 1 |
+| Direct lookup | 42 | 9 |
+| Derived metric — must be computed | 24 | **0** |
+| Judgement call | 11 | 2 |
 | Multi-year comparison | 11 | 1 |
 
 Retrieval success tracks how many of the question's words appear in its evidence: hits average 58% overlap, misses 33%, and the 13 questions under 20% produced no hits at all. Derived metrics sit at the bottom by construction — "quick ratio" appears nowhere in a balance sheet, because the answer is calculated from line items. **Roughly 46 of 88 questions are financial reasoning rather than retrieval**, so the realistic target is the 42 lookups, 31 of which have their answer in a financial statement. A hit rate of 20% here would be a strong result.
 
-**Why statements are missed.** For the 53 right-document misses, 45 returned passages from elsewhere in the document, and the evidence fits a single chunk in 36 of them — so chunk boundaries are not the barrier. The evidence sits in `Consolidated Statements of Operations` and similar; what comes back is narrative such as `FINANCIAL CONDITION AND LIQUIDITY` or `About Ulta Beauty`. An English question embeds close to prose about a topic and far from a grid of numbers.
+**Why the right document yields the wrong passage.** Of the 41 such misses, 36 returned passages from elsewhere in the document entirely — only 3 landed in the evidence's own section and 5 within two chunks of it. The evidence fits a single chunk in 21 of the 41, and in 56 of all 88, so chunk boundaries are not the barrier. What comes back instead is narrative: an English question embeds close to prose discussing a topic and far from a grid of figures, even after the grid has rows.
 
 ## Run Log
 
