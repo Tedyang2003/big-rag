@@ -133,6 +133,7 @@ async function runRun(client: LMStudioClient, vectorStore: VectorStore, document
             diagnosticPoolSize,
             depth: settings.retrievalDepth,
             laneCandidates: settings.laneCandidates,
+            rerankDepth: settings.rerankDepth,
             rrfConstant: FIXED_DEFAULTS.rrfConstant,
             laneWeights: settings.laneWeights,
           },

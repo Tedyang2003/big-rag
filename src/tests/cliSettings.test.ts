@@ -15,7 +15,8 @@ test("FIXED_DEFAULTS holds the spec's fixed values", () => {
     enableOCR: true,
     structuredIndexing: true,
     enableContextCompaction: false,
-    laneCandidates: 30,
+    laneCandidates: 50,
+    rerankDepth: 10,
     rrfConstant: 60,
     laneWeightVector: 1,
     laneWeightKeyword: 1,
@@ -64,5 +65,6 @@ test("eval retrieval settings use the fixed defaults when env vars are unset", (
       date: FIXED_DEFAULTS.laneWeightDate,
     },
     laneCandidates: FIXED_DEFAULTS.laneCandidates,
+    rerankDepth: FIXED_DEFAULTS.rerankDepth,
   });
 });

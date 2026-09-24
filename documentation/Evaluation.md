@@ -50,11 +50,14 @@ Any of these can be set per run, so a configuration differs from its neighbour b
 | `BIG_RAG_RETRIEVAL_LIMIT` | 5 | Passages returned to the model |
 | `BIG_RAG_RETRIEVAL_THRESHOLD` | 0.5 | Minimum similarity for a passage to be returned |
 | `BIG_RAG_LANE_WEIGHT_VECTOR` / `_KEYWORD` / `_DATE` | 1 / 1 / 1 | **Set a signal to 0 to run without it**, which is how its contribution is attributed |
-| `BIG_RAG_LANE_CANDIDATES` | 30 | Passages the vector lane puts up, and so the pool the others reorder |
+| `BIG_RAG_LANE_CANDIDATES` | 50 | Passages the vector lane puts up, and so the pool the others reorder |
+| `BIG_RAG_RERANK_DEPTH` | 10 | Of those, how many of BM25's best collect a boost. **The reranker's sharpness dial** |
 
 Attributing hybrid retrieval takes four runs against the same index: weights `1/0/0` should reproduce Low exactly and proves the harness, `1/1/0` isolates the keyword rerank, `1/0/1` the date boost, `1/1/1` is today's Medium.
 
-Held constant: `nomic-embed-text-v1.5` embeddings, 512-token chunks (100 overlap, legacy only), 5 passages returned, 0.5 threshold, compaction off, a 50-passage diagnostic pool. The vector lane puts up 30 candidates, RRF constant 60, equal weights, BM25 k1 1.2 / b 0.75. Full list in [CLI.md](CLI.md).
+Held constant: `nomic-embed-text-v1.5` embeddings, 512-token chunks (100 overlap, legacy only), 5 passages returned, 0.5 threshold, compaction off, a 50-passage diagnostic pool. The vector lane puts up 50 candidates, of which BM25 boosts its best 10, RRF constant 60, equal weights, BM25 k1 1.2 / b 0.75. Full list in [CLI.md](CLI.md).
+
+**Why the rerank has a depth.** Fusion is flat: the whole spread from rank 1 to rank 50 is worth less than the difference between receiving a boost and receiving none. Nearly every candidate contains some query term — a filing's every page says `fiscal` and its year — so boosting all of them adds roughly the same number to every row and reorders nothing. The boost draws its power from the candidates that do *not* get it, and `BIG_RAG_RERANK_DEPTH` is how much of BM25's opinion is allowed to count: small values trust it over the vector lane, large values dissolve it. There is no principled value, so it is swept.
 
 ## How a Question Is Scored
 
@@ -174,6 +177,8 @@ Hits average 45% overlap against 33% for misses, and the effect is starkest at t
 | + dates as a boost rather than a source of candidates | **9** | **16** | **10** | **0.122** |
 
 Reading years halved wrong-document failures but doubled wrong-company ones, because "FY2023" matches every company's 2023 filing. Making dates a boost — lifting passages the other lanes already found, never introducing one — kept the gain and removed the cost.
+
+**24 Sep — the rerank got a depth, and the candidate pool went to 50.** Boosting all of BM25's ranking turned out to change almost nothing: nearly every candidate contains some query term, so nearly every candidate collected a near-identical boost. Only BM25's top `rerankDepth` (default 10) are boosted now. `laneCandidates` is 50, which also makes Medium's pool comparable to Low's. To sweep: `BIG_RAG_RERANK_DEPTH` at 3, 10 and 30 against the same index.
 
 **24 Sep — BM25 became a reranker; the keyword lane was removed.** It now scores only the passages the vector lane put up and adds `weight / (60 + its rank)` to each, the same shape as the date boost, so nothing enters the shortlist on keywords alone. `laneWeightKeyword` is back to 1. The catalog keeps a document-frequency count per term instead of posting lists, which removed the 50,000-chunk ceiling, `BIG_RAG_CATALOG_MAX_CHUNKS` and the per-file candidate cap. Not yet measured against the 14 hits / MRR 0.141 that vector + date set.
 

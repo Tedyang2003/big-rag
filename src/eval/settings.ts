@@ -12,6 +12,7 @@ export interface RetrievalSettings {
   /** Set a lane's weight to 0 to run without it, which is how a lane's contribution is attributed. */
   laneWeights: { vector: number; keyword: number; date: number };
   laneCandidates: number;
+  rerankDepth: number;
 }
 
 function readNumber(env: Record<string, string | undefined>, name: string, fallback: number): number {
@@ -66,6 +67,7 @@ export function readRetrievalSettings(env: Record<string, string | undefined>): 
       date: readWeight(env, "BIG_RAG_LANE_WEIGHT_DATE", FIXED_DEFAULTS.laneWeightDate),
     },
     laneCandidates: readNumber(env, "BIG_RAG_LANE_CANDIDATES", FIXED_DEFAULTS.laneCandidates),
+    rerankDepth: readNumber(env, "BIG_RAG_RERANK_DEPTH", FIXED_DEFAULTS.rerankDepth),
   };
 }
 

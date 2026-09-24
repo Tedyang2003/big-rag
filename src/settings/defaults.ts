@@ -13,7 +13,12 @@ export const FIXED_DEFAULTS = {
   enableOCR: true,
   structuredIndexing: true,
   enableContextCompaction: false,
-  laneCandidates: 30,
+  laneCandidates: 50,
+  // How many of BM25's top passages collect a boost. A boost every candidate receives is a
+  // constant added to every row, which changes no ordering: almost any passage of a document
+  // contains some query term, so the reranker only separates anything if most candidates come
+  // away with nothing. Small values trust BM25 over the vector lane; see documentation/Evaluation.md.
+  rerankDepth: 10,
   rrfConstant: 60,
   laneWeightVector: 1,
   // Keywords and dates are both boosts over the vector lane's candidates, so neither can

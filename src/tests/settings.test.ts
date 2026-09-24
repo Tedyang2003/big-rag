@@ -16,6 +16,7 @@ test("readRetrievalSettings uses the plugin config defaults when env vars are un
       date: FIXED_DEFAULTS.laneWeightDate,
     },
     laneCandidates: FIXED_DEFAULTS.laneCandidates,
+    rerankDepth: FIXED_DEFAULTS.rerankDepth,
   });
 });
 
@@ -34,7 +35,7 @@ test("readRetrievalSettings reads overrides from env vars", () => {
       BIG_RAG_CHUNK_SIZE: "1024",
       BIG_RAG_ENABLE_COMPACTION: "TRUE",
     }),
-    { retrievalLimit: 8, retrievalThreshold: 0.35, chunkSize: 1024, enableContextCompaction: true, retrievalDepth: "medium", laneWeights: { vector: FIXED_DEFAULTS.laneWeightVector, keyword: FIXED_DEFAULTS.laneWeightKeyword, date: FIXED_DEFAULTS.laneWeightDate }, laneCandidates: FIXED_DEFAULTS.laneCandidates },
+    { retrievalLimit: 8, retrievalThreshold: 0.35, chunkSize: 1024, enableContextCompaction: true, retrievalDepth: "medium", laneWeights: { vector: FIXED_DEFAULTS.laneWeightVector, keyword: FIXED_DEFAULTS.laneWeightKeyword, date: FIXED_DEFAULTS.laneWeightDate }, laneCandidates: FIXED_DEFAULTS.laneCandidates, rerankDepth: FIXED_DEFAULTS.rerankDepth },
   );
 });
 
@@ -86,11 +87,13 @@ test("lane weights and candidate counts can be tuned from the environment", () =
     BIG_RAG_LANE_WEIGHT_VECTOR: "1",
     BIG_RAG_LANE_WEIGHT_KEYWORD: "0",
     BIG_RAG_LANE_WEIGHT_DATE: "0.5",
-    BIG_RAG_LANE_CANDIDATES: "50",
+    BIG_RAG_LANE_CANDIDATES: "40",
+    BIG_RAG_RERANK_DEPTH: "3",
   });
 
   assert.deepEqual(settings.laneWeights, { vector: 1, keyword: 0, date: 0.5 });
-  assert.equal(settings.laneCandidates, 50);
+  assert.equal(settings.laneCandidates, 40);
+  assert.equal(settings.rerankDepth, 3);
 });
 
 test("lane settings fall back to the plugin's fixed defaults", () => {
@@ -102,6 +105,7 @@ test("lane settings fall back to the plugin's fixed defaults", () => {
     date: FIXED_DEFAULTS.laneWeightDate,
   });
   assert.equal(settings.laneCandidates, FIXED_DEFAULTS.laneCandidates);
+  assert.equal(settings.rerankDepth, FIXED_DEFAULTS.rerankDepth);
 });
 
 test("a negative lane weight is rejected", () => {

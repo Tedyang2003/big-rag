@@ -53,6 +53,7 @@ test("retrieve searches with retrievalLimit and threshold when compaction is off
     enableContextCompaction: false,
     depth: "low",
     laneCandidates: 30,
+    rerankDepth: 10,
     rrfConstant: 60,
     laneWeights: { vector: 1, keyword: 1, date: 1 },
   });
@@ -81,6 +82,7 @@ test("retrieve trims overlapping adjacent chunks", async () => {
     enableContextCompaction: false,
     depth: "low",
     laneCandidates: 30,
+    rerankDepth: 10,
     rrfConstant: 60,
     laneWeights: { vector: 1, keyword: 1, date: 1 },
   });
@@ -104,6 +106,7 @@ test("retrieve widens the pool and fills the token budget when compaction is on"
     enableContextCompaction: true,
     depth: "low",
     laneCandidates: 30,
+    rerankDepth: 10,
     rrfConstant: 60,
     laneWeights: { vector: 1, keyword: 1, date: 1 },
   });
@@ -128,6 +131,7 @@ test("retrieve collects an unthresholded diagnostic pool when requested", async 
     diagnosticPoolSize: 50,
     depth: "low",
     laneCandidates: 30,
+    rerankDepth: 10,
     rrfConstant: 60,
     laneWeights: { vector: 1, keyword: 1, date: 1 },
   });
@@ -155,6 +159,7 @@ test("retrieve stops before searching when aborted after embedding the query", a
         abortSignal: controller.signal,
         depth: "low",
         laneCandidates: 30,
+        rerankDepth: 10,
         rrfConstant: 60,
         laneWeights: { vector: 1, keyword: 1, date: 1 },
       }),
@@ -170,6 +175,7 @@ const LOW_OPTIONS = {
   enableContextCompaction: false,
   depth: "low" as const,
   laneCandidates: 30,
+  rerankDepth: 10,
   rrfConstant: 60,
   laneWeights: { vector: 1, keyword: 1, date: 1 },
 };
@@ -220,6 +226,28 @@ test("medium reranks the vector lane's candidates with keywords and dates", asyn
   assert.ok(result.timings.some((timing) => timing.stage === "keywordRerank"));
   assert.ok(result.timings.some((timing) => timing.stage === "dateLane"));
   assert.ok(result.timings.some((timing) => timing.stage === "fuse"));
+});
+
+test("only BM25's top rerankDepth passages collect a boost", async () => {
+  const { deps } = makeDeps(vectorResults());
+
+  const result = await retrieve(
+    "bus collision",
+    {
+      ...deps,
+      catalog: fakeCatalog({
+        // BM25 rates the vector lane's last passage best and its first passage second.
+        rankByTerms: () => ["shard_000/chunk-3", "shard_000/chunk-1", "shard_000/chunk-2"],
+      }),
+    },
+    { ...LOW_OPTIONS, depth: "medium", retrievalLimit: 3, rerankDepth: 1 },
+  );
+
+  // Only chunk-3 is boosted, so it passes chunk-1 despite the vector lane ranking it last.
+  // chunk-1, BM25's second choice, collects nothing and keeps its own position.
+  assert.deepEqual(result.passages.map((passage) => passage.text), ["vector 3", "vector 1", "vector 2"]);
+  assert.deepEqual(result.passageLanes, [["vector", "keyword"], ["vector"], ["vector"]]);
+  assert.equal(result.laneCounts.keyword, 1);
 });
 
 test("keywords and dates cannot introduce a passage the vector lane did not find", async () => {

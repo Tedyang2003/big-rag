@@ -149,7 +149,8 @@ These values are fixed in the plugin (`src/settings/defaults.ts`) and have no se
 | OCR | on | `BIG_RAG_ENABLE_OCR` |
 | Structured indexing | on | `BIG_RAG_STRUCTURED_INDEXING` |
 | Context compaction | off | `BIG_RAG_ENABLE_COMPACTION` (evaluation) |
-| Candidates the vector lane puts up at Medium | 30 | `BIG_RAG_LANE_CANDIDATES` (evaluation) |
+| Candidates the vector lane puts up at Medium | 50 | `BIG_RAG_LANE_CANDIDATES` (evaluation) |
+| Of those, how many of BM25's best are boosted | 10 | `BIG_RAG_RERANK_DEPTH` (evaluation) |
 | Rank fusion constant | 60 | none |
 | Weights (meaning / keyword rerank / date boost) | 1 / 1 / 1 | `BIG_RAG_LANE_WEIGHT_*` (evaluation) |
 | BM25 k1 / b | 1.2 / 0.75 | none |

@@ -64,6 +64,8 @@ export interface RetrieveOptions {
   depth: RetrievalDepth;
   /** Passages the vector lane puts up for fusion, and so the pool BM25 reranks. */
   laneCandidates: number;
+  /** How many of BM25's top passages collect a boost; the rest collect nothing. */
+  rerankDepth: number;
   rrfConstant: number;
   laneWeights: { vector: number; keyword: number; date: number };
 }
@@ -217,7 +219,12 @@ export async function retrieve(
       // Both boosts are worth what topping a lane of their own was worth, so a passage the
       // vector lane ranked low can still win on the strength of the other two - which is the
       // whole point - while neither can put a passage in the pool by itself.
-      keywordRanking.forEach((key, index) => {
+      //
+      // Only BM25's first rerankDepth passages are boosted. Reciprocal rank fusion is flat -
+      // the whole spread from rank 1 to rank 50 is worth less than having a boost at all - and
+      // nearly every candidate contains some query term, so boosting them all would add roughly
+      // the same number to every row and reorder nothing.
+      keywordRanking.slice(0, options.rerankDepth).forEach((key, index) => {
         const entry = byKey.get(key);
         if (!entry) return;
         entry.score += options.laneWeights.keyword / (options.rrfConstant + index + 1);
