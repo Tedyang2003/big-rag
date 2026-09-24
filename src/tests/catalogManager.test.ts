@@ -7,7 +7,7 @@ import { CatalogCache, getCatalog, resetCatalogCache } from "../retrieval/catalo
 import { CATALOG_FILENAME } from "../retrieval/chunkCatalog";
 import { type IndexedChunk } from "../vectorstore/vectorStore";
 
-const OPTIONS = { version: 1, k1: 1.2, b: 0.75 };
+const OPTIONS = { version: 1 };
 
 function chunkOf(id: string): IndexedChunk {
   return {

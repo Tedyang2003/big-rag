@@ -34,14 +34,6 @@ export interface Bm25Options {
   b: number;
 }
 
-/** Corpus-wide statistics a reranker needs; term frequencies come from the candidates themselves. */
-export interface Bm25Stats {
-  totalChunks: number;
-  averageWordCount: number;
-  /** Number of chunks in the whole corpus containing the term, 0 when it appears in none. */
-  documentFrequency(term: string): number;
-}
-
 /** A passage another lane already selected, waiting to be reordered. */
 export interface Bm25Candidate {
   key: string;
@@ -50,40 +42,57 @@ export interface Bm25Candidate {
 
 /**
  * Reorders passages another lane found, best first, dropping the ones no query term
- * reaches. Term frequencies are read from each candidate's own text, but idf still comes
- * from the whole corpus: on a shortlist of a few dozen passages a document frequency
- * counted locally would flatten exactly the rare terms that make one of them the answer.
+ * reaches.
+ *
+ * Both the term frequencies and the document frequencies come from the candidates
+ * themselves, which is what makes this a reranker rather than a search. Counted over the
+ * whole corpus, a company name is rare and so scores high, yet it appears on every page of
+ * the document the shortlist was drawn from and separates nothing; counted over the
+ * shortlist it collapses to zero and the terms that actually distinguish one candidate
+ * from another take the weight.
  */
-export function rankTexts(
-  terms: string[],
-  candidates: Bm25Candidate[],
-  stats: Bm25Stats,
-  options: Bm25Options,
-): string[] {
-  if (terms.length === 0 || stats.totalChunks === 0 || stats.averageWordCount === 0) return [];
+export function rankTexts(terms: string[], candidates: Bm25Candidate[], options: Bm25Options): string[] {
+  if (terms.length === 0 || candidates.length === 0) return [];
 
-  const idfByTerm = new Map<string, number>();
-  for (const term of terms) {
-    if (idfByTerm.has(term)) continue;
-    const df = stats.documentFrequency(term);
-    if (df <= 0) continue;
-    idfByTerm.set(term, Math.log(1 + (stats.totalChunks - df + 0.5) / (df + 0.5)));
+  const wanted = new Set(terms);
+  const frequenciesPer: Array<Map<string, number>> = [];
+  const lengths: number[] = [];
+  const documentFrequency = new Map<string, number>();
+
+  for (const candidate of candidates) {
+    const candidateTerms = tokenize(candidate.text);
+    lengths.push(candidateTerms.length);
+    const frequencies = new Map<string, number>();
+    for (const term of candidateTerms) {
+      if (!wanted.has(term)) continue;
+      frequencies.set(term, (frequencies.get(term) ?? 0) + 1);
+    }
+    for (const term of frequencies.keys()) {
+      documentFrequency.set(term, (documentFrequency.get(term) ?? 0) + 1);
+    }
+    frequenciesPer.push(frequencies);
   }
-  if (idfByTerm.size === 0) return [];
+
+  const totalLength = lengths.reduce((sum, length) => sum + length, 0);
+  if (totalLength === 0) return [];
+  const averageLength = totalLength / candidates.length;
+
+  const total = candidates.length;
+  const idfByTerm = new Map<string, number>();
+  for (const [term, df] of documentFrequency) {
+    idfByTerm.set(term, Math.log(1 + (total - df + 0.5) / (df + 0.5)));
+  }
 
   const scored: Array<{ key: string; score: number; order: number }> = [];
   candidates.forEach((candidate, order) => {
-    const candidateTerms = tokenize(candidate.text);
-    if (candidateTerms.length === 0) return;
-    const frequencies = new Map<string, number>();
-    for (const term of candidateTerms) frequencies.set(term, (frequencies.get(term) ?? 0) + 1);
+    const frequencies = frequenciesPer[order];
+    if (frequencies.size === 0) return;
 
-    const lengthRatio = candidateTerms.length / stats.averageWordCount;
+    const lengthRatio = lengths[order] / averageLength;
     const normalisation = options.k1 * (1 - options.b + options.b * lengthRatio);
     let score = 0;
-    for (const [term, idf] of idfByTerm) {
-      const termFrequency = frequencies.get(term) ?? 0;
-      if (termFrequency === 0) continue;
+    for (const [term, termFrequency] of frequencies) {
+      const idf = idfByTerm.get(term) ?? 0;
       score += idf * ((termFrequency * (options.k1 + 1)) / (termFrequency + normalisation));
     }
     if (score > 0) scored.push({ key: candidate.key, score, order });

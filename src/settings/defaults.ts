@@ -27,5 +27,5 @@ export const FIXED_DEFAULTS = {
   laneWeightDate: 1,
   bm25K1: 1.2,
   bm25B: 0.75,
-  catalogVersion: 2,
+  catalogVersion: 3,
 } as const;

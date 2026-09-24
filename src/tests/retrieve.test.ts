@@ -54,6 +54,8 @@ test("retrieve searches with retrievalLimit and threshold when compaction is off
     depth: "low",
     laneCandidates: 30,
     rerankDepth: 10,
+    bm25K1: 1.2,
+    bm25B: 0.75,
     rrfConstant: 60,
     laneWeights: { vector: 1, keyword: 1, date: 1 },
   });
@@ -83,6 +85,8 @@ test("retrieve trims overlapping adjacent chunks", async () => {
     depth: "low",
     laneCandidates: 30,
     rerankDepth: 10,
+    bm25K1: 1.2,
+    bm25B: 0.75,
     rrfConstant: 60,
     laneWeights: { vector: 1, keyword: 1, date: 1 },
   });
@@ -107,6 +111,8 @@ test("retrieve widens the pool and fills the token budget when compaction is on"
     depth: "low",
     laneCandidates: 30,
     rerankDepth: 10,
+    bm25K1: 1.2,
+    bm25B: 0.75,
     rrfConstant: 60,
     laneWeights: { vector: 1, keyword: 1, date: 1 },
   });
@@ -132,6 +138,8 @@ test("retrieve collects an unthresholded diagnostic pool when requested", async 
     depth: "low",
     laneCandidates: 30,
     rerankDepth: 10,
+    bm25K1: 1.2,
+    bm25B: 0.75,
     rrfConstant: 60,
     laneWeights: { vector: 1, keyword: 1, date: 1 },
   });
@@ -160,6 +168,8 @@ test("retrieve stops before searching when aborted after embedding the query", a
         depth: "low",
         laneCandidates: 30,
         rerankDepth: 10,
+        bm25K1: 1.2,
+        bm25B: 0.75,
         rrfConstant: 60,
         laneWeights: { vector: 1, keyword: 1, date: 1 },
       }),
@@ -176,13 +186,14 @@ const LOW_OPTIONS = {
   depth: "low" as const,
   laneCandidates: 30,
   rerankDepth: 10,
+  bm25K1: 1.2,
+  bm25B: 0.75,
   rrfConstant: 60,
   laneWeights: { vector: 1, keyword: 1, date: 1 },
 };
 
 function fakeCatalog(overrides: Partial<CatalogLanes> = {}): CatalogLanes {
   return {
-    rankByTerms: () => [],
     chunksForRanges: () => [],
     keyOf: (chunkNumber) => `shard_000/chunk-${chunkNumber}`,
     latestDayOf: () => 0,
@@ -191,14 +202,22 @@ function fakeCatalog(overrides: Partial<CatalogLanes> = {}): CatalogLanes {
   };
 }
 
-/** The three passages the vector lane finds in most of the Medium tests, in its own order. */
+/**
+ * The three passages the vector lane finds in most of the Medium tests, in its own order.
+ * Reranking is real, so the text decides the keyword order: against "bus collision" only
+ * chunk-3 has both terms, chunk-2 has one, and chunk-1 has neither.
+ */
 function vectorResults(): SearchResult[] {
   return [
-    makeResult({ text: "vector 1", id: "chunk-1", chunkIndex: 0 }),
-    makeResult({ text: "vector 2", id: "chunk-2", chunkIndex: 10 }),
-    makeResult({ text: "vector 3", id: "chunk-3", chunkIndex: 20 }),
+    makeResult({ text: "timetable notice for the new term", id: "chunk-1", chunkIndex: 0 }),
+    makeResult({ text: "bus route update for commuters", id: "chunk-2", chunkIndex: 10 }),
+    makeResult({ text: "bus collision on the expressway", id: "chunk-3", chunkIndex: 20 }),
   ];
 }
+
+const VECTOR_1 = "timetable notice for the new term";
+const VECTOR_2 = "bus route update for commuters";
+const VECTOR_3 = "bus collision on the expressway";
 
 test("medium reranks the vector lane's candidates with keywords and dates", async () => {
   const { deps } = makeDeps(vectorResults());
@@ -208,18 +227,15 @@ test("medium reranks the vector lane's candidates with keywords and dates", asyn
     {
       ...deps,
       nowDate: () => new Date(2026, 8, 16),
-      catalog: fakeCatalog({
-        // BM25 likes chunk-3 most, then chunk-2; the query's date matches chunk-2.
-        rankByTerms: () => ["shard_000/chunk-3", "shard_000/chunk-2"],
-        chunksForRanges: () => [2],
-      }),
+      // chunk-2 is the one the question's date matches.
+      catalog: fakeCatalog({ chunksForRanges: () => [2] }),
     },
     { ...LOW_OPTIONS, depth: "medium", retrievalLimit: 3 },
   );
 
-  // chunk-2 carries both boosts and wins from third place in the vector lane; chunk-3
-  // carries one and passes chunk-1, which the vector lane had ranked first.
-  assert.deepEqual(result.passages.map((passage) => passage.text), ["vector 2", "vector 3", "vector 1"]);
+  // chunk-2 carries one query term and the date, which together beat chunk-3's two terms;
+  // both pass chunk-1, which the vector lane had ranked first and which neither boost reaches.
+  assert.deepEqual(result.passages.map((passage) => passage.text), [VECTOR_2, VECTOR_3, VECTOR_1]);
   assert.deepEqual(result.passageLanes, [["vector", "keyword", "date"], ["vector", "keyword"], ["vector"]]);
   assert.deepEqual(result.laneCounts, { vector: 3, keyword: 2, date: 1 });
   assert.deepEqual(result.dayRanges, [{ start: 20260908, end: 20260908 }]);
@@ -233,21 +249,37 @@ test("only BM25's top rerankDepth passages collect a boost", async () => {
 
   const result = await retrieve(
     "bus collision",
-    {
-      ...deps,
-      catalog: fakeCatalog({
-        // BM25 rates the vector lane's last passage best and its first passage second.
-        rankByTerms: () => ["shard_000/chunk-3", "shard_000/chunk-1", "shard_000/chunk-2"],
-      }),
-    },
+    { ...deps, catalog: fakeCatalog() },
     { ...LOW_OPTIONS, depth: "medium", retrievalLimit: 3, rerankDepth: 1 },
   );
 
-  // Only chunk-3 is boosted, so it passes chunk-1 despite the vector lane ranking it last.
-  // chunk-1, BM25's second choice, collects nothing and keeps its own position.
-  assert.deepEqual(result.passages.map((passage) => passage.text), ["vector 3", "vector 1", "vector 2"]);
+  // BM25 ranks chunk-3 first and chunk-2 second, but only the first collects anything, so
+  // chunk-2 keeps its own place while chunk-3 climbs from last to first.
+  assert.deepEqual(result.passages.map((passage) => passage.text), [VECTOR_3, VECTOR_1, VECTOR_2]);
   assert.deepEqual(result.passageLanes, [["vector", "keyword"], ["vector"], ["vector"]]);
   assert.equal(result.laneCounts.keyword, 1);
+});
+
+test("a term every candidate shares cannot reorder them", async () => {
+  // "bus" is in two of the three, "notice" in one - but "ulta" is in all three, so a query
+  // of nothing but that term leaves the vector lane's order exactly as it was.
+  const { deps } = makeDeps([
+    makeResult({ text: "ulta first passage", id: "chunk-1", chunkIndex: 0 }),
+    makeResult({ text: "ulta ulta ulta second passage", id: "chunk-2", chunkIndex: 10 }),
+    makeResult({ text: "ulta third passage", id: "chunk-3", chunkIndex: 20 }),
+  ]);
+
+  const result = await retrieve(
+    "ulta",
+    { ...deps, catalog: fakeCatalog() },
+    { ...LOW_OPTIONS, depth: "medium", retrievalLimit: 3 },
+  );
+
+  assert.deepEqual(result.passages.map((passage) => passage.text), [
+    "ulta first passage",
+    "ulta ulta ulta second passage",
+    "ulta third passage",
+  ]);
 });
 
 test("keywords and dates cannot introduce a passage the vector lane did not find", async () => {
@@ -258,38 +290,15 @@ test("keywords and dates cannot introduce a passage the vector lane did not find
     {
       ...deps,
       nowDate: () => new Date(2026, 8, 16),
-      catalog: fakeCatalog({
-        // Both name chunk-9, which the vector lane never returned.
-        rankByTerms: (_terms, candidates) => [...candidates.map((candidate) => candidate.key), "shard_000/chunk-9"],
-        chunksForRanges: () => [9],
-      }),
+      // chunk-9 is in the question's date range but the vector lane never returned it.
+      catalog: fakeCatalog({ chunksForRanges: () => [9] }),
     },
     { ...LOW_OPTIONS, depth: "medium", retrievalLimit: 5 },
   );
 
-  assert.deepEqual(result.passages.map((passage) => passage.text), ["vector 1", "vector 2", "vector 3"]);
+  assert.equal(result.passages.length, 3);
+  assert.ok(!result.passages.some((passage) => passage.id === "chunk-9"));
   assert.equal(result.laneCounts.date, 0);
-});
-
-test("the reranker is only offered the passages the vector lane found", async () => {
-  const { deps } = makeDeps(vectorResults());
-  let offered: string[] = [];
-
-  await retrieve(
-    "bus collision",
-    {
-      ...deps,
-      catalog: fakeCatalog({
-        rankByTerms: (_terms, candidates) => {
-          offered = candidates.map((candidate) => candidate.text);
-          return [];
-        },
-      }),
-    },
-    { ...LOW_OPTIONS, depth: "medium", retrievalLimit: 3 },
-  );
-
-  assert.deepEqual(offered, ["vector 1", "vector 2", "vector 3"]);
 });
 
 test("low depth ignores the catalog entirely", async () => {
@@ -297,7 +306,7 @@ test("low depth ignores the catalog entirely", async () => {
   let catalogUsed = false;
   const result = await retrieve(
     "bus collision on 8 Sep 2026",
-    { ...deps, catalog: fakeCatalog({ rankByTerms: () => { catalogUsed = true; return []; } }) },
+    { ...deps, catalog: fakeCatalog({ chunksForRanges: () => { catalogUsed = true; return []; } }) },
     LOW_OPTIONS,
   );
   assert.equal(catalogUsed, false);
@@ -310,13 +319,13 @@ test("medium without a date reranks on keywords alone", async () => {
   const { deps } = makeDeps(vectorResults());
   const result = await retrieve(
     "what caused the collision",
-    { ...deps, catalog: fakeCatalog({ rankByTerms: () => ["shard_000/chunk-2"] }) },
+    { ...deps, catalog: fakeCatalog() },
     { ...LOW_OPTIONS, depth: "medium", retrievalLimit: 3 },
   );
   assert.deepEqual(result.dayRanges, []);
   assert.equal(result.laneCounts.date, 0);
   assert.equal(result.laneCounts.keyword, 1);
-  assert.equal(result.passages[0].text, "vector 2");
+  assert.equal(result.passages[0].text, VECTOR_3);
 });
 
 test("medium without a catalog falls back to the vector lane", async () => {
@@ -326,7 +335,7 @@ test("medium without a catalog falls back to the vector lane", async () => {
   assert.deepEqual(result.laneCounts, { vector: 1, keyword: 0, date: 0 });
 });
 
-test("a reranker that throws does not fail the query", async () => {
+test("a lane that throws does not fail the query", async () => {
   const { deps } = makeDeps(vectorResults());
   const result = await retrieve(
     "collision on 8 Sep 2026",
@@ -334,15 +343,15 @@ test("a reranker that throws does not fail the query", async () => {
       ...deps,
       nowDate: () => new Date(2026, 8, 16),
       catalog: fakeCatalog({
-        rankByTerms: () => {
+        chunksForRanges: () => {
           throw new Error("catalog broken");
         },
       }),
     },
     { ...LOW_OPTIONS, depth: "medium", retrievalLimit: 3 },
   );
-  assert.deepEqual(result.passages.map((passage) => passage.text), ["vector 1", "vector 2", "vector 3"]);
-  assert.equal(result.laneCounts.keyword, 0);
+  assert.equal(result.passages[0].text, VECTOR_3, "the keyword rerank still ran");
+  assert.equal(result.laneCounts.date, 0);
 });
 
 test("medium with compaction keeps the vector lane at laneCandidates and widens the fused pool", async () => {
@@ -367,16 +376,13 @@ test("medium reports the lanes that ranked each returned passage", async () => {
     {
       ...deps,
       nowDate: () => new Date(2026, 8, 16),
-      catalog: fakeCatalog({
-        rankByTerms: () => ["shard_000/chunk-2"],
-        chunksForRanges: () => [2],
-      }),
+      catalog: fakeCatalog({ chunksForRanges: () => [2] }),
     },
     { ...LOW_OPTIONS, depth: "medium", retrievalLimit: 2 },
   );
 
-  assert.deepEqual(result.passageLanes, [["vector", "keyword", "date"], ["vector"]]);
-  assert.deepEqual(result.passages.map((passage) => passage.text), ["vector 2", "vector 1"]);
+  assert.deepEqual(result.passageLanes, [["vector", "keyword", "date"], ["vector", "keyword"]]);
+  assert.deepEqual(result.passages.map((passage) => passage.text), [VECTOR_2, VECTOR_3]);
 });
 
 test("low depth reports no lanes per passage", async () => {
@@ -393,18 +399,15 @@ test("at medium depth the diagnostic pool is the fused ranking, not a vector-onl
     {
       ...deps,
       nowDate: () => new Date(2026, 8, 16),
-      catalog: fakeCatalog({
-        rankByTerms: () => ["shard_000/chunk-3", "shard_000/chunk-2"],
-        chunksForRanges: () => [2],
-      }),
+      catalog: fakeCatalog({ chunksForRanges: () => [2] }),
     },
     { ...LOW_OPTIONS, depth: "medium", retrievalLimit: 1, diagnosticPoolSize: 10 },
   );
 
-  assert.deepEqual(result.passages.map((passage) => passage.text), ["vector 2"]);
+  assert.deepEqual(result.passages.map((passage) => passage.text), [VECTOR_2]);
   // The pool is the fused ranking, so pool metrics measure the rerank rather than the
   // vector lane's own order.
-  assert.deepEqual(result.diagnosticPool.map((passage) => passage.text), ["vector 2", "vector 3", "vector 1"]);
+  assert.deepEqual(result.diagnosticPool.map((passage) => passage.text), [VECTOR_2, VECTOR_3, VECTOR_1]);
   assert.equal(searchCalls.length, 1, "the pool reuses the vector search instead of running another");
 });
 
@@ -424,8 +427,8 @@ test("at low depth the diagnostic pool is still an unthresholded vector search",
 test("a date match lifts a chunk the other lanes found, and never introduces one they did not", async () => {
   // The vector lane ranks chunk-1 then chunk-2; only chunk-2 is dated in the question's year.
   const { deps } = makeDeps([
-    makeResult({ text: "wrong year", id: "chunk-1" }),
-    makeResult({ text: "right year", id: "chunk-2" }),
+    makeResult({ text: "wrong year", id: "chunk-1", chunkIndex: 0 }),
+    makeResult({ text: "right year", id: "chunk-2", chunkIndex: 10 }),
   ]);
 
   const result = await retrieve(
@@ -452,8 +455,8 @@ test("a date match lifts a chunk the other lanes found, and never introduces one
 
 test("a question with no date leaves the ranking untouched", async () => {
   const { deps } = makeDeps([
-    makeResult({ text: "first", id: "chunk-1" }),
-    makeResult({ text: "second", id: "chunk-2" }),
+    makeResult({ text: "first", id: "chunk-1", chunkIndex: 0 }),
+    makeResult({ text: "second", id: "chunk-2", chunkIndex: 10 }),
   ]);
 
   const result = await retrieve(

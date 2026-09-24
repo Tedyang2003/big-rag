@@ -18,7 +18,7 @@ A message passes through two pipelines. **Indexing** turns the documents folder 
 ### Retrieval Pipeline
 
 1. **Settings.** `settings/resolveSettings.ts` merges global settings, chat settings and the fixed defaults into one object.
-2. **Search.** `retrieval/retrieve.ts` runs the vector search, and at Medium depth reorders its candidates with BM25 (`retrieval/bm25.ts`) and any date the question names (`retrieval/queryDates.ts`), both read from the catalog (`retrieval/chunkCatalog.ts`, managed by `retrieval/catalogManager.ts`). Only the vector search nominates passages; the other two can move a passage but never add one. BM25 boosts only its own top `rerankDepth` candidates: reciprocal rank fusion is flat enough that a boost every candidate receives reorders nothing.
+2. **Search.** `retrieval/retrieve.ts` runs the vector search, and at Medium depth reorders its candidates with BM25 (`retrieval/bm25.ts`) and any date the question names (`retrieval/queryDates.ts`), both read from the catalog (`retrieval/chunkCatalog.ts`, managed by `retrieval/catalogManager.ts`). Only the vector search nominates passages; the other two can move a passage but never add one. BM25 boosts only its own top `rerankDepth` candidates: reciprocal rank fusion is flat enough that a boost every candidate receives reorders nothing. It counts document frequency over the candidates rather than the corpus, so a term on every page of the document in hand — the company's name — carries no weight while the terms that separate one candidate from another take it all.
 3. **Fuse.** `retrieval/fuse.ts` merges the lanes with weighted reciprocal rank fusion, and only the winning chunks are read back from the store.
 4. **Prompt.** `promptPreprocessor.ts` trims overlapping passages, renders each one with its header (`retrieval/renderPassage.ts`), fills the prompt template, adds citations and reports status.
 
@@ -30,7 +30,7 @@ A message passes through two pipelines. **Indexing** turns the documents folder 
 
 #### Chunk Catalog
 
-`retrieval/chunkCatalog.ts` is a derived index of the store, saved as `.big-rag-catalog.json`: how many chunks contain each term (for BM25's idf) and a day table for dates, keyed by an internal chunk number, with no chunk text. Because BM25 only reranks passages the vector lane found, it reads their term frequencies from their own text and the catalog needs no posting lists — which is what lets it hold any number of chunks. It is rebuilt when the store's chunk count changes.
+`retrieval/chunkCatalog.ts` is a derived index of the store, saved as `.big-rag-catalog.json`: one row per chunk and a day table for dates, keyed by an internal chunk number, with no chunk text. Reranking reads everything it needs from the candidate passages themselves, so the catalog holds nothing about words at all and stays small at any collection size. It is rebuilt when the store's chunk count changes.
 
 #### Index Manifest
 

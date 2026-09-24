@@ -4,15 +4,9 @@ import * as fs from "fs/promises";
 import * as os from "os";
 import * as path from "path";
 import { CATALOG_FILENAME, ChunkCatalog } from "../retrieval/chunkCatalog";
-import { tokenize } from "../retrieval/bm25";
 import { type IndexedChunk } from "../vectorstore/vectorStore";
 
-const OPTIONS = { version: 1, k1: 1.2, b: 0.75 };
-
-/** The catalog holds no text, so reranking is always given the candidates' own text. */
-function candidates(catalog: ChunkCatalog, chunks: IndexedChunk[]) {
-  return chunks.map((source, chunkNumber) => ({ key: catalog.keyOf(chunkNumber), text: source.text }));
-}
+const OPTIONS = { version: 1 };
 
 function chunk(id: string, text: string, dates: string[], posted = "2026-09-08"): IndexedChunk {
   return {
@@ -44,23 +38,14 @@ async function withTempDir(fn: (dir: string) => Promise<void>) {
   }
 }
 
-test("build indexes keys, words and days", () => {
+test("build indexes keys and days", () => {
   const catalog = ChunkCatalog.build(CHUNKS, OPTIONS);
   assert.equal(catalog.chunkCount, 3);
-  assert.ok(catalog.termCount > 0);
   assert.equal(catalog.keyOf(0), "shard_000/hashA-0");
   assert.deepEqual(catalog.chunksForRanges([{ start: 20260908, end: 20260908 }]), [0]);
   assert.deepEqual(catalog.chunksForRanges([{ start: 20260908, end: 20260911 }]), [0, 1]);
   assert.deepEqual(catalog.yearsPresent(), [2026, 2025]);
   assert.equal(catalog.latestDayOf(1), 20260911);
-});
-
-test("rankByTerms puts the candidate containing the query terms first", () => {
-  const catalog = ChunkCatalog.build(CHUNKS, OPTIONS);
-  const ranked = catalog.rankByTerms(tokenize("bus collision"), candidates(catalog, CHUNKS));
-  assert.equal(ranked[0], "shard_000/hashA-0");
-  assert.ok(ranked.includes("shard_000/hashB-0"));
-  assert.ok(!ranked.includes("shard_000/hashA-1"));
 });
 
 test("save and load round trip", async () => {
@@ -72,10 +57,7 @@ test("save and load round trip", async () => {
     assert.equal(loaded!.chunkCount, 3);
     assert.equal(loaded!.keyOf(2), "shard_000/hashB-0");
     assert.deepEqual(loaded!.chunksForRanges([{ start: 20250908, end: 20250908 }]), [2]);
-    assert.deepEqual(
-      loaded!.rankByTerms(tokenize("collision"), candidates(loaded!, CHUNKS)),
-      built.rankByTerms(tokenize("collision"), candidates(built, CHUNKS)),
-    );
+    assert.deepEqual(loaded!.yearsPresent(), built.yearsPresent());
   });
 });
 
@@ -111,7 +93,5 @@ test("chunks with no dates are indexed but match no range", () => {
   const catalog = ChunkCatalog.build([...CHUNKS, undated], OPTIONS);
   assert.equal(catalog.chunkCount, 4);
   assert.deepEqual(catalog.chunksForRanges([{ start: 19000101, end: 21001231 }]), [0, 1, 2]);
-  assert.deepEqual(catalog.rankByTerms(tokenize("undated"), candidates(catalog, [...CHUNKS, undated])), [
-    "shard_000/hashC-0",
-  ]);
+  assert.equal(catalog.keyOf(3), "shard_000/hashC-0");
 });

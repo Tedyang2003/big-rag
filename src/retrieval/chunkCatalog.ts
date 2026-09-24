@@ -1,15 +1,12 @@
 import * as fs from "fs/promises";
 import * as path from "path";
 import { chunkKey, type IndexedChunk } from "../vectorstore/vectorStore";
-import { rankTexts, tokenize, type Bm25Candidate, type Bm25Stats } from "./bm25";
 import { type DayRange } from "./queryDates";
 
 export const CATALOG_FILENAME = ".big-rag-catalog.json";
 
 export interface CatalogOptions {
   version: number;
-  k1: number;
-  b: number;
 }
 
 interface CatalogChunkRow {
@@ -21,13 +18,7 @@ interface CatalogChunkRow {
 interface CatalogFile {
   version: number;
   chunkCount: number;
-  /** Mean scoring-term count per chunk, for BM25 length normalisation. */
-  averageWordCount: number;
   chunks: CatalogChunkRow[];
-  /** Term -> how many chunks contain it. Only the count: BM25 reranks passages another
-   * lane already found, so it reads their term frequencies from their own text and never
-   * needs posting lists, which at scale were the whole memory cost of this file. */
-  df: Record<string, number>;
   days: Record<string, number[]>;
 }
 
@@ -56,28 +47,20 @@ function daysOf(metadata: Record<string, any>): number[] {
 }
 
 /**
- * A derived index of the vector store: one row per chunk plus word and day lookups.
- * Holds no chunk text and can be rebuilt from the store at any time.
+ * A derived index of the vector store: one row per chunk plus a day lookup. Holds no chunk
+ * text and can be rebuilt from the store at any time. Keyword reranking reads everything it
+ * needs from the candidate passages themselves, so nothing about words is stored here.
  */
 export class ChunkCatalog {
-  private constructor(
-    private readonly file: CatalogFile,
-    private readonly options: CatalogOptions,
-  ) {}
+  private constructor(private readonly file: CatalogFile) {}
 
   static build(chunks: IndexedChunk[], options: CatalogOptions): ChunkCatalog {
     const rows: CatalogChunkRow[] = [];
-    const df: Record<string, number> = {};
     const days: Record<string, number[]> = {};
-    let totalWords = 0;
 
     chunks.forEach((chunk, chunkNumber) => {
-      const terms = tokenize(chunk.text);
       const chunkDays = daysOf(chunk.metadata ?? {});
       rows.push({ key: chunkKey(chunk), filePath: chunk.filePath, days: chunkDays });
-      totalWords += terms.length;
-
-      for (const term of new Set(terms)) df[term] = (df[term] ?? 0) + 1;
 
       for (const day of chunkDays) {
         const key = String(day);
@@ -88,12 +71,10 @@ export class ChunkCatalog {
     const file: CatalogFile = {
       version: options.version,
       chunkCount: chunks.length,
-      averageWordCount: chunks.length > 0 ? totalWords / chunks.length : 0,
       chunks: rows,
-      df,
       days,
     };
-    return new ChunkCatalog(file, options);
+    return new ChunkCatalog(file);
   }
 
   static async load(vectorStoreDir: string, options: CatalogOptions): Promise<ChunkCatalog | null> {
@@ -104,13 +85,11 @@ export class ChunkCatalog {
         file?.version !== options.version ||
         !Array.isArray(file.chunks) ||
         typeof file.chunkCount !== "number" ||
-        typeof file.averageWordCount !== "number" ||
-        typeof file.df !== "object" ||
         typeof file.days !== "object"
       ) {
         return null;
       }
-      return new ChunkCatalog(file, options);
+      return new ChunkCatalog(file);
     } catch {
       return null;
     }
@@ -122,10 +101,6 @@ export class ChunkCatalog {
 
   get chunkCount(): number {
     return this.file.chunkCount;
-  }
-
-  get termCount(): number {
-    return Object.keys(this.file.df).length;
   }
 
   isStaleFor(storeChunkCount: number): boolean {
@@ -152,16 +127,6 @@ export class ChunkCatalog {
     const years = new Set<number>();
     for (const key of Object.keys(this.file.days)) years.add(Math.floor(Number(key) / 10000));
     return [...years].sort((a, b) => b - a);
-  }
-
-  /** Reorders passages another lane found, best first; see `rankTexts`. */
-  rankByTerms(terms: string[], candidates: Bm25Candidate[]): string[] {
-    const stats: Bm25Stats = {
-      totalChunks: this.file.chunkCount,
-      averageWordCount: this.file.averageWordCount,
-      documentFrequency: (term) => this.file.df[term] ?? 0,
-    };
-    return rankTexts(terms, candidates, stats, { k1: this.options.k1, b: this.options.b });
   }
 
   /** Chunk numbers whose posted or section dates fall inside any range, sorted ascending. */

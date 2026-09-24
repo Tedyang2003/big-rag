@@ -2,7 +2,7 @@ import { chunkKey, type SearchResult, type VectorStore } from "../vectorstore/ve
 import { trimOverlappingChunks } from "../utils/trimOverlappingChunks";
 import { compactPassageText, type EmbedSentences } from "../utils/compactPassages";
 import { type CountTokens } from "../utils/textChunker";
-import { tokenize, type Bm25Candidate } from "./bm25";
+import { rankTexts, tokenize, type Bm25Candidate } from "./bm25";
 import { fuseLanes, type RankedLane } from "./fuse";
 import { queryDayRanges, type DayRange } from "./queryDates";
 
@@ -27,7 +27,6 @@ export type RetrievalDepth = "low" | "medium";
 
 /** The subset of ChunkCatalog the retrieval lanes need. */
 export interface CatalogLanes {
-  rankByTerms(terms: string[], candidates: Bm25Candidate[]): string[];
   chunksForRanges(ranges: DayRange[]): number[];
   keyOf(chunkNumber: number): string;
   latestDayOf(chunkNumber: number): number;
@@ -66,6 +65,8 @@ export interface RetrieveOptions {
   laneCandidates: number;
   /** How many of BM25's top passages collect a boost; the rest collect nothing. */
   rerankDepth: number;
+  bm25K1: number;
+  bm25B: number;
   rrfConstant: number;
   laneWeights: { vector: number; keyword: number; date: number };
 }
@@ -184,7 +185,9 @@ export async function retrieve(
     // question it rescued was one the vector lane had already surfaced further down, so
     // reranking keeps the rescues and drops the flooding. See documentation/Evaluation.md.
     const keywordRanking = await timed("keywordRerank", () =>
-      safeLane("keyword", async () => (terms.length === 0 ? [] : catalog.rankByTerms(terms, candidates))),
+      safeLane("keyword", async () =>
+        rankTexts(terms, candidates, { k1: options.bm25K1, b: options.bm25B }),
+      ),
     );
     options.abortSignal?.throwIfAborted();
 

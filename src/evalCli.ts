@@ -108,8 +108,6 @@ async function runRun(client: LMStudioClient, vectorStore: VectorStore, document
 
   const catalogOutcome = await getCatalog(vectorStoreDir, vectorStore, {
     version: FIXED_DEFAULTS.catalogVersion,
-    k1: FIXED_DEFAULTS.bm25K1,
-    b: FIXED_DEFAULTS.bm25B,
   });
   if (settings.retrievalDepth === "medium" && !catalogOutcome.catalog) {
     console.warn(`[BigRAG Eval] No search index available: ${catalogOutcome.error ?? "store is empty"}`);
@@ -134,6 +132,8 @@ async function runRun(client: LMStudioClient, vectorStore: VectorStore, document
             depth: settings.retrievalDepth,
             laneCandidates: settings.laneCandidates,
             rerankDepth: settings.rerankDepth,
+            bm25K1: FIXED_DEFAULTS.bm25K1,
+            bm25B: FIXED_DEFAULTS.bm25B,
             rrfConstant: FIXED_DEFAULTS.rrfConstant,
             laneWeights: settings.laneWeights,
           },

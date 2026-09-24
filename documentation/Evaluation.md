@@ -57,6 +57,8 @@ Attributing hybrid retrieval takes four runs against the same index: weights `1/
 
 Held constant: `nomic-embed-text-v1.5` embeddings, 512-token chunks (100 overlap, legacy only), 5 passages returned, 0.5 threshold, compaction off, a 50-passage diagnostic pool. The vector lane puts up 50 candidates, of which BM25 boosts its best 10, RRF constant 60, equal weights, BM25 k1 1.2 / b 0.75. Full list in [CLI.md](CLI.md).
 
+**Where document frequency is counted.** Over the 50 candidates, not the corpus. Corpus-wide, a company name is rare and scores high, yet it sits on every page of the filing the shortlist came from and separates nothing — which is how boilerplate came to outrank statements. Counted over the shortlist it collapses to near zero, and the terms that distinguish one candidate from another take the weight.
+
 **Why the rerank has a depth.** Fusion is flat: the whole spread from rank 1 to rank 50 is worth less than the difference between receiving a boost and receiving none. Nearly every candidate contains some query term — a filing's every page says `fiscal` and its year — so boosting all of them adds roughly the same number to every row and reorders nothing. The boost draws its power from the candidates that do *not* get it, and `BIG_RAG_RERANK_DEPTH` is how much of BM25's opinion is allowed to count: small values trust it over the vector lane, large values dissolve it. There is no principled value, so it is swept.
 
 ## How a Question Is Scored

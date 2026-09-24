@@ -448,11 +448,7 @@ export async function preprocess(
       const outcome = await getCatalog(
         vectorStoreDir,
         store,
-        {
-          version: settings.catalogVersion,
-          k1: settings.bm25K1,
-          b: settings.bm25B,
-        },
+        { version: settings.catalogVersion },
         undefined,
         () => {
           catalogStatus = ctl.createStatus({
@@ -477,9 +473,7 @@ export async function preprocess(
           status: "done",
           text: `Search index ready (${catalog?.chunkCount.toLocaleString()} chunks, ${(outcome.ms / 1000).toFixed(1)}s)`,
         });
-        console.info(
-          `[BigRAG] Catalog built: chunks=${catalog?.chunkCount} terms=${catalog?.termCount} ms=${outcome.ms}`,
-        );
+        console.info(`[BigRAG] Catalog built: chunks=${catalog?.chunkCount} ms=${outcome.ms}`);
       }
     }
 
@@ -514,6 +508,8 @@ export async function preprocess(
         depth: retrievalDepth,
         laneCandidates: settings.laneCandidates,
         rerankDepth: settings.rerankDepth,
+        bm25K1: settings.bm25K1,
+        bm25B: settings.bm25B,
         rrfConstant: settings.rrfConstant,
         laneWeights: {
           vector: settings.laneWeightVector,
