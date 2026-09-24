@@ -14,14 +14,12 @@ export interface CatalogOutcome {
   error?: string;
   /** True only the first time a failure is returned for this store directory this session. */
   reportFailure: boolean;
-  /** True only the first time an outcome's catalog lacks a word table, for this store directory this session. */
-  reportCeiling: boolean;
 }
 
-type ReportKind = "failure" | "ceiling";
+type ReportKind = "failure";
 
 /** Per-session state: the loaded catalog per store directory, whether building already failed,
- * and which one-off notices (failure, ceiling) have already been reported for that directory. */
+ * and whether its failure has already been reported for that directory. */
 export class CatalogCache {
   private catalogs = new Map<string, ChunkCatalog>();
   private failures = new Set<string>();
@@ -62,14 +60,6 @@ export function resetCatalogCache(vectorStoreDir?: string): void {
   if (vectorStoreDir) sharedCache.invalidate(vectorStoreDir);
 }
 
-/** True (once) the first time this session's cache sees a word-table-less catalog for this directory. */
-function ceilingReport(cache: CatalogCache, vectorStoreDir: string, catalog: ChunkCatalog | null): boolean {
-  if (!catalog || catalog.hasWordTable) return false;
-  if (cache.hasReported("ceiling", vectorStoreDir)) return false;
-  cache.markReported("ceiling", vectorStoreDir);
-  return true;
-}
-
 /**
  * Returns the catalog for a store, loading it from disk, reusing the session cache, or
  * building and saving it. Never throws: a failure is reported once per session and the
@@ -94,50 +84,31 @@ export async function getCatalog(
       ms: 0,
       error: "catalog build failed earlier this session",
       reportFailure: false,
-      reportCeiling: false,
     };
   }
 
   try {
     const { totalChunks } = await store.getStats();
     if (totalChunks === 0) {
-      return { catalog: null, built: false, ms: Date.now() - started, reportFailure: false, reportCeiling: false };
+      return { catalog: null, built: false, ms: Date.now() - started, reportFailure: false };
     }
 
     const cached = cache.get(vectorStoreDir);
-    if (cached && !cached.isStaleFor(totalChunks) && cached.matchesCeiling(options.maxChunks)) {
-      return {
-        catalog: cached,
-        built: false,
-        ms: Date.now() - started,
-        reportFailure: false,
-        reportCeiling: ceilingReport(cache, vectorStoreDir, cached),
-      };
+    if (cached && !cached.isStaleFor(totalChunks)) {
+      return { catalog: cached, built: false, ms: Date.now() - started, reportFailure: false };
     }
 
     const loaded = await ChunkCatalog.load(vectorStoreDir, options);
-    if (loaded && !loaded.isStaleFor(totalChunks) && loaded.matchesCeiling(options.maxChunks)) {
+    if (loaded && !loaded.isStaleFor(totalChunks)) {
       cache.set(vectorStoreDir, loaded);
-      return {
-        catalog: loaded,
-        built: false,
-        ms: Date.now() - started,
-        reportFailure: false,
-        reportCeiling: ceilingReport(cache, vectorStoreDir, loaded),
-      };
+      return { catalog: loaded, built: false, ms: Date.now() - started, reportFailure: false };
     }
 
     onBuildStart?.();
     const built = ChunkCatalog.build(await store.listChunks(), options);
     await built.save(vectorStoreDir);
     cache.set(vectorStoreDir, built);
-    return {
-      catalog: built,
-      built: true,
-      ms: Date.now() - started,
-      reportFailure: false,
-      reportCeiling: ceilingReport(cache, vectorStoreDir, built),
-    };
+    return { catalog: built, built: true, ms: Date.now() - started, reportFailure: false };
   } catch (error) {
     cache.markFailed(vectorStoreDir);
     const reportFailure = !cache.hasReported("failure", vectorStoreDir);
@@ -148,7 +119,6 @@ export async function getCatalog(
       ms: Date.now() - started,
       error: error instanceof Error ? error.message : String(error),
       reportFailure,
-      reportCeiling: false,
     };
   }
 }

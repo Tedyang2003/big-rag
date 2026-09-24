@@ -1,15 +1,13 @@
 import * as fs from "fs/promises";
 import * as path from "path";
 import { chunkKey, type IndexedChunk } from "../vectorstore/vectorStore";
-import { scoreTerms as scoreBm25, tokenize, type Bm25Corpus, type TermEntry } from "./bm25";
+import { rankTexts, tokenize, type Bm25Candidate, type Bm25Stats } from "./bm25";
 import { type DayRange } from "./queryDates";
 
 export const CATALOG_FILENAME = ".big-rag-catalog.json";
 
 export interface CatalogOptions {
   version: number;
-  /** Above this many chunks the word table is skipped to bound memory. */
-  maxChunks: number;
   k1: number;
   b: number;
 }
@@ -17,16 +15,19 @@ export interface CatalogOptions {
 interface CatalogChunkRow {
   key: string;
   filePath: string;
-  wordCount: number;
   days: number[];
 }
 
 interface CatalogFile {
   version: number;
   chunkCount: number;
-  wordTableSkipped: boolean;
+  /** Mean scoring-term count per chunk, for BM25 length normalisation. */
+  averageWordCount: number;
   chunks: CatalogChunkRow[];
-  words: Record<string, TermEntry>;
+  /** Term -> how many chunks contain it. Only the count: BM25 reranks passages another
+   * lane already found, so it reads their term frequencies from their own text and never
+   * needs posting lists, which at scale were the whole memory cost of this file. */
+  df: Record<string, number>;
   days: Record<string, number[]>;
 }
 
@@ -62,33 +63,21 @@ export class ChunkCatalog {
   private constructor(
     private readonly file: CatalogFile,
     private readonly options: CatalogOptions,
-    private readonly averageWordCount: number,
   ) {}
 
   static build(chunks: IndexedChunk[], options: CatalogOptions): ChunkCatalog {
-    const skipWords = chunks.length > options.maxChunks;
     const rows: CatalogChunkRow[] = [];
-    const words: Record<string, TermEntry> = {};
+    const df: Record<string, number> = {};
     const days: Record<string, number[]> = {};
+    let totalWords = 0;
 
     chunks.forEach((chunk, chunkNumber) => {
-      const terms = skipWords ? [] : tokenize(chunk.text);
+      const terms = tokenize(chunk.text);
       const chunkDays = daysOf(chunk.metadata ?? {});
-      rows.push({
-        key: chunkKey(chunk),
-        filePath: chunk.filePath,
-        wordCount: terms.length > 0 ? terms.length : chunk.text.split(/\s+/).filter(Boolean).length,
-        days: chunkDays,
-      });
+      rows.push({ key: chunkKey(chunk), filePath: chunk.filePath, days: chunkDays });
+      totalWords += terms.length;
 
-      const frequencies = new Map<string, number>();
-      for (const term of terms) frequencies.set(term, (frequencies.get(term) ?? 0) + 1);
-      for (const [term, frequency] of frequencies) {
-        const entry = words[term] ?? { df: 0, postings: [] };
-        entry.df += 1;
-        entry.postings.push([chunkNumber, frequency]);
-        words[term] = entry;
-      }
+      for (const term of new Set(terms)) df[term] = (df[term] ?? 0) + 1;
 
       for (const day of chunkDays) {
         const key = String(day);
@@ -99,12 +88,12 @@ export class ChunkCatalog {
     const file: CatalogFile = {
       version: options.version,
       chunkCount: chunks.length,
-      wordTableSkipped: skipWords,
+      averageWordCount: chunks.length > 0 ? totalWords / chunks.length : 0,
       chunks: rows,
-      words,
+      df,
       days,
     };
-    return new ChunkCatalog(file, options, averageOf(rows));
+    return new ChunkCatalog(file, options);
   }
 
   static async load(vectorStoreDir: string, options: CatalogOptions): Promise<ChunkCatalog | null> {
@@ -115,12 +104,13 @@ export class ChunkCatalog {
         file?.version !== options.version ||
         !Array.isArray(file.chunks) ||
         typeof file.chunkCount !== "number" ||
-        typeof file.words !== "object" ||
+        typeof file.averageWordCount !== "number" ||
+        typeof file.df !== "object" ||
         typeof file.days !== "object"
       ) {
         return null;
       }
-      return new ChunkCatalog(file, options, averageOf(file.chunks));
+      return new ChunkCatalog(file, options);
     } catch {
       return null;
     }
@@ -134,21 +124,12 @@ export class ChunkCatalog {
     return this.file.chunkCount;
   }
 
-  get hasWordTable(): boolean {
-    return !this.file.wordTableSkipped;
-  }
-
   get termCount(): number {
-    return Object.keys(this.file.words).length;
+    return Object.keys(this.file.df).length;
   }
 
   isStaleFor(storeChunkCount: number): boolean {
     return storeChunkCount !== this.file.chunkCount;
-  }
-
-  /** False when the word table was skipped (or kept) under a different chunk ceiling than `maxChunks`. */
-  matchesCeiling(maxChunks: number): boolean {
-    return this.file.wordTableSkipped === this.file.chunkCount > maxChunks;
   }
 
   /** The file a chunk came from, used to stop one document filling a lane. */
@@ -173,15 +154,14 @@ export class ChunkCatalog {
     return [...years].sort((a, b) => b - a);
   }
 
-  scoreTerms(terms: string[]): Map<number, number> {
-    if (this.file.wordTableSkipped || terms.length === 0) return new Map();
-    const corpus: Bm25Corpus = {
+  /** Reorders passages another lane found, best first; see `rankTexts`. */
+  rankByTerms(terms: string[], candidates: Bm25Candidate[]): string[] {
+    const stats: Bm25Stats = {
       totalChunks: this.file.chunkCount,
-      averageWordCount: this.averageWordCount,
-      wordCountOf: (chunkNumber) => this.file.chunks[chunkNumber]?.wordCount ?? 0,
-      entryFor: (term) => this.file.words[term],
+      averageWordCount: this.file.averageWordCount,
+      documentFrequency: (term) => this.file.df[term] ?? 0,
     };
-    return scoreBm25(terms, corpus, { k1: this.options.k1, b: this.options.b });
+    return rankTexts(terms, candidates, stats, { k1: this.options.k1, b: this.options.b });
   }
 
   /** Chunk numbers whose posted or section dates fall inside any range, sorted ascending. */
@@ -196,9 +176,4 @@ export class ChunkCatalog {
     }
     return [...matched].sort((a, b) => a - b);
   }
-}
-
-function averageOf(rows: CatalogChunkRow[]): number {
-  if (rows.length === 0) return 0;
-  return rows.reduce((sum, row) => sum + row.wordCount, 0) / rows.length;
 }

@@ -26,13 +26,10 @@ npm run eval:run
 
 # Structured + Hybrid
 $env:BIG_RAG_RETRIEVAL_DEPTH = "medium"
-$env:BIG_RAG_CATALOG_MAX_CHUNKS = "250000"
 npm run eval:run
 ```
 
 `BIG_RAG_DOCS_DIR` must be the exact folder the indexes were built from, or nothing can be matched to its source file.
-
-**The keyword index ceiling matters.** It is skipped above 50,000 chunks to bound memory, and the structured index holds far more, so a hybrid run without `BIG_RAG_CATALOG_MAX_CHUNKS` prints `Keyword search is off…` and measures hybrid retrieval with its main lane missing. Check for that line.
 
 Each run prints a summary and writes a full report to `eval\reports\run-<timestamp>.json`, including every setting, each returned passage's section, and where the evidence sits.
 
@@ -42,7 +39,7 @@ Each run prints a summary and writes a full report to `eval\reports\run-<timesta
 |---|---|---|---|---|
 | Legacy Chunking | `eval\vdbs\legacy` | `false` | `low` | Fixed-size chunks, vector search only |
 | Structured | `eval\vdbs\structured` | `true` | `low` | Section-aware chunks with file, date and section headers |
-| Structured + Hybrid | `eval\vdbs\structured` | `true` | `medium` | Keyword and date signals merged with vector search |
+| Structured + Hybrid | `eval\vdbs\structured` | `true` | `medium` | Keyword and date signals reordering the vector search's passages |
 
 ### Tuning a Run
 
@@ -52,14 +49,12 @@ Any of these can be set per run, so a configuration differs from its neighbour b
 |---|---|---|
 | `BIG_RAG_RETRIEVAL_LIMIT` | 5 | Passages returned to the model |
 | `BIG_RAG_RETRIEVAL_THRESHOLD` | 0.5 | Minimum similarity for a passage to be returned |
-| `BIG_RAG_LANE_WEIGHT_VECTOR` / `_KEYWORD` / `_DATE` | 1 / 1 / 1 | **Set a lane to 0 to run without it**, which is how a lane's contribution is attributed |
-| `BIG_RAG_LANE_CANDIDATES` | 30 | Candidates each lane contributes to fusion |
-| `BIG_RAG_LANE_CANDIDATES_PER_FILE` | 3 | Of those, the most one document may supply |
-| `BIG_RAG_CATALOG_MAX_CHUNKS` | 50,000 | Above this the keyword index is skipped |
+| `BIG_RAG_LANE_WEIGHT_VECTOR` / `_KEYWORD` / `_DATE` | 1 / 1 / 1 | **Set a signal to 0 to run without it**, which is how its contribution is attributed |
+| `BIG_RAG_LANE_CANDIDATES` | 30 | Passages the vector lane puts up, and so the pool the others reorder |
 
-Attributing hybrid retrieval takes four runs against the same index: weights `1/0/0` should reproduce Low exactly and proves the harness, `1/1/0` isolates BM25, `1/0/1` the date boost, `1/1/1` is today's Medium.
+Attributing hybrid retrieval takes four runs against the same index: weights `1/0/0` should reproduce Low exactly and proves the harness, `1/1/0` isolates the keyword rerank, `1/0/1` the date boost, `1/1/1` is today's Medium.
 
-Held constant: `nomic-embed-text-v1.5` embeddings, 512-token chunks (100 overlap, legacy only), 5 passages returned, 0.5 threshold, compaction off, a 50-passage diagnostic pool. Fusion uses 30 candidates per lane, at most 3 per document, RRF constant 60, equal lane weights, BM25 k1 1.2 / b 0.75. Full list in [CLI.md](CLI.md).
+Held constant: `nomic-embed-text-v1.5` embeddings, 512-token chunks (100 overlap, legacy only), 5 passages returned, 0.5 threshold, compaction off, a 50-passage diagnostic pool. The vector lane puts up 30 candidates, RRF constant 60, equal weights, BM25 k1 1.2 / b 0.75. Full list in [CLI.md](CLI.md).
 
 ## How a Question Is Scored
 
@@ -108,7 +103,9 @@ Question by question the difference is stark. The date boost gained three answer
 
 The reason is what each lane is allowed to do. **Dates only lift a passage another lane already found**; they cannot introduce anything. **The keyword lane nominates its own candidates**, and 30–50 chunks chosen on term overlap are mostly a document's boilerplate — `About Ulta Beauty`, `Forward-Looking Statements` — which fusion then ranks above genuine vector hits.
 
-BM25's signal is not worthless: in its own run it pulled an answer from rank 28 to rank 1, which vectors alone never would. It is the nomination that hurts. **The keyword lane's default weight is now 0**; reinstating BM25 as a reranker over the vector lane's own candidates would keep the rescue without the flooding, and would need only a term-frequency table rather than posting lists — removing the keyword index's memory cost and its 50,000-chunk ceiling.
+BM25's signal is not worthless: in its own run it pulled an answer from rank 28 to rank 1, which vectors alone never would. It is the nomination that hurts.
+
+**BM25 is now a reranker, and the keyword lane is gone.** It scores the passages the vector lane put up and adds `weight / (60 + its rank)` to each, exactly as the date boost does, so it can lift a passage from the bottom of the shortlist to the top but can no longer put one there. All three rescues were passages the vector lane had already found at ranks 28, 16 and 8, so they remain reachable. Reading term frequencies from the candidates' own text left the catalog needing only a document-frequency count per term, so the posting lists, the 50,000-chunk ceiling and the "keyword search off" notice are all gone.
 
 **Structured indexing is ahead on every measure:** half again as many hits, half again as many answers surfaced, and more than double the mean reciprocal rank. A run takes roughly 35 minutes.
 
@@ -178,6 +175,8 @@ Hits average 45% overlap against 33% for misses, and the effect is starkest at t
 
 Reading years halved wrong-document failures but doubled wrong-company ones, because "FY2023" matches every company's 2023 filing. Making dates a boost — lifting passages the other lanes already found, never introducing one — kept the gain and removed the cost.
 
+**24 Sep — BM25 became a reranker; the keyword lane was removed.** It now scores only the passages the vector lane put up and adds `weight / (60 + its rank)` to each, the same shape as the date boost, so nothing enters the shortlist on keywords alone. `laneWeightKeyword` is back to 1. The catalog keeps a document-frequency count per term instead of posting lists, which removed the 50,000-chunk ceiling, `BIG_RAG_CATALOG_MAX_CHUNKS` and the per-file candidate cap. Not yet measured against the 14 hits / MRR 0.141 that vector + date set.
+
 **24 Sep — lanes isolated; the keyword lane turned off by default.** Vector + date gives 14 hits and MRR 0.141, against 12 for vector alone and 11 with all three lanes. Vector + keyword alone gives 9. `laneWeightKeyword` now defaults to 0.
 
 **24 Sep — hybrid re-measured on the new indexes.** 11 hits against structured's 12, pool 23 against 26, median rank 3 — the best recorded — and wrong-document failures down from 29 to 12. Fusion moves answers a long way in both directions: three came from pool ranks 28, 22 and 16 into the top three, while two at rank 1 fell to 3 and 5. Lane weights are now settable per run, so BM25 and the date boost can finally be attributed separately.
@@ -193,8 +192,6 @@ They shipped in one rebuild, so their effects cannot be attributed separately.
 ## Open Questions
 
 - **Why are statements still missed?** Tables raised statement hits only from 1 of 31 to 2. Either the statement chunk is not retrieved at all, or it is retrieved and diluted — 240 words of figures around one relevant row. Scoring a chunk by its best sentence rather than its average, using the embedding model already loaded, would test the second.
-- **Which hybrid lane is actually working?** Medium bundles BM25 candidates with the date boost and has never been isolated. Lane weights are not yet settable from the environment; adding that allows the vector-only, keyword-only and date-only runs that would attribute the gain.
-- **Should BM25 rerank rather than nominate?** As a reranker over the top 50 it cannot flood the results with boilerplate, and it needs no posting lists — only a term-frequency table for IDF, which would remove the keyword index's memory cost and its 50,000-chunk ceiling. The cost is losing the rescue case, where keywords surface a chunk the vector search missed.
 - **Is the 0.5 threshold still right?** The prefixes shift the score distribution, and the threshold was not re-tuned. If hits fall while pool hits rise, suspect this first.
 - **Should the question be rewritten before searching?** Two untested techniques, both using the chat model LM Studio already has loaded: embedding a hypothetical answer instead of the question, so "quick ratio" reaches the balance sheet through the line items it implies; and decomposing a compound question into sub-questions. They would belong to a High and an Extra High depth.
 - **Can retrieval cover several documents at once?** A cross-document comparison needs the best passage *per document*, not the five best overall, which fusion cannot currently express.

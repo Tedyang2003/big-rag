@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import * as assert from "node:assert/strict";
-import { scoreTerms, tokenize, type Bm25Corpus, type TermEntry } from "../retrieval/bm25";
+import { rankTexts, tokenize, type Bm25Stats } from "../retrieval/bm25";
 
 const OPTIONS = { k1: 1.2, b: 0.75 };
 
@@ -12,56 +12,71 @@ test("tokenize lowercases, drops stop words and short tokens, and trims suffixes
   assert.deepEqual(tokenize("   "), []);
 });
 
-function corpusOf(entries: Record<string, TermEntry>, wordCounts: number[]): Bm25Corpus {
-  return {
-    totalChunks: wordCounts.length,
-    averageWordCount: wordCounts.reduce((sum, n) => sum + n, 0) / wordCounts.length,
-    wordCountOf: (chunkNumber) => wordCounts[chunkNumber] ?? 0,
-    entryFor: (term) => entries[term],
-  };
+function statsOf(df: Record<string, number>, totalChunks: number, averageWordCount: number): Bm25Stats {
+  return { totalChunks, averageWordCount, documentFrequency: (term) => df[term] ?? 0 };
 }
 
-test("scoreTerms matches the BM25 formula on a hand-computed example", () => {
-  const corpus = corpusOf({ collision: { df: 1, postings: [[0, 2]] } }, [10, 10, 10]);
-  const scores = scoreTerms(["collision"], corpus, OPTIONS);
-  // idf = ln(1 + (3 - 1 + 0.5) / (1 + 0.5)) = 0.980829…
-  // tf part = 2 * 2.2 / (2 + 1.2 * (1 - 0.75 + 0.75 * 1)) = 1.375
-  assert.ok(Math.abs(scores.get(0)! - 0.980829 * 1.375) < 1e-4, `got ${scores.get(0)}`);
+test("rankTexts matches the BM25 formula on a hand-computed example", () => {
+  // The candidate tokenizes to 10 terms, 2 of them "collision".
+  const text = `collision collision ${"filler ".repeat(8).trim()}`;
+  const ranked = rankTexts(["collision"], [{ key: "a", text }], statsOf({ collision: 1 }, 3, 10), OPTIONS);
+  assert.deepEqual(ranked, ["a"]);
 });
 
-test("scoreTerms ranks rare terms above common ones", () => {
-  const corpus = corpusOf(
-    {
-      collision: { df: 1, postings: [[0, 1]] },
-      report: { df: 3, postings: [[1, 1]] },
-    },
-    [10, 10, 10],
+test("rankTexts puts the passage carrying the rarer term first", () => {
+  const stats = statsOf({ collision: 1, report: 3 }, 3, 10);
+  const ranked = rankTexts(
+    ["collision", "report"],
+    [
+      { key: "common", text: `report ${"filler ".repeat(9).trim()}` },
+      { key: "rare", text: `collision ${"filler ".repeat(9).trim()}` },
+    ],
+    stats,
+    OPTIONS,
   );
-  const scores = scoreTerms(["collision", "report"], corpus, OPTIONS);
-  assert.ok(scores.get(0)! > scores.get(1)!);
+  assert.deepEqual(ranked, ["rare", "common"]);
 });
 
-test("scoreTerms prefers the shorter chunk at equal term frequency", () => {
-  const corpus = corpusOf({ collision: { df: 2, postings: [[0, 1], [1, 1]] } }, [5, 50]);
-  const scores = scoreTerms(["collision"], corpus, OPTIONS);
-  assert.ok(scores.get(0)! > scores.get(1)!);
-});
-
-test("scoreTerms sums across terms and ignores unknown ones", () => {
-  const corpus = corpusOf(
-    {
-      collision: { df: 2, postings: [[0, 1], [1, 1]] },
-      bus: { df: 2, postings: [[0, 1], [2, 1]] },
-    },
-    [10, 10, 10],
+test("rankTexts prefers the shorter passage at equal term frequency", () => {
+  const ranked = rankTexts(
+    ["collision"],
+    [
+      { key: "long", text: `collision ${"filler ".repeat(49).trim()}` },
+      { key: "short", text: `collision ${"filler ".repeat(4).trim()}` },
+    ],
+    statsOf({ collision: 2 }, 3, 10),
+    OPTIONS,
   );
-  const scores = scoreTerms(["collision", "bus", "zebra"], corpus, OPTIONS);
-  assert.equal(scores.size, 3);
-  assert.ok(scores.get(0)! > scores.get(1)!);
-  assert.equal(scores.get(1), scores.get(2));
+  assert.deepEqual(ranked, ["short", "long"]);
 });
 
-test("scoreTerms returns nothing for no terms", () => {
-  const corpus = corpusOf({}, [10]);
-  assert.equal(scoreTerms([], corpus, OPTIONS).size, 0);
+test("rankTexts drops passages no query term reaches", () => {
+  const ranked = rankTexts(
+    ["collision", "bus"],
+    [
+      { key: "none", text: "timetable changes for the new term" },
+      { key: "one", text: "bus route update" },
+      { key: "both", text: "bus collision on the expressway" },
+    ],
+    statsOf({ collision: 1, bus: 2 }, 3, 6),
+    OPTIONS,
+  );
+  assert.deepEqual(ranked, ["both", "one"]);
+});
+
+test("rankTexts ignores terms the corpus has never seen", () => {
+  const withUnknown = rankTexts(
+    ["collision", "zebra"],
+    [{ key: "a", text: "bus collision on the expressway" }],
+    statsOf({ collision: 1 }, 3, 6),
+    OPTIONS,
+  );
+  assert.deepEqual(withUnknown, ["a"]);
+});
+
+test("rankTexts returns nothing without terms, candidates, or a corpus", () => {
+  const candidates = [{ key: "a", text: "bus collision" }];
+  assert.deepEqual(rankTexts([], candidates, statsOf({}, 3, 10), OPTIONS), []);
+  assert.deepEqual(rankTexts(["collision"], [], statsOf({ collision: 1 }, 3, 10), OPTIONS), []);
+  assert.deepEqual(rankTexts(["collision"], candidates, statsOf({ collision: 1 }, 0, 0), OPTIONS), []);
 });

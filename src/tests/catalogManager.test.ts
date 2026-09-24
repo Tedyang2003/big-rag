@@ -7,7 +7,7 @@ import { CatalogCache, getCatalog, resetCatalogCache } from "../retrieval/catalo
 import { CATALOG_FILENAME } from "../retrieval/chunkCatalog";
 import { type IndexedChunk } from "../vectorstore/vectorStore";
 
-const OPTIONS = { version: 1, maxChunks: 50000, k1: 1.2, b: 0.75 };
+const OPTIONS = { version: 1, k1: 1.2, b: 0.75 };
 
 function chunkOf(id: string): IndexedChunk {
   return {
@@ -165,23 +165,6 @@ test("a build failure returns reportFailure true only the first time", async () 
   });
 });
 
-test("a catalog built above the ceiling returns reportCeiling true only the first time", async () => {
-  await withTempDir(async (dir) => {
-    const chunks = [chunkOf("hashA-0"), chunkOf("hashA-1"), chunkOf("hashA-2")];
-    const smallOptions = { ...OPTIONS, maxChunks: 2 };
-    const cache = new CatalogCache();
-
-    const { source } = sourceOf(chunks);
-    const first = await getCatalog(dir, source, smallOptions, cache);
-    assert.equal(first.catalog!.hasWordTable, false);
-    assert.equal(first.reportCeiling, true);
-
-    const { source: source2 } = sourceOf(chunks);
-    const second = await getCatalog(dir, source2, smallOptions, cache);
-    assert.equal(second.reportCeiling, false);
-  });
-});
-
 test("resetCatalogCache lets a later build report a failure again", async () => {
   await withTempDir(async (dir) => {
     const failing = {
@@ -204,17 +187,15 @@ test("resetCatalogCache lets a later build report a failure again", async () => 
   });
 });
 
-test("raising the ceiling rebuilds a catalog that was saved without its word table", async () => {
+test("a catalog saved under an older version is rebuilt rather than loaded", async () => {
   await withTempDir(async (dir) => {
     const chunks = [chunkOf("hashA-0"), chunkOf("hashA-1"), chunkOf("hashA-2")];
 
-    const lowCeiling = await getCatalog(dir, sourceOf(chunks).source, { ...OPTIONS, maxChunks: 2 }, new CatalogCache());
-    assert.equal(lowCeiling.catalog!.hasWordTable, false);
+    await getCatalog(dir, sourceOf(chunks).source, { ...OPTIONS, version: 1 }, new CatalogCache());
 
     const { source, listCalls } = sourceOf(chunks);
-    const raised = await getCatalog(dir, source, { ...OPTIONS, maxChunks: 50000 }, new CatalogCache());
-    assert.equal(raised.built, true);
-    assert.equal(raised.catalog!.hasWordTable, true);
+    const newer = await getCatalog(dir, source, { ...OPTIONS, version: 2 }, new CatalogCache());
+    assert.equal(newer.built, true);
     assert.equal(listCalls(), 1);
   });
 });

@@ -38,7 +38,7 @@ Chunks follow the document's own sections, and each one carries a header naming 
 
 #### Hybrid Retrieval
 
-At the default *Medium* retrieval depth, each question is searched by meaning, by exact keywords (BM25) and by any date it names, and the three result lists are merged with reciprocal rank fusion. *Low* depth searches by meaning only. Neither adds model calls.
+At the default *Medium* retrieval depth, each question is searched by meaning, and the passages found are then reordered by exact keyword match (BM25) and by any date the question names, using reciprocal rank fusion. *Low* depth searches by meaning only. Neither adds model calls.
 
 #### Citations
 

@@ -2,7 +2,7 @@ import { chunkKey, type SearchResult, type VectorStore } from "../vectorstore/ve
 import { trimOverlappingChunks } from "../utils/trimOverlappingChunks";
 import { compactPassageText, type EmbedSentences } from "../utils/compactPassages";
 import { type CountTokens } from "../utils/textChunker";
-import { tokenize } from "./bm25";
+import { tokenize, type Bm25Candidate } from "./bm25";
 import { fuseLanes, type RankedLane } from "./fuse";
 import { queryDayRanges, type DayRange } from "./queryDates";
 
@@ -12,7 +12,7 @@ export const CONTEXT_COMPACTION_POOL_MULTIPLIER = 3;
 export type StageName =
   | "embedQuery"
   | "vectorSearch"
-  | "keywordLane"
+  | "keywordRerank"
   | "dateLane"
   | "fuse"
   | "trimOverlap"
@@ -27,11 +27,9 @@ export type RetrievalDepth = "low" | "medium";
 
 /** The subset of ChunkCatalog the retrieval lanes need. */
 export interface CatalogLanes {
-  hasWordTable: boolean;
-  scoreTerms(terms: string[]): Map<number, number>;
+  rankByTerms(terms: string[], candidates: Bm25Candidate[]): string[];
   chunksForRanges(ranges: DayRange[]): number[];
   keyOf(chunkNumber: number): string;
-  fileOf(chunkNumber: number): string;
   latestDayOf(chunkNumber: number): number;
   yearsPresent(): number[];
 }
@@ -50,8 +48,6 @@ export interface RetrieveDeps {
   now?: () => number;
   /** Present only at Medium depth; null when it could not be built. */
   catalog?: CatalogLanes | null;
-  /** Reads chunks the non-vector lanes selected. Required at Medium depth. */
-  fetchChunks?: (keys: string[]) => Promise<SearchResult[]>;
   /** Clock for relative date phrases in the query. */
   nowDate?: () => Date;
 }
@@ -66,10 +62,8 @@ export interface RetrieveOptions {
   /** Checked between stages so a cancelled request stops before doing more work. */
   abortSignal?: AbortSignal;
   depth: RetrievalDepth;
-  /** Candidates each lane contributes to fusion. */
+  /** Passages the vector lane puts up for fusion, and so the pool BM25 reranks. */
   laneCandidates: number;
-  /** Of those, at most this many may come from one document. */
-  laneCandidatesPerFile: number;
   rrfConstant: number;
   laneWeights: { vector: number; keyword: number; date: number };
 }
@@ -115,35 +109,7 @@ async function compactResultsToBudget(
   return compacted;
 }
 
-/**
- * Takes the best `limit` chunks, but at most `perFile` from any one document. Keyword and
- * date signals identify documents rather than passages - every chunk of a filing contains
- * its company's name and shares its posted date - so without a cap one document can fill a
- * lane with boilerplate and outvote the lane that ranks passages.
- */
-function topKeys(
-  scores: Map<number, number>,
-  limit: number,
-  keyOf: (n: number) => string,
-  fileOf: (n: number) => string,
-  perFile: number,
-): string[] {
-  const taken = new Map<string, number>();
-  const keys: string[] = [];
-  for (const [chunkNumber] of [...scores.entries()].sort((a, b) => b[1] - a[1] || a[0] - b[0])) {
-    const file = fileOf(chunkNumber);
-    const used = taken.get(file) ?? 0;
-    if (used >= perFile) continue;
-    const key = keyOf(chunkNumber);
-    if (key.length === 0) continue;
-    taken.set(file, used + 1);
-    keys.push(key);
-    if (keys.length >= limit) break;
-  }
-  return keys;
-}
-
-/** Runs a lane, returning an empty list if it fails so one lane cannot fail the query. */
+/** Runs a ranking stage, returning an empty list if it fails so one stage cannot fail the query. */
 async function safeLane(name: string, run: () => Promise<string[]>): Promise<string[]> {
   try {
     return await run();
@@ -175,7 +141,7 @@ export async function retrieve(
 
   // Compaction shrinks passages, so it needs a larger candidate pool to choose from.
   // At Medium depth the vector lane always asks for laneCandidates, whichever way
-  // compaction is set, so it cannot outrun the other lanes' candidate caps.
+  // compaction is set: that pool is the whole shortlist the later stages work over.
   const searchLimit = medium
     ? options.laneCandidates
     : options.enableContextCompaction
@@ -193,31 +159,30 @@ export async function retrieve(
   let ranked: SearchResult[] = searched;
   // Set only on the catalog path: chunk key -> the lanes that ranked it while
   // fusing. laneCounts is finalized from this against the passages actually
-  // returned (below), not against every fused winner, since a winner can be
-  // dropped later (its fetchChunks lookup came back empty, trimOverlap merged
-  // it into a neighbor, or compaction skipped it for budget).
+  // returned (below), not against every fused winner, since compaction can still
+  // skip a winner for budget.
   let winnerLanesByKey: Map<string, string[]> | null = null;
-  // Set only on the catalog path: the fused ranking and every chunk resolved from it,
-  // so the diagnostic pool can measure fusion rather than the vector lane alone.
+  // Set only on the catalog path: the fused ranking, so the diagnostic pool measures
+  // fusion rather than the vector lane alone.
   let fusedKeys: string[] | null = null;
+  // Every passage in play, by key. Keywords and dates only reorder what the vector lane
+  // found, so the ranking can never name a chunk that is not already here.
   const resolvedByKey = new Map<string, SearchResult>();
 
   if (catalog) {
     const terms = tokenize(query);
-    const keywordScores = new Map<number, number>();
+    const candidates: Bm25Candidate[] = searched.map((result) => ({
+      key: chunkKey(result),
+      text: result.text,
+    }));
 
-    const keywordKeys = await timed("keywordLane", () =>
-      safeLane("keyword", async () => {
-        if (!catalog.hasWordTable || terms.length === 0) return [];
-        for (const [chunkNumber, score] of catalog.scoreTerms(terms)) keywordScores.set(chunkNumber, score);
-        return topKeys(
-          keywordScores,
-          options.laneCandidates,
-          (n) => catalog.keyOf(n),
-          (n) => catalog.fileOf(n),
-          options.laneCandidatesPerFile,
-        );
-      }),
+    // Keywords reorder what the vector lane found; they do not nominate passages of their
+    // own. Measured on FinanceBench, letting BM25 nominate cost 3 of 12 hits and half the
+    // rank-1 answers, because it fills the shortlist with a document's boilerplate. Every
+    // question it rescued was one the vector lane had already surfaced further down, so
+    // reranking keeps the rescues and drops the flooding. See documentation/Evaluation.md.
+    const keywordRanking = await timed("keywordRerank", () =>
+      safeLane("keyword", async () => (terms.length === 0 ? [] : catalog.rankByTerms(terms, candidates))),
     );
     options.abortSignal?.throwIfAborted();
 
@@ -240,21 +205,33 @@ export async function retrieve(
     for (const [key, result] of vectorByKey) resolvedByKey.set(key, result);
     const lanes: RankedLane[] = [
       { name: "vector", weight: options.laneWeights.vector, keys: [...vectorByKey.keys()] },
-      { name: "keyword", weight: options.laneWeights.keyword, keys: keywordKeys },
     ];
 
     const dated = new Set(datedKeys);
     const dateBoost = options.laneWeights.date / (options.rrfConstant + 1);
     const fused = await timed("fuse", async () => {
       const ranking = fuseLanes(lanes, options.rrfConstant);
-      if (dated.size === 0) return ranking;
+      const byKey = new Map(ranking.map((entry) => [entry.key, entry]));
+      let boosted = false;
+
+      // Both boosts are worth what topping a lane of their own was worth, so a passage the
+      // vector lane ranked low can still win on the strength of the other two - which is the
+      // whole point - while neither can put a passage in the pool by itself.
+      keywordRanking.forEach((key, index) => {
+        const entry = byKey.get(key);
+        if (!entry) return;
+        entry.score += options.laneWeights.keyword / (options.rrfConstant + index + 1);
+        entry.lanes.push("keyword");
+        boosted = true;
+      });
       for (const entry of ranking) {
         if (!dated.has(entry.key)) continue;
-        // Worth as much as topping the date lane was, so the boost keeps its old strength.
         entry.score += dateBoost;
         entry.lanes.push("date");
+        boosted = true;
       }
-      return ranking.sort((a, b) => b.score - a.score);
+
+      return boosted ? ranking.sort((a, b) => b.score - a.score) : ranking;
     });
     fusedKeys = fused.map((entry) => entry.key);
     // With compaction on, the compaction stage still needs its wider candidate pool.
@@ -263,16 +240,6 @@ export async function retrieve(
       : options.retrievalLimit;
     const winners = fused.slice(0, winnerCount);
     winnerLanesByKey = new Map(winners.map((winner) => [winner.key, winner.lanes]));
-
-    // Fetch the winners and, when diagnostics are on, the rest of the pool in one call.
-    const neededKeys = new Set(winners.map((winner) => winner.key));
-    for (const key of fusedKeys.slice(0, options.diagnosticPoolSize ?? 0)) neededKeys.add(key);
-    const missingKeys = [...neededKeys].filter((key) => !resolvedByKey.has(key));
-    if (missingKeys.length > 0 && deps.fetchChunks) {
-      for (const fetchedChunk of await deps.fetchChunks(missingKeys)) {
-        resolvedByKey.set(chunkKey(fetchedChunk), fetchedChunk);
-      }
-    }
 
     ranked = winners
       .map((winner) => {

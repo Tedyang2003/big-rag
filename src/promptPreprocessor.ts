@@ -442,15 +442,14 @@ export async function preprocess(
     let catalog = null as Awaited<ReturnType<typeof getCatalog>>["catalog"];
     if (retrievalDepth === "medium") {
       // No status is shown at all on a cache hit or a successful disk load — only an
-      // actual build, a failure, or the keyword-ceiling notice get a status line, and
-      // each of those is reported at most once per session (see reportFailure/reportCeiling).
+      // actual build or a failure gets a status line, and a failure is reported at most
+      // once per session (see reportFailure).
       let catalogStatus: ReturnType<typeof ctl.createStatus> | null = null;
       const outcome = await getCatalog(
         vectorStoreDir,
         store,
         {
           version: settings.catalogVersion,
-          maxChunks: settings.catalogMaxChunks,
           k1: settings.bm25K1,
           b: settings.bm25B,
         },
@@ -482,12 +481,6 @@ export async function preprocess(
           `[BigRAG] Catalog built: chunks=${catalog?.chunkCount} terms=${catalog?.termCount} ms=${outcome.ms}`,
         );
       }
-      if (outcome.reportCeiling) {
-        ctl.createStatus({
-          status: "done",
-          text: `Keyword search off: index is larger than ${settings.catalogMaxChunks.toLocaleString()} chunks. Using meaning and dates.`,
-        });
-      }
     }
 
     retrievalStatus.setState({
@@ -512,7 +505,6 @@ export async function preprocess(
           embeddingModel.embed(sentences.map((sentence) => documentText(resolvedEmbeddingModelId, sentence))),
         countTokens: (text) => embeddingModel.countTokens(text),
         catalog,
-        fetchChunks: (keys) => store.getChunksByKeys(keys),
       },
       {
         retrievalLimit,
@@ -521,7 +513,6 @@ export async function preprocess(
         enableContextCompaction,
         depth: retrievalDepth,
         laneCandidates: settings.laneCandidates,
-        laneCandidatesPerFile: settings.laneCandidatesPerFile,
         rrfConstant: settings.rrfConstant,
         laneWeights: {
           vector: settings.laneWeightVector,

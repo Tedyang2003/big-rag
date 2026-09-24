@@ -53,7 +53,7 @@ Controls how the plugin searches.
 - **Medium** (default): searches by meaning, by exact keywords, and by date when your question names one, then merges the results
 - **Low**: searches by meaning only, as versions before 1.5 did
 
-Neither level makes extra model calls. The first Medium search builds a small search index next to your vector store, `.big-rag-catalog.json`, and shows its progress. It is rebuilt automatically when the number of indexed chunks changes and is safe to delete. Above 50,000 chunks the keyword search is switched off to limit memory use, and the plugin tells you so once.
+Neither level makes extra model calls. The first Medium search builds a small search index next to your vector store, `.big-rag-catalog.json`, and shows its progress. It is rebuilt automatically when the number of indexed chunks changes and is safe to delete. Keywords and dates reorder the passages the meaning search found rather than adding their own, so they work at any collection size.
 
 ## What You'll See in a Chat
 

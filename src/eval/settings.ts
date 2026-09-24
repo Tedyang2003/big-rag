@@ -9,11 +9,9 @@ export interface RetrievalSettings {
   enableContextCompaction: boolean;
   retrievalDepth: RetrievalDepth;
   /** Above this many chunks the keyword index is skipped. Raise it to evaluate hybrid retrieval on large sets. */
-  catalogMaxChunks: number;
   /** Set a lane's weight to 0 to run without it, which is how a lane's contribution is attributed. */
   laneWeights: { vector: number; keyword: number; date: number };
   laneCandidates: number;
-  laneCandidatesPerFile: number;
 }
 
 function readNumber(env: Record<string, string | undefined>, name: string, fallback: number): number {
@@ -56,25 +54,18 @@ export function readRetrievalSettings(env: Record<string, string | undefined>): 
     throw new Error(`BIG_RAG_RETRIEVAL_DEPTH must be "low" or "medium", got "${env.BIG_RAG_RETRIEVAL_DEPTH}"`);
   }
 
-  const catalogMaxChunks = readNumber(env, "BIG_RAG_CATALOG_MAX_CHUNKS", FIXED_DEFAULTS.catalogMaxChunks);
-  if (!Number.isInteger(catalogMaxChunks) || catalogMaxChunks < 1) {
-    throw new Error(`BIG_RAG_CATALOG_MAX_CHUNKS must be a positive whole number, got "${env.BIG_RAG_CATALOG_MAX_CHUNKS}"`);
-  }
-
   return {
     retrievalLimit,
     retrievalThreshold,
     chunkSize,
     enableContextCompaction: (env.BIG_RAG_ENABLE_COMPACTION ?? String(FIXED_DEFAULTS.enableContextCompaction)).trim().toLowerCase() === "true",
     retrievalDepth: rawDepth,
-    catalogMaxChunks,
     laneWeights: {
       vector: readWeight(env, "BIG_RAG_LANE_WEIGHT_VECTOR", FIXED_DEFAULTS.laneWeightVector),
       keyword: readWeight(env, "BIG_RAG_LANE_WEIGHT_KEYWORD", FIXED_DEFAULTS.laneWeightKeyword),
       date: readWeight(env, "BIG_RAG_LANE_WEIGHT_DATE", FIXED_DEFAULTS.laneWeightDate),
     },
     laneCandidates: readNumber(env, "BIG_RAG_LANE_CANDIDATES", FIXED_DEFAULTS.laneCandidates),
-    laneCandidatesPerFile: readNumber(env, "BIG_RAG_LANE_CANDIDATES_PER_FILE", FIXED_DEFAULTS.laneCandidatesPerFile),
   };
 }
 

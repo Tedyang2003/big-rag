@@ -7,7 +7,12 @@ import { CATALOG_FILENAME, ChunkCatalog } from "../retrieval/chunkCatalog";
 import { tokenize } from "../retrieval/bm25";
 import { type IndexedChunk } from "../vectorstore/vectorStore";
 
-const OPTIONS = { version: 1, maxChunks: 50000, k1: 1.2, b: 0.75 };
+const OPTIONS = { version: 1, k1: 1.2, b: 0.75 };
+
+/** The catalog holds no text, so reranking is always given the candidates' own text. */
+function candidates(catalog: ChunkCatalog, chunks: IndexedChunk[]) {
+  return chunks.map((source, chunkNumber) => ({ key: catalog.keyOf(chunkNumber), text: source.text }));
+}
 
 function chunk(id: string, text: string, dates: string[], posted = "2026-09-08"): IndexedChunk {
   return {
@@ -42,7 +47,7 @@ async function withTempDir(fn: (dir: string) => Promise<void>) {
 test("build indexes keys, words and days", () => {
   const catalog = ChunkCatalog.build(CHUNKS, OPTIONS);
   assert.equal(catalog.chunkCount, 3);
-  assert.equal(catalog.hasWordTable, true);
+  assert.ok(catalog.termCount > 0);
   assert.equal(catalog.keyOf(0), "shard_000/hashA-0");
   assert.deepEqual(catalog.chunksForRanges([{ start: 20260908, end: 20260908 }]), [0]);
   assert.deepEqual(catalog.chunksForRanges([{ start: 20260908, end: 20260911 }]), [0, 1]);
@@ -50,13 +55,12 @@ test("build indexes keys, words and days", () => {
   assert.equal(catalog.latestDayOf(1), 20260911);
 });
 
-test("scoreTerms ranks the chunk containing the query terms first", () => {
+test("rankByTerms puts the candidate containing the query terms first", () => {
   const catalog = ChunkCatalog.build(CHUNKS, OPTIONS);
-  const scores = catalog.scoreTerms(tokenize("bus collision"));
-  const ranked = [...scores.entries()].sort((a, b) => b[1] - a[1]).map(([chunkNumber]) => chunkNumber);
-  assert.equal(ranked[0], 0);
-  assert.ok(ranked.includes(2));
-  assert.ok(!ranked.includes(1));
+  const ranked = catalog.rankByTerms(tokenize("bus collision"), candidates(catalog, CHUNKS));
+  assert.equal(ranked[0], "shard_000/hashA-0");
+  assert.ok(ranked.includes("shard_000/hashB-0"));
+  assert.ok(!ranked.includes("shard_000/hashA-1"));
 });
 
 test("save and load round trip", async () => {
@@ -69,8 +73,8 @@ test("save and load round trip", async () => {
     assert.equal(loaded!.keyOf(2), "shard_000/hashB-0");
     assert.deepEqual(loaded!.chunksForRanges([{ start: 20250908, end: 20250908 }]), [2]);
     assert.deepEqual(
-      [...loaded!.scoreTerms(tokenize("collision")).keys()],
-      [...built.scoreTerms(tokenize("collision")).keys()],
+      loaded!.rankByTerms(tokenize("collision"), candidates(loaded!, CHUNKS)),
+      built.rankByTerms(tokenize("collision"), candidates(built, CHUNKS)),
     );
   });
 });
@@ -94,14 +98,6 @@ test("isStaleFor compares against the store's chunk count", () => {
   assert.equal(catalog.isStaleFor(4), true);
 });
 
-test("above the ceiling the word table is skipped but days still work", () => {
-  const catalog = ChunkCatalog.build(CHUNKS, { ...OPTIONS, maxChunks: 2 });
-  assert.equal(catalog.hasWordTable, false);
-  assert.equal(catalog.termCount, 0);
-  assert.equal(catalog.scoreTerms(tokenize("collision")).size, 0);
-  assert.deepEqual(catalog.chunksForRanges([{ start: 20260908, end: 20260908 }]), [0]);
-});
-
 test("chunks with no dates are indexed but match no range", () => {
   const undated: IndexedChunk = {
     id: "hashC-0",
@@ -115,5 +111,7 @@ test("chunks with no dates are indexed but match no range", () => {
   const catalog = ChunkCatalog.build([...CHUNKS, undated], OPTIONS);
   assert.equal(catalog.chunkCount, 4);
   assert.deepEqual(catalog.chunksForRanges([{ start: 19000101, end: 21001231 }]), [0, 1, 2]);
-  assert.ok(catalog.scoreTerms(tokenize("undated")).has(3));
+  assert.deepEqual(catalog.rankByTerms(tokenize("undated"), candidates(catalog, [...CHUNKS, undated])), [
+    "shard_000/hashC-0",
+  ]);
 });

@@ -74,12 +74,11 @@ test("resolveSettings exposes the hybrid retrieval defaults", () => {
   assert.equal(settings.laneCandidates, 30);
   assert.equal(settings.rrfConstant, 60);
   assert.equal(settings.laneWeightVector, 1);
-  assert.equal(settings.laneWeightKeyword, 0);
+  assert.equal(settings.laneWeightKeyword, 1);
   assert.equal(settings.laneWeightDate, 1);
-  assert.equal(settings.catalogMaxChunks, 50000);
   assert.equal(settings.bm25K1, 1.2);
   assert.equal(settings.bm25B, 0.75);
-  assert.equal(settings.catalogVersion, 1);
+  assert.equal(settings.catalogVersion, 2);
 });
 
 test("notConfiguredMessage names exactly the missing settings", () => {
