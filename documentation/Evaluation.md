@@ -53,7 +53,7 @@ Any of these can be set per run, so a configuration differs from its neighbour b
 | `BIG_RAG_LANE_CANDIDATES` | 50 | Passages the vector lane puts up, and so the pool the others reorder |
 | `BIG_RAG_RERANK_DEPTH` | 10 | Of those, how many of BM25's best collect a boost. **The reranker's sharpness dial** |
 | `BIG_RAG_BM25_K1` | 1.2 | How fast a repeated term stops adding score |
-| `BIG_RAG_BM25_B` | 0.75 | How hard a long passage is penalised for its length; **0 removes the penalty entirely** |
+| `BIG_RAG_BM25_B` | 0 | How hard a long passage is penalised for its length; 0.75 is the classic value and measured worse here |
 
 Attributing hybrid retrieval takes four runs against the same index: weights `1/0/0` should reproduce Low exactly and proves the harness, `1/1/0` isolates the keyword rerank, `1/0/1` the date boost, `1/1/1` is today's Medium.
 
@@ -105,6 +105,7 @@ Isolated with the weights, all against the same structured index and the same 50
 | Vector + keyword lane* | 9 | 34 | 7 | 22 | 5.5 | 0.080 | 3 |
 | Keyword rerank, corpus idf, + date | 11 | 13 | 7 | 26 | 5 | 0.106 | 5 |
 | Keyword rerank, local idf, + date | **14** | 17 | 6 | 26 | 4 | 0.117 | 6 |
+| Keyword rerank, local idf, no length penalty, + date | **14** | 17 | 6 | 26 | **3** | 0.134 | 8 |
 | **Vector + date, current architecture** | **14** | **14** | **3** | 26 | **3** | **0.140** | **9** |
 
 Every row is recomputed from its report with one definition, so the columns agree with each other
@@ -145,7 +146,9 @@ reranker loses on every column except the one it ties, and it ties by exchanging
 four others. It also confirms the old measurement was sound: the contaminated row gave 0.141 where
 the clean one gives 0.140.
 
-Three forms of BM25 have now been measured and none has beaten the date boost. The pattern holds
+Removing the length penalty (`b = 0`) recovers most of what local idf left on the table — MRR 0.117 to 0.134, rank-1 answers 6 to 8 — and is now the default, since these are chunks the chunker already caps rather than documents of wildly differing length. It does not change the outcome: the same four questions are gained and the same four lost. **Across corpus idf, local idf and both length settings, BM25 reranking is a fixed four-for-four exchange.** Tuning moves ranks; it does not move which answers cross into the five returned.
+
+Four forms of BM25 have now been measured and none has beaten the date boost. The pattern holds
 across all three: on this corpus the words a question shares with a document identify *which
 filing*, not *which page*, and the date boost settles that question better and for free, because it
 can only lift a passage another signal already found. The reranker costs 1ms and stays in the code
@@ -219,6 +222,8 @@ Hits average 45% overlap against 33% for misses, and the effect is starkest at t
 | + dates as a boost rather than a source of candidates | **9** | **16** | **10** | **0.122** |
 
 Reading years halved wrong-document failures but doubled wrong-company ones, because "FY2023" matches every company's 2023 filing. Making dates a boost — lifting passages the other lanes already found, never introducing one — kept the gain and removed the cost.
+
+**24 Sep — the length penalty was costing rank, not hits.** With `b = 0` the reranker's MRR goes 0.117 to 0.134 and its rank-1 answers 6 to 8, so `bm25B` now defaults to 0: the classic 0.75 assumes documents of wildly differing length, while these are chunks the chunker already caps. The outcome is unchanged — the same four questions gained, the same four lost. Across corpus idf, local idf and both length settings, BM25 reranking is a fixed four-for-four exchange, still behind vector + date's 14 hits at MRR 0.140 with 9 at rank 1. `k1` and `b` are now settable per run.
 
 **24 Sep — the keyword rerank is off by default.** Vector + date, measured under the current architecture, gives the same 14 hits as the reranker with 9 answers at rank 1 against 6, median rank 3 against 4, and MRR 0.140 against 0.117. Three forms of BM25 have now been tried and none beat the date boost, so `laneWeightKeyword` defaults to 0. The run also cleared the nomination defect: the contaminated baseline gave 0.141 where the clean one gives 0.140, so nothing measured earlier was wrong because of it.
 

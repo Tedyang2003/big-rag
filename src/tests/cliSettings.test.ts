@@ -22,7 +22,7 @@ test("FIXED_DEFAULTS holds the spec's fixed values", () => {
     laneWeightKeyword: 0,
     laneWeightDate: 1,
     bm25K1: 1.2,
-    bm25B: 0.75,
+    bm25B: 0,
     catalogVersion: 3,
   });
 });

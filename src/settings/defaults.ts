@@ -31,6 +31,9 @@ export const FIXED_DEFAULTS = {
   laneWeightKeyword: 0,
   laneWeightDate: 1,
   bm25K1: 1.2,
-  bm25B: 0.75,
+  // No length penalty. The classic 0.75 assumes documents of wildly different lengths; these
+  // are chunks the chunker already caps, and penalising the longer ones cost 0.017 of mean
+  // reciprocal rank and two rank-1 answers when the reranker was measured with it.
+  bm25B: 0,
   catalogVersion: 3,
 } as const;
