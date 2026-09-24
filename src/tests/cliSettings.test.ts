@@ -61,5 +61,12 @@ test("eval retrieval settings use the fixed defaults when env vars are unset", (
     enableContextCompaction: FIXED_DEFAULTS.enableContextCompaction,
     retrievalDepth: "medium",
     catalogMaxChunks: FIXED_DEFAULTS.catalogMaxChunks,
+    laneWeights: {
+      vector: FIXED_DEFAULTS.laneWeightVector,
+      keyword: FIXED_DEFAULTS.laneWeightKeyword,
+      date: FIXED_DEFAULTS.laneWeightDate,
+    },
+    laneCandidates: FIXED_DEFAULTS.laneCandidates,
+    laneCandidatesPerFile: FIXED_DEFAULTS.laneCandidatesPerFile,
   });
 });

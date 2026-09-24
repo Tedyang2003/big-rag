@@ -139,14 +139,10 @@ async function runRun(client: LMStudioClient, vectorStore: VectorStore, document
             ...settings,
             diagnosticPoolSize,
             depth: settings.retrievalDepth,
-            laneCandidates: FIXED_DEFAULTS.laneCandidates,
-            laneCandidatesPerFile: FIXED_DEFAULTS.laneCandidatesPerFile,
+            laneCandidates: settings.laneCandidates,
+            laneCandidatesPerFile: settings.laneCandidatesPerFile,
             rrfConstant: FIXED_DEFAULTS.rrfConstant,
-            laneWeights: {
-              vector: FIXED_DEFAULTS.laneWeightVector,
-              keyword: FIXED_DEFAULTS.laneWeightKeyword,
-              date: FIXED_DEFAULTS.laneWeightDate,
-            },
+            laneWeights: settings.laneWeights,
           },
         ),
       listIndexedFiles: async () =>

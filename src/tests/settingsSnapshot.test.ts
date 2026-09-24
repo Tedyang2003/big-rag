@@ -4,6 +4,7 @@ import * as fs from "fs/promises";
 import * as os from "os";
 import * as path from "path";
 import { buildSettingsSnapshot } from "../eval/settingsSnapshot";
+import { FIXED_DEFAULTS } from "../settings/defaults";
 import { writeEmbeddingIndexManifest } from "../utils/embeddingIndexManifest";
 
 const questionSet = {
@@ -15,7 +16,7 @@ const questionSet = {
 
 function args(vectorStoreDir: string) {
   return {
-    settings: { retrievalLimit: 5, retrievalThreshold: 0.5, chunkSize: 512, enableContextCompaction: false, retrievalDepth: "medium" as const, catalogMaxChunks: 50000 },
+    settings: { retrievalLimit: 5, retrievalThreshold: 0.5, chunkSize: 512, enableContextCompaction: false, retrievalDepth: "medium" as const, catalogMaxChunks: 50000, laneWeights: { vector: 1, keyword: 1, date: 1 }, laneCandidates: 30, laneCandidatesPerFile: 3 },
     diagnosticPoolSize: 50,
     embeddingModelId: "embed-model",
     vectorStoreDir,

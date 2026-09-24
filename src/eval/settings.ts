@@ -10,6 +10,10 @@ export interface RetrievalSettings {
   retrievalDepth: RetrievalDepth;
   /** Above this many chunks the keyword index is skipped. Raise it to evaluate hybrid retrieval on large sets. */
   catalogMaxChunks: number;
+  /** Set a lane's weight to 0 to run without it, which is how a lane's contribution is attributed. */
+  laneWeights: { vector: number; keyword: number; date: number };
+  laneCandidates: number;
+  laneCandidatesPerFile: number;
 }
 
 function readNumber(env: Record<string, string | undefined>, name: string, fallback: number): number {
@@ -20,6 +24,14 @@ function readNumber(env: Record<string, string | undefined>, name: string, fallb
     throw new Error(`${name} must be a number, got "${raw}"`);
   }
   return value;
+}
+
+function readWeight(env: Record<string, string | undefined>, name: string, fallback: number): number {
+  const weight = readNumber(env, name, fallback);
+  if (weight < 0) {
+    throw new Error(`${name} must be zero or greater, got "${env[name]}"`);
+  }
+  return weight;
 }
 
 /** Retrieval settings for evaluation runs. Defaults come from src/settings/defaults.ts. */
@@ -56,6 +68,13 @@ export function readRetrievalSettings(env: Record<string, string | undefined>): 
     enableContextCompaction: (env.BIG_RAG_ENABLE_COMPACTION ?? String(FIXED_DEFAULTS.enableContextCompaction)).trim().toLowerCase() === "true",
     retrievalDepth: rawDepth,
     catalogMaxChunks,
+    laneWeights: {
+      vector: readWeight(env, "BIG_RAG_LANE_WEIGHT_VECTOR", FIXED_DEFAULTS.laneWeightVector),
+      keyword: readWeight(env, "BIG_RAG_LANE_WEIGHT_KEYWORD", FIXED_DEFAULTS.laneWeightKeyword),
+      date: readWeight(env, "BIG_RAG_LANE_WEIGHT_DATE", FIXED_DEFAULTS.laneWeightDate),
+    },
+    laneCandidates: readNumber(env, "BIG_RAG_LANE_CANDIDATES", FIXED_DEFAULTS.laneCandidates),
+    laneCandidatesPerFile: readNumber(env, "BIG_RAG_LANE_CANDIDATES_PER_FILE", FIXED_DEFAULTS.laneCandidatesPerFile),
   };
 }
 

@@ -44,6 +44,21 @@ Each run prints a summary and writes a full report to `eval\reports\run-<timesta
 | Structured | `eval\vdbs\structured` | `true` | `low` | Section-aware chunks with file, date and section headers |
 | Structured + Hybrid | `eval\vdbs\structured` | `true` | `medium` | Keyword and date signals merged with vector search |
 
+### Tuning a Run
+
+Any of these can be set per run, so a configuration differs from its neighbour by one variable:
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `BIG_RAG_RETRIEVAL_LIMIT` | 5 | Passages returned to the model |
+| `BIG_RAG_RETRIEVAL_THRESHOLD` | 0.5 | Minimum similarity for a passage to be returned |
+| `BIG_RAG_LANE_WEIGHT_VECTOR` / `_KEYWORD` / `_DATE` | 1 / 1 / 1 | **Set a lane to 0 to run without it**, which is how a lane's contribution is attributed |
+| `BIG_RAG_LANE_CANDIDATES` | 30 | Candidates each lane contributes to fusion |
+| `BIG_RAG_LANE_CANDIDATES_PER_FILE` | 3 | Of those, the most one document may supply |
+| `BIG_RAG_CATALOG_MAX_CHUNKS` | 50,000 | Above this the keyword index is skipped |
+
+Attributing hybrid retrieval takes four runs against the same index: weights `1/0/0` should reproduce Low exactly and proves the harness, `1/1/0` isolates BM25, `1/0/1` the date boost, `1/1/1` is today's Medium.
+
 Held constant: `nomic-embed-text-v1.5` embeddings, 512-token chunks (100 overlap, legacy only), 5 passages returned, 0.5 threshold, compaction off, a 50-passage diagnostic pool. Fusion uses 30 candidates per lane, at most 3 per document, RRF constant 60, equal lane weights, BM25 k1 1.2 / b 0.75. Full list in [CLI.md](CLI.md).
 
 ## How a Question Is Scored

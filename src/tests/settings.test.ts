@@ -1,6 +1,7 @@
 import { test } from "node:test";
 import * as assert from "node:assert/strict";
 import { readGenerationSettings, readRetrievalSettings } from "../eval/settings";
+import { FIXED_DEFAULTS } from "../settings/defaults";
 
 test("readRetrievalSettings uses the plugin config defaults when env vars are unset", () => {
   assert.deepEqual(readRetrievalSettings({}), {
@@ -10,6 +11,13 @@ test("readRetrievalSettings uses the plugin config defaults when env vars are un
     enableContextCompaction: false,
     retrievalDepth: "medium",
     catalogMaxChunks: 50000,
+    laneWeights: {
+      vector: FIXED_DEFAULTS.laneWeightVector,
+      keyword: FIXED_DEFAULTS.laneWeightKeyword,
+      date: FIXED_DEFAULTS.laneWeightDate,
+    },
+    laneCandidates: FIXED_DEFAULTS.laneCandidates,
+    laneCandidatesPerFile: FIXED_DEFAULTS.laneCandidatesPerFile,
   });
 });
 
@@ -28,7 +36,7 @@ test("readRetrievalSettings reads overrides from env vars", () => {
       BIG_RAG_CHUNK_SIZE: "1024",
       BIG_RAG_ENABLE_COMPACTION: "TRUE",
     }),
-    { retrievalLimit: 8, retrievalThreshold: 0.35, chunkSize: 1024, enableContextCompaction: true, retrievalDepth: "medium", catalogMaxChunks: 50000 },
+    { retrievalLimit: 8, retrievalThreshold: 0.35, chunkSize: 1024, enableContextCompaction: true, retrievalDepth: "medium", catalogMaxChunks: 50000, laneWeights: { vector: FIXED_DEFAULTS.laneWeightVector, keyword: FIXED_DEFAULTS.laneWeightKeyword, date: FIXED_DEFAULTS.laneWeightDate }, laneCandidates: FIXED_DEFAULTS.laneCandidates, laneCandidatesPerFile: FIXED_DEFAULTS.laneCandidatesPerFile },
   );
 });
 
@@ -80,4 +88,34 @@ test("readRetrievalSettings reads the catalog chunk ceiling from the environment
   assert.equal(readRetrievalSettings({ BIG_RAG_CATALOG_MAX_CHUNKS: "200000" }).catalogMaxChunks, 200000);
   assert.throws(() => readRetrievalSettings({ BIG_RAG_CATALOG_MAX_CHUNKS: "0" }), /BIG_RAG_CATALOG_MAX_CHUNKS/);
   assert.throws(() => readRetrievalSettings({ BIG_RAG_CATALOG_MAX_CHUNKS: "lots" }), /BIG_RAG_CATALOG_MAX_CHUNKS/);
+});
+
+test("lane weights and candidate counts can be tuned from the environment", () => {
+  const settings = readRetrievalSettings({
+    BIG_RAG_LANE_WEIGHT_VECTOR: "1",
+    BIG_RAG_LANE_WEIGHT_KEYWORD: "0",
+    BIG_RAG_LANE_WEIGHT_DATE: "0.5",
+    BIG_RAG_LANE_CANDIDATES: "50",
+    BIG_RAG_LANE_CANDIDATES_PER_FILE: "1",
+  });
+
+  assert.deepEqual(settings.laneWeights, { vector: 1, keyword: 0, date: 0.5 });
+  assert.equal(settings.laneCandidates, 50);
+  assert.equal(settings.laneCandidatesPerFile, 1);
+});
+
+test("lane settings fall back to the plugin's fixed defaults", () => {
+  const settings = readRetrievalSettings({});
+
+  assert.deepEqual(settings.laneWeights, {
+    vector: FIXED_DEFAULTS.laneWeightVector,
+    keyword: FIXED_DEFAULTS.laneWeightKeyword,
+    date: FIXED_DEFAULTS.laneWeightDate,
+  });
+  assert.equal(settings.laneCandidates, FIXED_DEFAULTS.laneCandidates);
+  assert.equal(settings.laneCandidatesPerFile, FIXED_DEFAULTS.laneCandidatesPerFile);
+});
+
+test("a negative lane weight is rejected", () => {
+  assert.throws(() => readRetrievalSettings({ BIG_RAG_LANE_WEIGHT_KEYWORD: "-1" }), /BIG_RAG_LANE_WEIGHT_KEYWORD/);
 });
