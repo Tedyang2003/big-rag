@@ -89,7 +89,26 @@ Indexes rebuilt 24 September 2026 with PDF table rows and the Nomic prefixes: le
 | Right file, wrong passage | 46.6% | 46.6% | 67.0% |
 | Vector search, median | 4.0s | 5.0s | 6.5s |
 
-Hybrid's pool figures are not comparable with the other two columns: at Medium the pool is the fused ranking, capped at the 30 candidates each lane contributes, while at Low it is an unthresholded top-50 vector search.
+Hybrid's pool figures are not comparable with the other two columns: at Medium the pool is the fused ranking drawn from each lane's candidates, while at Low it is an unthresholded top-50 vector search.
+
+### Which Lane Does the Work
+
+Four configurations against the same structured index, isolated with the lane weights:
+
+| Lanes | Hits | Wrong document | Wrong company | Pool | Median rank | MRR | Answers at rank 1 |
+|---|---|---|---|---|---|---|---|
+| Vector only | 12 | 29 | 6 | 26 | 5 | 0.107 | 6 |
+| Vector + keyword + date | 11 | 12 | 6 | 23 | **3** | 0.101 | 5 |
+| Vector + keyword | 9 | 31 | 10 | 22 | 5.5 | 0.080 | 3 |
+| **Vector + date** | **14** | 13 | **3** | **28** | 4 | **0.141** | **9** |
+
+**The date boost carries the whole gain, and the keyword lane costs three hits.** Dates alone beat everything on hits, answers found, rank-1 answers and mean reciprocal rank, while cutting wrong-document failures from 29 to 13. Adding the keyword lane on top takes hits from 14 back to 11.
+
+Question by question the difference is stark. The date boost gained three answers and lost one (pool ranks 16→3, 8→2, 1→1, against 4→29). The keyword lane gained three and lost six, including two answers the vector lane had at rank 1.
+
+The reason is what each lane is allowed to do. **Dates only lift a passage another lane already found**; they cannot introduce anything. **The keyword lane nominates its own candidates**, and 30–50 chunks chosen on term overlap are mostly a document's boilerplate — `About Ulta Beauty`, `Forward-Looking Statements` — which fusion then ranks above genuine vector hits.
+
+BM25's signal is not worthless: in its own run it pulled an answer from rank 28 to rank 1, which vectors alone never would. It is the nomination that hurts. **The keyword lane's default weight is now 0**; reinstating BM25 as a reranker over the vector lane's own candidates would keep the rescue without the flooding, and would need only a term-frequency table rather than posting lists — removing the keyword index's memory cost and its 50,000-chunk ceiling.
 
 **Structured indexing is ahead on every measure:** half again as many hits, half again as many answers surfaced, and more than double the mean reciprocal rank. A run takes roughly 35 minutes.
 
@@ -158,6 +177,8 @@ Hits average 45% overlap against 33% for misses, and the effect is starkest at t
 | + dates as a boost rather than a source of candidates | **9** | **16** | **10** | **0.122** |
 
 Reading years halved wrong-document failures but doubled wrong-company ones, because "FY2023" matches every company's 2023 filing. Making dates a boost — lifting passages the other lanes already found, never introducing one — kept the gain and removed the cost.
+
+**24 Sep — lanes isolated; the keyword lane turned off by default.** Vector + date gives 14 hits and MRR 0.141, against 12 for vector alone and 11 with all three lanes. Vector + keyword alone gives 9. `laneWeightKeyword` now defaults to 0.
 
 **24 Sep — hybrid re-measured on the new indexes.** 11 hits against structured's 12, pool 23 against 26, median rank 3 — the best recorded — and wrong-document failures down from 29 to 12. Fusion moves answers a long way in both directions: three came from pool ranks 28, 22 and 16 into the top three, while two at rank 1 fell to 3 and 5. Lane weights are now settable per run, so BM25 and the date boost can finally be attributed separately.
 

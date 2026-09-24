@@ -17,7 +17,10 @@ export const FIXED_DEFAULTS = {
   laneCandidatesPerFile: 3,
   rrfConstant: 60,
   laneWeightVector: 1,
-  laneWeightKeyword: 1,
+  // Measured on FinanceBench: nominating keyword candidates cost 3 of 12 hits and half the
+  // rank-1 answers, because BM25 fills the shortlist with a document's boilerplate. Dates,
+  // which only lift passages another lane already found, gained 2. See documentation/Evaluation.md.
+  laneWeightKeyword: 0,
   laneWeightDate: 1,
   catalogMaxChunks: 50000,
   bm25K1: 1.2,
