@@ -104,7 +104,16 @@ Nine times in ten the right company is found. On the previous build, hybrid's da
 | Judgement call | 11 | 2 |
 | Multi-year comparison | 11 | 1 |
 
-Retrieval success tracks how many of the question's words appear in its evidence: hits average 58% overlap, misses 33%, and the 13 questions under 20% produced no hits at all. Derived metrics sit at the bottom by construction — "quick ratio" appears nowhere in a balance sheet, because the answer is calculated from line items. **Roughly 46 of 88 questions are financial reasoning rather than retrieval**, so the realistic target is the 42 lookups, 31 of which have their answer in a financial statement. A hit rate of 20% here would be a strong result.
+Retrieval success tracks how many of the question's words appear in the evidence chunk, measured against our own index text:
+
+| Question words present in the evidence | Questions | In top 50 | Hits |
+|---|---|---|---|
+| Under 20% | 15 | 1 | 1 |
+| 20–40% | 44 | 10 | 5 |
+| 40–60% | 19 | 6 | 2 |
+| Over 60% | 10 | **9** | **4** |
+
+Hits average 45% overlap against 33% for misses, and the effect is starkest at the top: 9 of the 10 questions sharing more than 60% of their words with the evidence surface it in the top 50, against 1 of 15 at the bottom. Derived metrics sit at the bottom by construction — "quick ratio" appears nowhere in a balance sheet, because the answer is calculated from line items. **Roughly 46 of 88 questions are financial reasoning rather than retrieval**, so the realistic target is the 42 lookups, 31 of which have their answer in a financial statement. A hit rate of 20% here would be a strong result.
 
 **Why the right document yields the wrong passage.** Of the 41 such misses, 36 returned passages from elsewhere in the document entirely — only 3 landed in the evidence's own section and 5 within two chunks of it. The evidence fits a single chunk in 21 of the 41, and in 56 of all 88, so chunk boundaries are not the barrier. What comes back instead is narrative: an English question embeds close to prose discussing a topic and far from a grid of figures, even after the grid has rows.
 
