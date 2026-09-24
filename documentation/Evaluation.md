@@ -61,38 +61,39 @@ Two measurement caveats: a split table repeats its header row in each piece, so 
 
 ## Results
 
-Indexes built 21 September 2026: legacy 89,415 chunks, structured 116,741.
+Indexes rebuilt 24 September 2026 with PDF table rows and the Nomic prefixes: legacy 91,541 chunks, structured 119,403.
 
 | Metric | Legacy | Structured | Structured + Hybrid |
 |---|---|---|---|
-| Questions scored | 88 | 88 | 88 |
-| Final hit rate | 8.0% (7) | 10.2% (9) | **10.2% (9)** |
-| Pool hit rate (top 50) | 15.9% (14) | **30.7% (27)** | 28.4% (25) |
-| Right file, wrong passage | 42.0% | 37.5% | 60.2% |
-| Median answer rank in pool | 9 | 9 | **6** |
-| Mean reciprocal rank | 0.046 | 0.099 | **0.122** |
-| Vector search, median | 3.7s | 5.5s | 6.5s |
+| Questions scored | 88 | 88 | pending |
+| Final hit rate | 9.1% (8) | **13.6% (12)** | pending |
+| Pool hit rate (top 50) | 19.3% (17) | **29.5% (26)** | pending |
+| Answers at rank 1 | 4 | **6** | pending |
+| Median answer rank in pool | 6 | **5** | pending |
+| Mean reciprocal rank | 0.048 | **0.107** | pending |
+| Right file, wrong passage | 46.6% | 46.6% | pending |
+| Vector search, median | 4.0s | 5.0s | pending |
 
-**Structured indexing roughly doubles what retrieval finds** — 27 answers in the top 50 against 14 — and doubles mean reciprocal rank. Hits move less, from 7 to 9, because most newly found answers rank below the top 5.
+**Structured indexing is ahead on every measure:** half again as many hits, half again as many answers surfaced, and more than double the mean reciprocal rank. A run takes roughly 35 minutes.
 
-**Hybrid retrieval matches on hits and wins on ranking:** the right document is retrieved for 62 of 88 questions against 42, the median rank halves, and the lanes cost 60ms against a 6.5-second vector search. It only reached that state after three rounds of fixes — see the log.
-
-Search scans every chunk, so a run takes roughly 35 minutes.
+The previous build, before tables and prefixes, gave Legacy 7 hits and Structured 9, with median ranks of 9. **Tables and prefixes moved ordering rather than recall** — structured found the same 26-odd answers but ranked them higher, so three more crossed into the five returned. They shipped together and cannot be attributed separately.
 
 ## What the Numbers Say
 
 **Where retrieval lands** (structured, vector-only):
 
-| Outcome | Questions |
-|---|---|
-| Hit | 9 |
-| Same company, wrong document — usually another year | 37 |
-| Right document, wrong passage | 33 |
-| Different company | 9 |
+| Outcome | Legacy | Structured |
+|---|---|---|
+| Hit | 8 | 12 |
+| Same company, wrong document — usually another year | 32 | 29 |
+| Right document, wrong passage | 41 | 41 |
+| Different company | 7 | 6 |
 
-Nine times in ten the right company is found. Hybrid's date and keyword signals cut the wrong-document share from 37 to 16, converting most of it into right-document-wrong-passage.
+Nine times in ten the right company is found. Hybrid's date and keyword signals previously cut the wrong-document share by more than half, converting it into right-document-wrong-passage.
 
-**Why found answers do not reach the model.** Of 27 answers in the top 50, 9 were returned; 2 were cut by the 0.5 threshold and 16 ranked below the top 5. Neither the threshold nor the limit changes the order, which is where the problem is.
+**Statements remain the stubborn case.** Of the 31 questions whose evidence sits in a financial statement, 2 are hits — up from 1 before tables. The gains landed elsewhere: 7 of 39 for press releases and short sections, 2 of 2 for notes to the accounts, 1 of 16 for MD&A narrative. Recovering the grid was necessary but has not been sufficient; a statement chunk is still hundreds of words of figures in which one linearised row is easily diluted.
+
+**Why found answers do not reach the model.** Structured surfaces 26 answers in the top 50 and returns 12. The rest sit at ranks 6 to 34 — below the five-passage limit rather than cut by the threshold. Returning 10 passages instead of 5 would convert several, but it treats the symptom: the goal is the answer at rank 1, not a longer list.
 
 **What the questions actually ask.** Classifying all 88:
 
@@ -130,13 +131,19 @@ Retrieval success tracks how many of the question's words appear in its evidence
 
 Reading years halved wrong-document failures but doubled wrong-company ones, because "FY2023" matches every company's 2023 filing. Making dates a boost — lifting passages the other lanes already found, never introducing one — kept the gain and removed the cost.
 
-**22–24 Sep — PDF tables and embedding prefixes shipped; not yet measured.** Tables are now recovered from MuPDF geometry as `cell | cell` rows, kept whole in a chunk where possible, split only between rows with the header repeated, and embedded as `Capital expenditures — 2018: 1,577` while citations still show the grid. Documents and queries now carry Nomic's `search_document:` / `search_query:` prefixes, recorded in the index manifest. Both force a reindex (`structured-v3`).
+**24 Sep — PDF tables and embedding prefixes measured.** Both indexes were rebuilt (legacy 91,541 chunks, structured 119,403, each about 2.4% larger because a row's separators count as words). Structured went from 9 hits to 12 and its median rank from 9 to 5; legacy from 7 to 8. Statement-evidence hits moved from 1 of 31 to 2. The improvement is in ordering, not recall.
 
-They ship in one rebuild, so the next run measures their combined effect and cannot attribute movement to either.
+An evidence-check defect surfaced during the rebuild: overlapping legacy chunks were de-duplicated by counting normalised words, while the recorded offsets count raw words, so the reconstruction was corrupted and legacy reported 107 unscorable against structured's 62. Fixed; both now report the same 88.
+
+**22–24 Sep — PDF tables and embedding prefixes shipped.** Tables are now recovered from MuPDF geometry as `cell | cell` rows, kept whole in a chunk where possible, split only between rows with the header repeated, and embedded as `Capital expenditures — 2018: 1,577` while citations still show the grid. Documents and queries now carry Nomic's `search_document:` / `search_query:` prefixes, recorded in the index manifest. Both force a reindex (`structured-v3`).
+
+They shipped in one rebuild, so their effects cannot be attributed separately.
 
 ## Open Questions
 
-- **Did tables and the prefixes help?** The next run answers this. Watch statement-evidence hits, today 1 of 31, and total hits, today 9 of 88.
+- **Why are statements still missed?** Tables raised statement hits only from 1 of 31 to 2. Either the statement chunk is not retrieved at all, or it is retrieved and diluted — 240 words of figures around one relevant row. Scoring a chunk by its best sentence rather than its average, using the embedding model already loaded, would test the second.
+- **Which hybrid lane is actually working?** Medium bundles BM25 candidates with the date boost and has never been isolated. Lane weights are not yet settable from the environment; adding that allows the vector-only, keyword-only and date-only runs that would attribute the gain.
+- **Should BM25 rerank rather than nominate?** As a reranker over the top 50 it cannot flood the results with boilerplate, and it needs no posting lists — only a term-frequency table for IDF, which would remove the keyword index's memory cost and its 50,000-chunk ceiling. The cost is losing the rescue case, where keywords surface a chunk the vector search missed.
 - **Is the 0.5 threshold still right?** The prefixes shift the score distribution, and the threshold was not re-tuned. If hits fall while pool hits rise, suspect this first.
 - **Should the question be rewritten before searching?** Two untested techniques, both using the chat model LM Studio already has loaded: embedding a hypothetical answer instead of the question, so "quick ratio" reaches the balance sheet through the line items it implies; and decomposing a compound question into sub-questions. They would belong to a High and an Extra High depth.
 - **Can retrieval cover several documents at once?** A cross-document comparison needs the best passage *per document*, not the five best overall, which fusion cannot currently express.
