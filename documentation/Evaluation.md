@@ -209,6 +209,42 @@ Twenty ranks span two hundredths of a similarity point. Keyword and date signals
 
 **Wrong passage.** The right filing is retrieved, but a narrative section outranks the statement holding the number. A table row loses its column headers when chunked, so it embeds poorly against a natural-language question. Hybrid retrieval will not fix this; carrying table headers into chunks would.
 
+### What the Questions Actually Ask
+
+Not every FinanceBench question is a retrieval question. Classifying all 88 scorable ones by what answering them requires:
+
+| Question type | Questions | Hits | Answer in top 50 |
+|---|---|---|---|
+| Direct lookup — the answer is written in a passage | 42 | 6 | 17 |
+| **Derived metric** — the answer must be computed from figures | **24** | **1** | 2 |
+| Judgement call — "is this healthy", "is this consistent" | 11 | 1 | 4 |
+| Multi-year comparison — needs several passages at once | 11 | 1 | 2 |
+
+Whether retrieval finds a question's evidence tracks almost exactly how many of the question's words appear in that evidence:
+
+| Question words present in the evidence | Questions | Hits |
+|---|---|---|
+| Under 20% | 13 | 0 |
+| 20–40% | 47 | 2 |
+| 40–60% | 19 | 2 |
+| Over 60% | 9 | 5 |
+
+Hits average 58% overlap, misses 33%.
+
+The derived-metric questions sit at the bottom of that range by construction:
+
+```
+"Does AMD have a reasonably healthy liquidity profile based on its quick ratio for FY22?"
+   evidence: Consolidated Balance Sheets          overlap 0.07
+
+"What is Kraft Heinz's FY2019 inventory turnover ratio?"
+   evidence: Indefinite-Lived Intangible Assets   overlap 0.12
+```
+
+"Quick ratio" appears nowhere in a balance sheet. The answer is calculated from line items, so no amount of retrieval quality makes the question's words match its evidence. Bridging that gap needs the question rewritten or decomposed before search — see the open questions.
+
+**So roughly 46 of 88 questions are financial reasoning rather than retrieval**, and the realistic target for this work is the 42 direct lookups, 31 of which have their answer inside a financial statement. Read every rate in this document against that: a hit rate of 20% on this dataset would be a strong result, not a poor one.
+
 ### Why Found Answers Do Not Reach the Model (Structured, Low Depth)
 
 27 questions had the answer in the top 50 but only 9 reached the model. Where the other 18 sat:
@@ -297,4 +333,5 @@ Also visible in the new fields: nearly every returned passage carries the date b
 - **Can PDF tables be given structure?** See the 22 September finding below: the answer is usually in a financial statement, and statements reach the index as a run-on line of labels and numbers with no rows or columns. This is the largest remaining bucket.
 - **Can table rows keep their column headers?** That would address the 38% that reach the right document and pick the wrong passage.
 - **Are the embeddings calibrated for the threshold?** Two answers ranked first and were still cut by the 0.5 threshold. The plugin does not add Nomic's `search_query:` and `search_document:` prefixes, which flattens the score distribution. Testing this needs a reindex.
-- **Would a second dataset help?** FinanceBench is table-heavy filings with near-duplicate documents — the hardest case for embeddings and unrepresentative of narrative documents.
+- **Would a second dataset help?** FinanceBench is table-heavy filings with near-duplicate documents — the hardest case for embeddings, unrepresentative of narrative documents, and half its questions are financial reasoning rather than lookups. A lookup-style question set over ordinary documents would measure the plugin as a general tool.
+- **Should the question be rewritten before it is searched?** Two techniques would address the derived-metric and multi-year questions, both using the chat model already loaded in LM Studio: writing a hypothetical answer and embedding that instead of the question (so "quick ratio" reaches the balance sheet through the line items it implies), and decomposing a compound question into the sub-questions it needs. Neither is built; the tiers they would belong to are High and Extra High.
