@@ -114,3 +114,17 @@ test("evidence spanning two chunks records where it starts and how far it runs",
   assert.equal(where?.firstChunkIndex, 0);
   assert.equal(where?.chunkSpan, 2, "retrieval must return both chunks to score this question");
 });
+
+test("overlapping chunks are de-duplicated on raw word offsets, not normalised ones", () => {
+  // Legacy chunks overlap by two words. "1,234" is one word for the offsets the indexer
+  // recorded, but two after normalisation, so counting normalised words mis-skips.
+  const chunks = [
+    { ...chunk({ text: "Net sales 1,234 rose", chunkIndex: 0 }), metadata: { startIndex: 0, endIndex: 4 } },
+    { ...chunk({ text: "1,234 rose sharply this year", chunkIndex: 1 }), metadata: { startIndex: 2, endIndex: 7 } },
+  ];
+  const absent = absentIds(chunks, [
+    { id: "across", question: "q", sourceFile: "a.pdf", answerSnippet: "net sales 1,234 rose sharply this year" },
+  ], "/docs");
+
+  assert.deepEqual(absent, [], "the file reads as one continuous text");
+});

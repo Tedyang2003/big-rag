@@ -30,13 +30,16 @@ function fileWords(chunks: IndexedChunk[]): FileWords {
   let covered = -Infinity;
   for (const chunk of inOrder) {
     sections.set(chunk.chunkIndex, String(chunk.metadata?.sectionPath ?? ""));
-    const chunkWords = normalizeForMatch(chunk.text).split(" ").filter(Boolean);
+    // The recorded offsets count raw whitespace-separated words, so the overlap must be
+    // skipped before normalizing: normalizing first splits "1,234" into two words and the
+    // skip lands in the wrong place, dropping or repeating text in the reconstruction.
+    const rawWords = chunk.text.split(/\s+/).filter(Boolean);
     const start = chunk.metadata?.startIndex;
     const skip =
       typeof start !== "number" || covered === -Infinity
         ? 0
-        : Math.max(0, Math.min(chunkWords.length, covered - start));
-    for (const word of chunkWords.slice(skip)) {
+        : Math.max(0, Math.min(rawWords.length, covered - start));
+    for (const word of normalizeForMatch(rawWords.slice(skip).join(" ")).split(" ").filter(Boolean)) {
       words.push(word);
       owners.push(chunk.chunkIndex);
     }
