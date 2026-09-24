@@ -49,13 +49,13 @@ Any of these can be set per run, so a configuration differs from its neighbour b
 |---|---|---|
 | `BIG_RAG_RETRIEVAL_LIMIT` | 5 | Passages returned to the model |
 | `BIG_RAG_RETRIEVAL_THRESHOLD` | 0.5 | Minimum similarity for a passage to be returned |
-| `BIG_RAG_LANE_WEIGHT_VECTOR` / `_KEYWORD` / `_DATE` | 1 / 1 / 1 | **Set a signal to 0 to run without it**, which is how its contribution is attributed |
+| `BIG_RAG_LANE_WEIGHT_VECTOR` / `_KEYWORD` / `_DATE` | 1 / **0** / 1 | **Set a signal to 0 to run without it**, which is how its contribution is attributed. Keywords ship off; see below |
 | `BIG_RAG_LANE_CANDIDATES` | 50 | Passages the vector lane puts up, and so the pool the others reorder |
 | `BIG_RAG_RERANK_DEPTH` | 10 | Of those, how many of BM25's best collect a boost. **The reranker's sharpness dial** |
 
 Attributing hybrid retrieval takes four runs against the same index: weights `1/0/0` should reproduce Low exactly and proves the harness, `1/1/0` isolates the keyword rerank, `1/0/1` the date boost, `1/1/1` is today's Medium.
 
-Held constant: `nomic-embed-text-v1.5` embeddings, 512-token chunks (100 overlap, legacy only), 5 passages returned, 0.5 threshold, compaction off, a 50-passage diagnostic pool. The vector lane puts up 50 candidates, of which BM25 boosts its best 10, RRF constant 60, equal weights, BM25 k1 1.2 / b 0.75. Full list in [CLI.md](CLI.md).
+Held constant: `nomic-embed-text-v1.5` embeddings, 512-token chunks (100 overlap, legacy only), 5 passages returned, 0.5 threshold, compaction off, a 50-passage diagnostic pool. The vector lane puts up 50 candidates, of which BM25 boosts its best 10 when it is switched on, RRF constant 60, BM25 k1 1.2 / b 0.75. Full list in [CLI.md](CLI.md).
 
 **Where document frequency is counted.** Over the 50 candidates, not the corpus. Corpus-wide, a company name is rare and scores high, yet it sits on every page of the filing the shortlist came from and separates nothing — which is how boilerplate came to outrank statements. Counted over the shortlist it collapses to near zero, and the terms that distinguish one candidate from another take the weight.
 
@@ -83,10 +83,10 @@ Indexes rebuilt 24 September 2026 with PDF table rows and the Nomic prefixes: le
 | Questions scored | 88 | 88 | 88 |
 | Final hit rate | 9.1% (8) | 13.6% (12) | **15.9% (14)** |
 | Pool hit rate (top 50) | 19.3% (17) | **29.5% (26)** | **29.5% (26)** |
-| Answers at rank 1 | 4 | **6** | **6** |
-| Median answer rank in pool | 6 | 5 | **4** |
-| Mean reciprocal rank | 0.048 | 0.107 | **0.117** |
-| Right file, wrong passage | 46.6% | 46.6% | 58.0% |
+| Answers at rank 1 | 4 | 6 | **9** |
+| Median answer rank in pool | 6 | 5 | **3** |
+| Mean reciprocal rank | 0.048 | 0.107 | **0.140** |
+| Right file, wrong passage | 46.6% | 46.6% | 64.8% |
 | Vector search, median | 4.0s | 5.0s | 5.0s |
 
 All three columns now draw their pool from the same place — an unthresholded top-50 vector search — so the pool row is comparable across them. Medium reorders those 50; it cannot add to them, which is why its pool figure is identical to Structured's.
@@ -102,7 +102,8 @@ Isolated with the weights, all against the same structured index and the same 50
 | Vector + keyword lane + date* | 11 | 12 | 4 | 27 | 5 | 0.108 | 5 |
 | Vector + keyword lane* | 9 | 34 | 7 | 22 | 5.5 | 0.080 | 3 |
 | Keyword rerank, corpus idf, + date | 11 | 13 | 7 | 26 | 5 | 0.106 | 5 |
-| **Keyword rerank, local idf, + date** | **14** | 17 | 6 | 26 | 4 | 0.117 | 6 |
+| Keyword rerank, local idf, + date | **14** | 17 | 6 | 26 | 4 | 0.117 | 6 |
+| **Vector + date, current architecture** | **14** | **14** | **3** | 26 | **3** | **0.140** | **9** |
 
 Every row is recomputed from its report with one definition, so the columns agree with each other
 rather than with earlier versions of this document.
@@ -133,13 +134,25 @@ at rank 1 and a lower MRR, 0.117 against 0.141.
 The reason it can still displace a good answer is fusion's flatness. A boost is worth up to
 `1/61`, while the entire spread from vector rank 1 to rank 50 is `1/61` to `1/110`. Any boost large
 enough to rescue a passage from rank 28 is large enough to push one off rank 1, whichever ranking
-produced it. **Whether the reranker earns its place is still open**, and rests on one run not yet
-made: vector + date measured under the current architecture, where nothing but the vector lane
-nominates.
+produced it.
+
+**The deciding run settles it: `laneWeightKeyword` is 0.** Measured under the current architecture,
+where nothing but the vector lane nominates, vector + date gives the same 14 hits with 9 answers at
+rank 1 against the reranker's 6, a median rank of 3 against 4, and MRR 0.140 against 0.117. The
+reranker loses on every column except the one it ties, and it ties by exchanging four questions for
+four others. It also confirms the old measurement was sound: the contaminated row gave 0.141 where
+the clean one gives 0.140.
+
+Three forms of BM25 have now been measured and none has beaten the date boost. The pattern holds
+across all three: on this corpus the words a question shares with a document identify *which
+filing*, not *which page*, and the date boost settles that question better and for free, because it
+can only lift a passage another signal already found. The reranker costs 1ms and stays in the code
+at weight 0 — FinanceBench is a poor witness for collections where a rare word really does name a
+passage, and one environment variable turns it back on.
 
 **Structured indexing is ahead on every measure:** half again as many hits, half again as many answers surfaced, and more than double the mean reciprocal rank. A run takes roughly 35 minutes.
 
-**Hybrid is now ahead of vector search on hits as well as ordering**, 14 against 12, with wrong-document failures down from 31 to 17 and the best median rank recorded at Medium, 4. Nearly all of that is the date boost; see the table above.
+**Hybrid is now ahead of vector search on hits as well as ordering**, 14 against 12, with wrong-document failures down from 31 to 14 and the best median rank recorded, 3. All of that is the date boost; see the table above.
 
 The previous build, before tables and prefixes, gave Legacy 7 hits and Structured 9, with median ranks of 9. **Tables and prefixes moved ordering rather than recall** — structured found the same 26-odd answers but ranked them higher, so three more crossed into the five returned. They shipped together and cannot be attributed separately.
 
@@ -150,11 +163,11 @@ The previous build, before tables and prefixes, gave Legacy 7 hits and Structure
 | Outcome | Legacy | Structured | + Hybrid |
 |---|---|---|---|
 | Hit | 8 | 12 | **14** |
-| Same company, wrong document — usually another year | 32 | 31 | **17** |
-| Right document, wrong passage | 41 | 41 | 51 |
-| Different company | 7 | 4 | 6 |
+| Same company, wrong document — usually another year | 32 | 31 | **14** |
+| Right document, wrong passage | 41 | 41 | 57 |
+| Different company | 7 | 4 | **3** |
 
-Nine times in ten the right company is found. The date boost is what converts wrong-document failures into right-document ones, 31 down to 17 — isolated in the table above, where it accounts for essentially all of Hybrid's gain.
+Nine times in ten the right company is found. The date boost is what converts wrong-document failures into right-document ones, 31 down to 14 — isolated in the table above, where it accounts for all of Hybrid's gain.
 
 **Statements remain the stubborn case.** Of the 31 questions whose evidence sits in a financial statement, 2 are hits — up from 1 before tables. The gains landed elsewhere: 7 of 39 for press releases and short sections, 2 of 2 for notes to the accounts, 1 of 16 for MD&A narrative. Recovering the grid was necessary but has not been sufficient; a statement chunk is still hundreds of words of figures in which one linearised row is easily diluted.
 
@@ -205,6 +218,8 @@ Hits average 45% overlap against 33% for misses, and the effect is starkest at t
 
 Reading years halved wrong-document failures but doubled wrong-company ones, because "FY2023" matches every company's 2023 filing. Making dates a boost — lifting passages the other lanes already found, never introducing one — kept the gain and removed the cost.
 
+**24 Sep — the keyword rerank is off by default.** Vector + date, measured under the current architecture, gives the same 14 hits as the reranker with 9 answers at rank 1 against 6, median rank 3 against 4, and MRR 0.140 against 0.117. Three forms of BM25 have now been tried and none beat the date boost, so `laneWeightKeyword` defaults to 0. The run also cleared the nomination defect: the contaminated baseline gave 0.141 where the clean one gives 0.140, so nothing measured earlier was wrong because of it.
+
 **24 Sep — document frequency moved to the candidates: 11 hits back to 14.** Weighting terms by how rare they are across 119,403 chunks was making the reranker chase company names, which are rare in the library and ubiquitous in the document the shortlist came from. Counted over the 50 candidates instead, hits recovered to 14 and right-document-wrong-passage fell from 57 to 51. It ties the date boost rather than beating it, and by exchange: four questions gained, four lost, 6 answers at rank 1 against date-only's 9, MRR 0.117 against 0.141. BM25 now needs no corpus statistics at all, so the catalog holds no word table of any kind and exists purely for dates (version 3).
 
 **24 Sep — BM25 reranking measured for the first time: 11 hits, unchanged from the lane.** Gained 3 questions and lost 6 — three of them answers the vector lane had at rank 1 — the same profile as the lane it replaced. 355 of 440 returned passages carried a keyword boost, so the reranker was doing plenty of work; the work was wrong.
@@ -229,8 +244,8 @@ They shipped in one rebuild, so their effects cannot be attributed separately.
 
 ## Open Questions
 
-- **Does the keyword rerank earn its place?** It ties the date boost on hits, 14 each, but with three fewer answers at rank 1 and a lower MRR. The deciding run is vector + date under the current architecture, where nothing but the vector lane nominates — the earlier 14 was measured before that was true. If it reaches 14 again, `laneWeightKeyword` should go to 0 and BM25 becomes dead weight.
-- **Can a boost rescue without displacing?** Fusion is flat enough that any boost large enough to lift a passage from rank 28 can push another off rank 1. Weighting by the vector lane's own similarity score, rather than by its rank, would let a confident rank 1 defend itself.
+- **Can a boost rescue without displacing?** Fusion is flat enough that any boost large enough to lift a passage from rank 28 can push another off rank 1 — which is why every keyword configuration traded hits rather than adding them. Weighting by the vector lane's own similarity score, rather than by its rank, would let a confident rank 1 defend itself, and is the one change that might make reranking pay.
+- **Would BM25 help on a corpus it suits?** It failed here because a filing's distinctive words are on every page of it. Where documents are heterogeneous — a manual, a paper, a report — a rare word plausibly names a passage. The code is in place at weight 0; a general question set would settle it.
 - **Why are statements still missed?** Tables raised statement hits only from 1 of 31 to 2. Either the statement chunk is not retrieved at all, or it is retrieved and diluted — 240 words of figures around one relevant row. Scoring a chunk by its best sentence rather than its average, using the embedding model already loaded, would test the second.
 - **Is the 0.5 threshold still right?** The prefixes shift the score distribution, and the threshold was not re-tuned. If hits fall while pool hits rise, suspect this first.
 - **Should the question be rewritten before searching?** Two untested techniques, both using the chat model LM Studio already has loaded: embedding a hypothetical answer instead of the question, so "quick ratio" reaches the balance sheet through the line items it implies; and decomposing a compound question into sub-questions. They would belong to a High and an Extra High depth.

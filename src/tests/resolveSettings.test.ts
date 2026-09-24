@@ -75,7 +75,7 @@ test("resolveSettings exposes the hybrid retrieval defaults", () => {
   assert.equal(settings.rerankDepth, 10);
   assert.equal(settings.rrfConstant, 60);
   assert.equal(settings.laneWeightVector, 1);
-  assert.equal(settings.laneWeightKeyword, 1);
+  assert.equal(settings.laneWeightKeyword, 0);
   assert.equal(settings.laneWeightDate, 1);
   assert.equal(settings.bm25K1, 1.2);
   assert.equal(settings.bm25B, 0.75);

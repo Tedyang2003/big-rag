@@ -19,7 +19,7 @@ test("FIXED_DEFAULTS holds the spec's fixed values", () => {
     rerankDepth: 10,
     rrfConstant: 60,
     laneWeightVector: 1,
-    laneWeightKeyword: 1,
+    laneWeightKeyword: 0,
     laneWeightDate: 1,
     bm25K1: 1.2,
     bm25B: 0.75,

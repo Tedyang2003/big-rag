@@ -21,9 +21,14 @@ export const FIXED_DEFAULTS = {
   rerankDepth: 10,
   rrfConstant: 60,
   laneWeightVector: 1,
-  // Keywords and dates are both boosts over the vector lane's candidates, so neither can
-  // flood the shortlist and both are worth what topping a lane of their own was worth.
-  laneWeightKeyword: 1,
+  // Off by default. BM25 was measured three ways on FinanceBench - nominating its own
+  // candidates, reranking with corpus idf, reranking with idf counted over the candidates -
+  // and the best of them only tied the date boost on hits while costing three rank-1 answers
+  // and a fifth of the mean reciprocal rank. By the time 50 candidates are in hand the
+  // question BM25 answers well, which document this is, is already settled. The reranker
+  // costs 1ms, so it stays available for collections where words identify a passage rather
+  // than a document; see documentation/Evaluation.md.
+  laneWeightKeyword: 0,
   laneWeightDate: 1,
   bm25K1: 1.2,
   bm25B: 0.75,
