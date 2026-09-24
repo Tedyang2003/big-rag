@@ -80,16 +80,20 @@ Indexes rebuilt 24 September 2026 with PDF table rows and the Nomic prefixes: le
 
 | Metric | Legacy | Structured | Structured + Hybrid |
 |---|---|---|---|
-| Questions scored | 88 | 88 | pending |
-| Final hit rate | 9.1% (8) | **13.6% (12)** | pending |
-| Pool hit rate (top 50) | 19.3% (17) | **29.5% (26)** | pending |
-| Answers at rank 1 | 4 | **6** | pending |
-| Median answer rank in pool | 6 | **5** | pending |
-| Mean reciprocal rank | 0.048 | **0.107** | pending |
-| Right file, wrong passage | 46.6% | 46.6% | pending |
-| Vector search, median | 4.0s | 5.0s | pending |
+| Questions scored | 88 | 88 | 88 |
+| Final hit rate | 9.1% (8) | **13.6% (12)** | 12.5% (11) |
+| Pool hit rate (top 50) | 19.3% (17) | **29.5% (26)** | 26.1% (23) |
+| Answers at rank 1 | 4 | **6** | 5 |
+| Median answer rank in pool | 6 | 5 | **3** |
+| Mean reciprocal rank | 0.048 | **0.107** | 0.101 |
+| Right file, wrong passage | 46.6% | 46.6% | 67.0% |
+| Vector search, median | 4.0s | 5.0s | 6.5s |
+
+Hybrid's pool figures are not comparable with the other two columns: at Medium the pool is the fused ranking, capped at the 30 candidates each lane contributes, while at Low it is an unthresholded top-50 vector search.
 
 **Structured indexing is ahead on every measure:** half again as many hits, half again as many answers surfaced, and more than double the mean reciprocal rank. A run takes roughly 35 minutes.
+
+**Hybrid is a wash on hits and a clear win on ordering.** It trades one hit for the best median rank recorded, 3, and more than halves wrong-document failures (29 to 12). The exchange is visible question by question: answers at pool ranks 28, 22 and 16 were pulled into the top three, while two the vector lane had at rank 1 were pushed to 3 and 5. On 88 questions a single hit is 1.1%, so the net is inside noise while the movement in both directions is large.
 
 The previous build, before tables and prefixes, gave Legacy 7 hits and Structured 9, with median ranks of 9. **Tables and prefixes moved ordering rather than recall** — structured found the same 26-odd answers but ranked them higher, so three more crossed into the five returned. They shipped together and cannot be attributed separately.
 
@@ -97,14 +101,14 @@ The previous build, before tables and prefixes, gave Legacy 7 hits and Structure
 
 **Where retrieval lands** (structured, vector-only):
 
-| Outcome | Legacy | Structured |
-|---|---|---|
-| Hit | 8 | 12 |
-| Same company, wrong document — usually another year | 32 | 29 |
-| Right document, wrong passage | 41 | 41 |
-| Different company | 7 | 6 |
+| Outcome | Legacy | Structured | + Hybrid |
+|---|---|---|---|
+| Hit | 8 | 12 | 11 |
+| Same company, wrong document — usually another year | 32 | 29 | **12** |
+| Right document, wrong passage | 41 | 41 | 59 |
+| Different company | 7 | 6 | 6 |
 
-Nine times in ten the right company is found. On the previous build, hybrid's date and keyword signals cut the wrong-document share from 37 to 16, converting most of it into right-document-wrong-passage; that has not yet been re-measured on this one.
+Nine times in ten the right company is found. Hybrid's date signal is what converts wrong-document failures into right-document ones: 29 down to 12. Which of the two extra lanes does that, and which costs the hit, has not been isolated — see the tuning table above.
 
 **Statements remain the stubborn case.** Of the 31 questions whose evidence sits in a financial statement, 2 are hits — up from 1 before tables. The gains landed elsewhere: 7 of 39 for press releases and short sections, 2 of 2 for notes to the accounts, 1 of 16 for MD&A narrative. Recovering the grid was necessary but has not been sufficient; a statement chunk is still hundreds of words of figures in which one linearised row is easily diluted.
 
@@ -154,6 +158,8 @@ Hits average 45% overlap against 33% for misses, and the effect is starkest at t
 | + dates as a boost rather than a source of candidates | **9** | **16** | **10** | **0.122** |
 
 Reading years halved wrong-document failures but doubled wrong-company ones, because "FY2023" matches every company's 2023 filing. Making dates a boost — lifting passages the other lanes already found, never introducing one — kept the gain and removed the cost.
+
+**24 Sep — hybrid re-measured on the new indexes.** 11 hits against structured's 12, pool 23 against 26, median rank 3 — the best recorded — and wrong-document failures down from 29 to 12. Fusion moves answers a long way in both directions: three came from pool ranks 28, 22 and 16 into the top three, while two at rank 1 fell to 3 and 5. Lane weights are now settable per run, so BM25 and the date boost can finally be attributed separately.
 
 **24 Sep — PDF tables and embedding prefixes measured.** Both indexes were rebuilt (legacy 91,541 chunks, structured 119,403, each about 2.4% larger because a row's separators count as words). Structured went from 9 hits to 12 and its median rank from 9 to 5; legacy from 7 to 8. Statement-evidence hits moved from 1 of 31 to 2. The improvement is in ordering, not recall.
 
