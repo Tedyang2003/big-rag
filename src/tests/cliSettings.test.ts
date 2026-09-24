@@ -66,5 +66,7 @@ test("eval retrieval settings use the fixed defaults when env vars are unset", (
     },
     laneCandidates: FIXED_DEFAULTS.laneCandidates,
     rerankDepth: FIXED_DEFAULTS.rerankDepth,
+    bm25K1: FIXED_DEFAULTS.bm25K1,
+    bm25B: FIXED_DEFAULTS.bm25B,
   });
 });

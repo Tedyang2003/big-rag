@@ -52,6 +52,8 @@ Any of these can be set per run, so a configuration differs from its neighbour b
 | `BIG_RAG_LANE_WEIGHT_VECTOR` / `_KEYWORD` / `_DATE` | 1 / **0** / 1 | **Set a signal to 0 to run without it**, which is how its contribution is attributed. Keywords ship off; see below |
 | `BIG_RAG_LANE_CANDIDATES` | 50 | Passages the vector lane puts up, and so the pool the others reorder |
 | `BIG_RAG_RERANK_DEPTH` | 10 | Of those, how many of BM25's best collect a boost. **The reranker's sharpness dial** |
+| `BIG_RAG_BM25_K1` | 1.2 | How fast a repeated term stops adding score |
+| `BIG_RAG_BM25_B` | 0.75 | How hard a long passage is penalised for its length; **0 removes the penalty entirely** |
 
 Attributing hybrid retrieval takes four runs against the same index: weights `1/0/0` should reproduce Low exactly and proves the harness, `1/1/0` isolates the keyword rerank, `1/0/1` the date boost, `1/1/1` is today's Medium.
 

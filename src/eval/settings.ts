@@ -8,11 +8,12 @@ export interface RetrievalSettings {
   chunkSize: number;
   enableContextCompaction: boolean;
   retrievalDepth: RetrievalDepth;
-  /** Above this many chunks the keyword index is skipped. Raise it to evaluate hybrid retrieval on large sets. */
-  /** Set a lane's weight to 0 to run without it, which is how a lane's contribution is attributed. */
+  /** Set a signal's weight to 0 to run without it, which is how its contribution is attributed. */
   laneWeights: { vector: number; keyword: number; date: number };
   laneCandidates: number;
   rerankDepth: number;
+  bm25K1: number;
+  bm25B: number;
 }
 
 function readNumber(env: Record<string, string | undefined>, name: string, fallback: number): number {
@@ -55,6 +56,17 @@ export function readRetrievalSettings(env: Record<string, string | undefined>): 
     throw new Error(`BIG_RAG_RETRIEVAL_DEPTH must be "low" or "medium", got "${env.BIG_RAG_RETRIEVAL_DEPTH}"`);
   }
 
+  const bm25K1 = readNumber(env, "BIG_RAG_BM25_K1", FIXED_DEFAULTS.bm25K1);
+  if (bm25K1 < 0) {
+    throw new Error(`BIG_RAG_BM25_K1 must be zero or greater, got "${env.BIG_RAG_BM25_K1}"`);
+  }
+
+  // b scales the penalty a passage pays for its length: 0 removes it entirely, 1 applies it in full.
+  const bm25B = readNumber(env, "BIG_RAG_BM25_B", FIXED_DEFAULTS.bm25B);
+  if (bm25B < 0 || bm25B > 1) {
+    throw new Error(`BIG_RAG_BM25_B must be between 0 and 1, got "${env.BIG_RAG_BM25_B}"`);
+  }
+
   return {
     retrievalLimit,
     retrievalThreshold,
@@ -68,6 +80,8 @@ export function readRetrievalSettings(env: Record<string, string | undefined>): 
     },
     laneCandidates: readNumber(env, "BIG_RAG_LANE_CANDIDATES", FIXED_DEFAULTS.laneCandidates),
     rerankDepth: readNumber(env, "BIG_RAG_RERANK_DEPTH", FIXED_DEFAULTS.rerankDepth),
+    bm25K1,
+    bm25B,
   };
 }
 
