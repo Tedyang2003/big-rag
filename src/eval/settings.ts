@@ -11,6 +11,7 @@ export interface RetrievalSettings {
   /** Set a signal's weight to 0 to run without it, which is how its contribution is attributed. */
   laneWeights: { vector: number; hyde: number; date: number };
   laneCandidates: number;
+  neighbourChunks: number;
 }
 
 function readNumber(env: Record<string, string | undefined>, name: string, fallback: number): number {
@@ -67,6 +68,7 @@ export function readRetrievalSettings(env: Record<string, string | undefined>): 
       date: readWeight(env, "BIG_RAG_LANE_WEIGHT_DATE", FIXED_DEFAULTS.laneWeightDate),
     },
     laneCandidates: readNumber(env, "BIG_RAG_LANE_CANDIDATES", FIXED_DEFAULTS.laneCandidates),
+    neighbourChunks: readNumber(env, "BIG_RAG_NEIGHBOUR_CHUNKS", FIXED_DEFAULTS.neighbourChunks),
   };
 }
 

@@ -58,6 +58,7 @@ test("retrieve searches with retrievalLimit and threshold when compaction is off
     enableContextCompaction: false,
     depth: "low",
     laneCandidates: 30,
+    neighbourChunks: 1,
     rrfConstant: 60,
     laneWeights: { vector: 1, hyde: 1, date: 1 },
   });
@@ -86,6 +87,7 @@ test("retrieve trims overlapping adjacent chunks", async () => {
     enableContextCompaction: false,
     depth: "low",
     laneCandidates: 30,
+    neighbourChunks: 1,
     rrfConstant: 60,
     laneWeights: { vector: 1, hyde: 1, date: 1 },
   });
@@ -109,6 +111,7 @@ test("retrieve widens the pool and fills the token budget when compaction is on"
     enableContextCompaction: true,
     depth: "low",
     laneCandidates: 30,
+    neighbourChunks: 1,
     rrfConstant: 60,
     laneWeights: { vector: 1, hyde: 1, date: 1 },
   });
@@ -133,6 +136,7 @@ test("retrieve collects an unthresholded diagnostic pool when requested", async 
     diagnosticPoolSize: 50,
     depth: "low",
     laneCandidates: 30,
+    neighbourChunks: 1,
     rrfConstant: 60,
     laneWeights: { vector: 1, hyde: 1, date: 1 },
   });
@@ -160,6 +164,7 @@ test("retrieve stops before searching when aborted after embedding the query", a
         abortSignal: controller.signal,
         depth: "low",
         laneCandidates: 30,
+        neighbourChunks: 1,
         rrfConstant: 60,
         laneWeights: { vector: 1, hyde: 1, date: 1 },
       }),
@@ -175,6 +180,7 @@ const LOW_OPTIONS = {
   enableContextCompaction: false,
   depth: "low" as const,
   laneCandidates: 30,
+  neighbourChunks: 1,
   rrfConstant: 60,
   laneWeights: { vector: 1, hyde: 1, date: 1 },
 };
@@ -516,4 +522,86 @@ test("low and medium never draft a hypothetical", async () => {
     );
     assert.equal(drafted, false, `${depth} should not call the model`);
   }
+});
+
+/** Four consecutive chunks of one file, so adjacency is real and the vector order is known. */
+function consecutiveResults(): SearchResult[] {
+  return [
+    makeResult({ text: "chunk three", id: "c3", chunkIndex: 3, filePath: "/docs/f.pdf" }),
+    makeResult({ text: "chunk one", id: "c1", chunkIndex: 1, filePath: "/docs/f.pdf" }),
+    makeResult({ text: "chunk two", id: "c2", chunkIndex: 2, filePath: "/docs/f.pdf" }),
+    makeResult({ text: "chunk four", id: "c4", chunkIndex: 4, filePath: "/docs/f.pdf" }),
+  ];
+}
+
+test("a winner is returned with the neighbours that are already candidates", async () => {
+  const { deps } = makeDeps(consecutiveResults());
+  const result = await retrieve(
+    "a question",
+    { ...deps, catalog: fakeCatalog() },
+    { ...LOW_OPTIONS, depth: "medium", retrievalLimit: 1 },
+  );
+
+  // chunk three wins; chunks two and four are candidates beside it, so all three come back.
+  assert.deepEqual(result.passages.map((passage) => passage.chunkIndex).sort((a, b) => a - b), [2, 3, 4]);
+});
+
+test("expansion never reaches outside the candidates or into another file", async () => {
+  const { deps } = makeDeps([
+    makeResult({ text: "winner", id: "w", chunkIndex: 7, filePath: "/docs/f.pdf" }),
+    makeResult({ text: "same index, other file", id: "o", chunkIndex: 8, filePath: "/docs/other.pdf" }),
+  ]);
+  const result = await retrieve(
+    "a question",
+    { ...deps, catalog: fakeCatalog() },
+    { ...LOW_OPTIONS, depth: "medium", retrievalLimit: 1 },
+  );
+
+  // chunk 8 of another file is adjacent by number only, and chunk 6 of this file was never a
+  // candidate, so the winner comes back alone rather than dragging either in.
+  assert.deepEqual(result.passages.map((passage) => passage.text), ["winner"]);
+});
+
+test("a passage already chosen is not added twice by its neighbour", async () => {
+  const { deps } = makeDeps(consecutiveResults());
+  const result = await retrieve(
+    "a question",
+    { ...deps, catalog: fakeCatalog() },
+    { ...LOW_OPTIONS, depth: "medium", retrievalLimit: 4 },
+  );
+
+  const indices = result.passages.map((passage) => passage.chunkIndex).sort((a, b) => a - b);
+  assert.deepEqual(indices, [1, 2, 3, 4], "each chunk appears once");
+});
+
+test("neighbourChunks 0 returns exactly the winners", async () => {
+  const { deps } = makeDeps(consecutiveResults());
+  const result = await retrieve(
+    "a question",
+    { ...deps, catalog: fakeCatalog() },
+    { ...LOW_OPTIONS, depth: "medium", retrievalLimit: 1, neighbourChunks: 0 },
+  );
+
+  assert.deepEqual(result.passages.map((passage) => passage.text), ["chunk three"]);
+});
+
+test("an evidence span left incomplete by the limit is completed by expansion", async () => {
+  // The case from the report: evidence runs across chunks 2, 3 and 4 while only two passages
+  // are returned, so chunk 4 was missing and the answer did not count.
+  const { deps } = makeDeps([
+    makeResult({ text: "two", id: "c2", chunkIndex: 2, filePath: "/docs/f.pdf" }),
+    makeResult({ text: "three", id: "c3", chunkIndex: 3, filePath: "/docs/f.pdf" }),
+    makeResult({ text: "four", id: "c4", chunkIndex: 4, filePath: "/docs/f.pdf" }),
+    makeResult({ text: "unrelated", id: "z", chunkIndex: 145, filePath: "/docs/f.pdf" }),
+  ]);
+  const result = await retrieve(
+    "a question",
+    { ...deps, catalog: fakeCatalog() },
+    { ...LOW_OPTIONS, depth: "medium", retrievalLimit: 2 },
+  );
+
+  assert.ok(
+    [2, 3, 4].every((index) => result.passages.some((passage) => passage.chunkIndex === index)),
+    "the whole span reaches the model",
+  );
 });

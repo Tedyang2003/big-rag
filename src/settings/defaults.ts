@@ -15,6 +15,10 @@ export const FIXED_DEFAULTS = {
   enableContextCompaction: false,
   laneCandidates: 50,
   rrfConstant: 60,
+  // A passage that continues into the next chunk is returned with it, when that chunk is already
+  // a candidate. Worth 7 of 88 questions on FinanceBench, where four answers ran past the end of
+  // the chunk chosen and three sat beside it. See documentation/Evaluation.md.
+  neighbourChunks: 1,
   laneWeightVector: 1,
   laneWeightHyde: 1,
   laneWeightDate: 1,

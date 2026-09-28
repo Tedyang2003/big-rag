@@ -151,6 +151,7 @@ These values are fixed in the plugin (`src/settings/defaults.ts`) and have no se
 | Structured indexing | on | `BIG_RAG_STRUCTURED_INDEXING` |
 | Context compaction | off | `BIG_RAG_ENABLE_COMPACTION` (evaluation) |
 | Candidates the vector lane puts up at Medium | 50 | `BIG_RAG_LANE_CANDIDATES` (evaluation) |
+| Chunks either side of a passage returned with it | 1 | `BIG_RAG_NEIGHBOUR_CHUNKS` (evaluation) |
 | Rank fusion constant | 60 | none |
 | Weights (meaning / drafted answer / date boost) | 1 / 1 / 1 | `BIG_RAG_LANE_WEIGHT_*` (evaluation) |
 | Hypothetical drafting timeout | 10s | none |

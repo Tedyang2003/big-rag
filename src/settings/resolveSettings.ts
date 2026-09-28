@@ -20,6 +20,7 @@ export interface ResolvedSettings {
   retrievalDepth: RetrievalDepth;
   laneCandidates: number;
   rrfConstant: number;
+  neighbourChunks: number;
   laneWeightVector: number;
   laneWeightHyde: number;
   laneWeightDate: number;

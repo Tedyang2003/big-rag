@@ -57,6 +57,7 @@ Any of these can be set per run, so a configuration differs from its neighbour b
 | `BIG_RAG_LANE_WEIGHT_VECTOR` / `_HYDE` / `_DATE` | 1 / 1 / 1 | **Set a signal to 0 to run without it**, which is how its contribution is attributed |
 | `BIG_RAG_REGENERATE_HYPOTHETICALS` | `false` | Redraft rather than reuse `eval/hypotheticals.json` |
 | `BIG_RAG_LANE_CANDIDATES` | 50 | Passages the vector lane puts up, and so the pool the others reorder |
+| `BIG_RAG_NEIGHBOUR_CHUNKS` | 1 | Chunks either side of a returned passage to return with it; 0 disables |
 
 Attributing hybrid retrieval takes two runs against the same index: weight `1/0` should reproduce Low exactly and proves the harness, `1/1` is today's Medium. At High, `_HYDE=0` must reproduce Medium exactly, which is the same harness check one level up.
 

@@ -75,6 +75,7 @@ export function formatMetricsTable(metrics: EvalMetrics, diagnosticPoolSize = 50
     ["Right file, wrong passage", percent(metrics.rightFileWrongPassage)],
     ["Median answer rank in pool", metrics.medianPoolRank === null ? "n/a" : String(metrics.medianPoolRank)],
     ["Mean reciprocal rank", metrics.meanReciprocalRank.toFixed(3)],
+    ["Mean passages returned", metrics.meanPassagesReturned.toFixed(1)],
   ];
   const width = Math.max(...rows.map(([label]) => label.length)) + 2;
   const lines = rows.map(([label, value]) => `${label.padEnd(width)}${value}`);

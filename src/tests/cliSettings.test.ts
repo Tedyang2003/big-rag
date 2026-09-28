@@ -17,6 +17,7 @@ test("FIXED_DEFAULTS holds the spec's fixed values", () => {
     enableContextCompaction: false,
     laneCandidates: 50,
     rrfConstant: 60,
+    neighbourChunks: 1,
     laneWeightVector: 1,
     laneWeightHyde: 1,
     laneWeightDate: 1,
@@ -63,5 +64,6 @@ test("eval retrieval settings use the fixed defaults when env vars are unset", (
       date: FIXED_DEFAULTS.laneWeightDate,
     },
     laneCandidates: FIXED_DEFAULTS.laneCandidates,
+    neighbourChunks: FIXED_DEFAULTS.neighbourChunks,
   });
 });

@@ -42,6 +42,8 @@ export interface EvalMetrics {
   rightFileWrongPassage: number;
   medianPoolRank: number | null;
   meanReciprocalRank: number;
+  /** Mean passages handed to the model. Neighbour expansion buys hits by spending these. */
+  meanPassagesReturned: number;
   latency: Record<string, { median: number; p95: number }>;
 }
 
@@ -153,6 +155,7 @@ export function aggregateMetrics(results: QuestionResult[]): EvalMetrics {
     rightFileWrongPassage: rate(scored.filter((r) => r.rightFileWrongPassage).length),
     medianPoolRank: ranks.length === 0 ? null : median(ranks),
     meanReciprocalRank: rate(ranks.reduce((sum, rank) => sum + 1 / rank, 0)),
+    meanPassagesReturned: rate(scored.reduce((sum, result) => sum + result.returned.length, 0)),
     latency,
   };
 }

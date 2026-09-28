@@ -68,6 +68,11 @@ export interface RetrieveOptions {
   /** Passages each lane puts up for fusion. */
   laneCandidates: number;
   rrfConstant: number;
+  /**
+   * Chunks either side of a winner to return with it, when they are already among the
+   * candidates. 0 returns winners alone.
+   */
+  neighbourChunks: number;
   laneWeights: { vector: number; hyde: number; date: number };
 }
 
@@ -110,6 +115,45 @@ async function compactResultsToBudget(
   }
 
   return compacted;
+}
+
+/**
+ * Adds the chunks either side of each chosen passage, when they are already among the
+ * candidates, so a passage that continues into its neighbour is returned whole.
+ *
+ * Measured on FinanceBench: of the answers found but not returned, four were evidence whose span
+ * continued into a chunk left behind and three were chunks whose neighbour had been chosen
+ * instead. Nothing is fetched - a neighbour that no lane retrieved stays absent - so this costs
+ * no search and only the tokens of the chunks it adds. Each addition keeps its neighbour's score
+ * so it sorts beside it, and `trimOverlappingChunks` then removes any words they share.
+ */
+function withNeighbours(
+  chosen: SearchResult[],
+  candidates: Map<string, SearchResult>,
+  neighbourChunks: number,
+): SearchResult[] {
+  if (neighbourChunks <= 0 || chosen.length === 0) return chosen;
+
+  const byPosition = new Map<string, SearchResult>();
+  for (const candidate of candidates.values()) {
+    byPosition.set(`${candidate.filePath}::${candidate.chunkIndex}`, candidate);
+  }
+
+  const out: SearchResult[] = [];
+  const taken = new Set(chosen.map((result) => `${result.filePath}::${result.chunkIndex}`));
+  for (const result of chosen) {
+    out.push(result);
+    for (let step = 1; step <= neighbourChunks; step++) {
+      for (const index of [result.chunkIndex - step, result.chunkIndex + step]) {
+        const key = `${result.filePath}::${index}`;
+        const neighbour = byPosition.get(key);
+        if (!neighbour || taken.has(key)) continue;
+        taken.add(key);
+        out.push({ ...neighbour, score: result.score });
+      }
+    }
+  }
+  return out;
 }
 
 /** Runs a ranking stage, returning an empty list if it fails so one stage cannot fail the query. */
@@ -248,12 +292,14 @@ export async function retrieve(
     const winners = fused.slice(0, winnerCount);
     winnerLanesByKey = new Map(winners.map((winner) => [winner.key, winner.lanes]));
 
-    ranked = winners
+    const chosen = winners
       .map((winner) => {
         const source = resolvedByKey.get(winner.key);
         return source ? { ...source, score: winner.score } : null;
       })
       .filter((result): result is SearchResult => result !== null);
+
+    ranked = withNeighbours(chosen, resolvedByKey, options.neighbourChunks);
     options.abortSignal?.throwIfAborted();
   } else {
     laneCounts.vector = Math.min(searched.length, options.retrievalLimit);

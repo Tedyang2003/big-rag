@@ -51,6 +51,8 @@ An empty index is always filled automatically on the first message, whatever Rei
 Controls how the plugin searches.
 
 - **Medium** (default): searches by meaning, then lifts passages whose date matches one your question names
+A passage that runs on into the next chunk is returned together with it, so an answer split across a boundary arrives whole rather than cut in half.
+
 - **High**: also asks the model you have loaded to draft a likely answer, and searches for that too — about half a second and one model call per message. It finds passages worded unlike your question, which mostly means tables and figures. The draft is used only to search with: it is never shown to you, never cited, and never given to the model as context, because its specifics are invented
 - **Low**: searches by meaning only, as versions before 1.5 did
 

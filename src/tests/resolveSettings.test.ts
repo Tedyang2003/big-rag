@@ -73,6 +73,7 @@ test("resolveSettings exposes the hybrid retrieval defaults", () => {
   const settings = resolveSettings(reader({ documentsDirectory: "/d", vectorStoreDirectory: "/v" }), reader({}));
   assert.equal(settings.laneCandidates, 50);
   assert.equal(settings.rrfConstant, 60);
+  assert.equal(settings.neighbourChunks, 1);
   assert.equal(settings.laneWeightVector, 1);
   assert.equal(settings.laneWeightHyde, 1);
   assert.equal(settings.laneWeightDate, 1);

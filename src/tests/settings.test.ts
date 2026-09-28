@@ -16,6 +16,7 @@ test("readRetrievalSettings uses the plugin config defaults when env vars are un
       date: FIXED_DEFAULTS.laneWeightDate,
     },
     laneCandidates: FIXED_DEFAULTS.laneCandidates,
+    neighbourChunks: FIXED_DEFAULTS.neighbourChunks,
   });
 });
 
@@ -34,7 +35,7 @@ test("readRetrievalSettings reads overrides from env vars", () => {
       BIG_RAG_CHUNK_SIZE: "1024",
       BIG_RAG_ENABLE_COMPACTION: "TRUE",
     }),
-    { retrievalLimit: 8, retrievalThreshold: 0.35, chunkSize: 1024, enableContextCompaction: true, retrievalDepth: "medium", laneWeights: { vector: FIXED_DEFAULTS.laneWeightVector, hyde: FIXED_DEFAULTS.laneWeightHyde, date: FIXED_DEFAULTS.laneWeightDate }, laneCandidates: FIXED_DEFAULTS.laneCandidates },
+    { retrievalLimit: 8, retrievalThreshold: 0.35, chunkSize: 1024, enableContextCompaction: true, retrievalDepth: "medium", laneWeights: { vector: FIXED_DEFAULTS.laneWeightVector, hyde: FIXED_DEFAULTS.laneWeightHyde, date: FIXED_DEFAULTS.laneWeightDate }, laneCandidates: FIXED_DEFAULTS.laneCandidates, neighbourChunks: FIXED_DEFAULTS.neighbourChunks },
   );
 });
 
