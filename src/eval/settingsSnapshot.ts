@@ -10,6 +10,8 @@ export interface SettingsSnapshotArgs {
   totalChunks: number;
   questionsFile: string;
   questionSet: QuestionSet;
+  /** Present only at High depth: the model that drafted the hypotheticals searched with. */
+  hypotheticalGenerator?: string;
 }
 
 /** Settings recorded in an eval run report, including the index format the store was built with. */
@@ -25,5 +27,6 @@ export async function buildSettingsSnapshot(args: SettingsSnapshotArgs): Promise
     questionsFile: args.questionsFile,
     questionCount: args.questionSet.questions.length,
     questionGenerator: args.questionSet.generator,
+    ...(args.hypotheticalGenerator ? { hypotheticalGenerator: args.hypotheticalGenerator } : {}),
   };
 }

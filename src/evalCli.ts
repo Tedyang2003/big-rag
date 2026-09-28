@@ -14,6 +14,13 @@ import { isPathIgnored } from "./eval/gitIgnore";
 import { locateEvidence } from "./eval/evidencePresence";
 import { FIXED_DEFAULTS } from "./settings/defaults";
 import { getCatalog } from "./retrieval/catalogManager";
+import { hypotheticalFor } from "./retrieval/hypothetical";
+import {
+  HYPOTHETICALS_FILENAME,
+  hypotheticalStore,
+  loadHypotheticals,
+  saveHypotheticals,
+} from "./eval/hypotheticalCache";
 
 const USAGE =
   "Usage:\n" +
@@ -88,6 +95,40 @@ async function runRun(client: LMStudioClient, vectorStore: VectorStore, document
   }
 
   const settings = readRetrievalSettings(process.env);
+
+  // High drafts a passage per question before searching. Drafting is not deterministic, so the
+  // drafts are cached: otherwise two runs of one configuration differ by the generator's
+  // variance rather than by the change under test, and each pays for generations already made.
+  const hypotheticalsPath = path.join(EVAL_DIR, HYPOTHETICALS_FILENAME);
+  let hypotheticals: ReturnType<typeof hypotheticalStore> | null = null;
+  let generatorModel = "";
+  if (settings.retrievalDepth === "high") {
+    const modelKey = process.env.BIG_RAG_EVAL_LLM;
+    const llm = await (modelKey ? client.llm.model(modelKey) : client.llm.model()).catch((error: unknown) => {
+      throw new Error(
+        `High depth needs an LLM to draft hypothetical answers ` +
+          `(${modelKey ? `BIG_RAG_EVAL_LLM=${modelKey}` : "no model loaded in LM Studio"}): ` +
+          (error instanceof Error ? error.message : String(error)),
+      );
+    });
+    generatorModel = (await llm.getModelInfo()).identifier;
+    const regenerate = (process.env.BIG_RAG_REGENERATE_HYPOTHETICALS ?? "").trim().toLowerCase() === "true";
+    const cached = await loadHypotheticals(hypotheticalsPath, generatorModel, regenerate);
+    console.log(
+      `[BigRAG Eval] Drafting hypothetical answers with ${generatorModel} ` +
+        `(${Object.keys(cached).length} already cached${regenerate ? ", regenerating anyway" : ""}).`,
+    );
+    hypotheticals = hypotheticalStore(cached, (question) =>
+      hypotheticalFor(question, {
+        generate: async (prompt) => (await llm.respond(prompt)).content,
+        timeoutMs: FIXED_DEFAULTS.hypotheticalTimeoutMs,
+      }),
+    );
+  }
+
+  // runEval passes the question's text, not its id; the cache is keyed by id so a reworded
+  // question set cannot silently reuse the wrong draft.
+  const idByQuestion = new Map(questionSet.questions.map((question) => [question.question, question.id]));
   const diagnosticPoolSize = Math.max(
     MIN_DIAGNOSTIC_POOL_SIZE,
     settings.retrievalLimit * (settings.enableContextCompaction ? CONTEXT_COMPACTION_POOL_MULTIPLIER : 1),
@@ -100,6 +141,7 @@ async function runRun(client: LMStudioClient, vectorStore: VectorStore, document
     totalChunks: stats.totalChunks,
     questionsFile: questionsPath,
     questionSet,
+    hypotheticalGenerator: generatorModel || undefined,
   });
 
   console.log(
@@ -125,6 +167,9 @@ async function runRun(client: LMStudioClient, vectorStore: VectorStore, document
               embeddingModel.embed(sentences.map((sentence) => documentText(embeddingModelId, sentence))),
             countTokens: (text) => embeddingModel.countTokens(text),
             catalog: catalogOutcome.catalog,
+            hypothetical: hypotheticals
+              ? (question) => hypotheticals!.forQuestion(idByQuestion.get(question) ?? question, question)
+              : undefined,
           },
           {
             ...settings,
@@ -155,6 +200,14 @@ async function runRun(client: LMStudioClient, vectorStore: VectorStore, document
     },
     { questionSet, documentsDir, reportsDir: path.join(EVAL_DIR, "reports"), settingsSnapshot },
   );
+
+  if (hypotheticals) {
+    await saveHypotheticals(hypotheticalsPath, generatorModel, hypotheticals.byQuestion);
+    console.log(
+      `[BigRAG Eval] Hypotheticals: ${hypotheticals.hits} reused, ${hypotheticals.misses} generated, ` +
+        `saved to ${hypotheticalsPath}`,
+    );
+  }
 
   console.log(`\n${formatMetricsTable(report.metrics, diagnosticPoolSize)}\n`);
   console.log(`[BigRAG Eval] Full report: ${reportPath}`);
