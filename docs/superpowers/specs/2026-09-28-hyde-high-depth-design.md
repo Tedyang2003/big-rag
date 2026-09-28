@@ -1,7 +1,7 @@
 # HyDE at a High Retrieval Depth
 
 Date: 2026-09-28
-Status: Implemented 28 September 2026; not yet measured end to end
+Status: Implemented and measured 28 September 2026 — 16 hits against Medium's 14, pool 32 against 26
 
 ## Problem
 
