@@ -40,6 +40,7 @@ Each run prints a summary and writes a full report to `eval\reports\run-<timesta
 | Legacy Chunking | `eval\vdbs\legacy` | `false` | `low` | Fixed-size chunks, vector search only |
 | Structured | `eval\vdbs\structured` | `true` | `low` | Section-aware chunks with file, date and section headers |
 | Structured + Hybrid | `eval\vdbs\structured` | `true` | `medium` | Keyword and date signals reordering the vector search's passages |
+| Structured + HyDE | `eval\vdbs\structured` | `true` | `high` | A drafted answer searched alongside the question |
 
 ### Tuning a Run
 
@@ -49,10 +50,13 @@ Any of these can be set per run, so a configuration differs from its neighbour b
 |---|---|---|
 | `BIG_RAG_RETRIEVAL_LIMIT` | 5 | Passages returned to the model |
 | `BIG_RAG_RETRIEVAL_THRESHOLD` | 0.5 | Minimum similarity for a passage to be returned |
-| `BIG_RAG_LANE_WEIGHT_VECTOR` / `_DATE` | 1 / 1 | **Set a signal to 0 to run without it**, which is how its contribution is attributed |
+| `BIG_RAG_LANE_WEIGHT_VECTOR` / `_HYDE` / `_DATE` | 1 / 1 / 1 | **Set a signal to 0 to run without it**, which is how its contribution is attributed |
+| `BIG_RAG_REGENERATE_HYPOTHETICALS` | `false` | Redraft rather than reuse `eval/hypotheticals.json` |
 | `BIG_RAG_LANE_CANDIDATES` | 50 | Passages the vector lane puts up, and so the pool the others reorder |
 
-Attributing hybrid retrieval takes two runs against the same index: weight `1/0` should reproduce Low exactly and proves the harness, `1/1` is today's Medium.
+Attributing hybrid retrieval takes two runs against the same index: weight `1/0` should reproduce Low exactly and proves the harness, `1/1` is today's Medium. At High, `_HYDE=0` must reproduce Medium exactly, which is the same harness check one level up.
+
+**High runs reuse their drafts.** The first writes `eval/hypotheticals.json`, one passage per question id, tagged with the model that wrote it; later runs with that model reuse it. Drafting is not deterministic, so without this two runs of one configuration differ by the generator's variance rather than by the change being measured.
 
 Held constant: `nomic-embed-text-v1.5` embeddings, 512-token chunks (100 overlap, legacy only), 5 passages returned, 0.5 threshold, compaction off, a 50-passage diagnostic pool. The vector lane puts up 50 candidates, RRF constant 60. Full list in [CLI.md](CLI.md).
 

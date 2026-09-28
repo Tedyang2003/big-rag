@@ -51,6 +51,7 @@ An empty index is always filled automatically on the first message, whatever Rei
 Controls how the plugin searches.
 
 - **Medium** (default): searches by meaning, then lifts passages whose date matches one your question names
+- **High**: also asks the model you have loaded to draft a likely answer, and searches for that too — about half a second and one model call per message. It finds passages worded unlike your question, which mostly means tables and figures. The draft is used only to search with: it is never shown to you, never cited, and never given to the model as context, because its specifics are invented
 - **Low**: searches by meaning only, as versions before 1.5 did
 
 Neither level makes extra model calls. The first Medium search builds a small search index next to your vector store, `.big-rag-catalog.json`, and shows its progress. It is rebuilt automatically when the number of indexed chunks changes and is safe to delete. Keywords and dates reorder the passages the meaning search found rather than adding their own, so they work at any collection size.
@@ -59,11 +60,11 @@ Neither level makes extra model calls. The first Medium search builds a small se
 
 #### Status Lines
 
-While it works, the plugin shows short status lines above the answer: *Using Big RAG* on first use, indexing progress with file counts, *Preparing search index…* the first time Medium runs, then the search result, for example *Retrieved 5 relevant passages (meaning 5, dates 2, dates: 20260908)*. A passage counts once for each way it matched.
+While it works, the plugin shows short status lines above the answer: *Using Big RAG* on first use, indexing progress with file counts, *Preparing search index…* the first time Medium runs, then the search result, for example *Retrieved 5 relevant passages (meaning 5, dates 2, dates: 20260908)*. A passage counts once for each way it matched. At High the line also reports *likely wording*, and a *Drafting a likely answer…* status appears first.
 
 #### Citations
 
-Each retrieved passage appears in LM Studio's citation panel. At Medium depth it is labelled with its rank and how it matched, such as `match #1 via meaning, dates`. At Low depth it shows the similarity score instead.
+Each retrieved passage appears in LM Studio's citation panel. At Medium and High depth it is labelled with its rank and how it matched, such as `match #1 via meaning, dates` or `match #2 via likely wording`. At Low depth it shows the similarity score instead.
 
 ## How Documents Are Indexed
 

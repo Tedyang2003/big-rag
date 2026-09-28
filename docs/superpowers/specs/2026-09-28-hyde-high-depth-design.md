@@ -1,7 +1,7 @@
 # HyDE at a High Retrieval Depth
 
 Date: 2026-09-28
-Status: Approved design, not yet implemented
+Status: Implemented 28 September 2026; not yet measured end to end
 
 ## Problem
 

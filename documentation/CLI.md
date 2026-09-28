@@ -123,7 +123,8 @@ Only compare runs that used the same question set, and for generated sets, the s
 | Variable | Default | Purpose |
 |---|---|---|
 | `BIG_RAG_DOCS_DIR` / `BIG_RAG_DB_DIR` | none | Must match the documents and index being evaluated |
-| `BIG_RAG_RETRIEVAL_DEPTH` | `medium` | `low` or `medium`; recorded in each report |
+| `BIG_RAG_RETRIEVAL_DEPTH` | `medium` | `low`, `medium` or `high`; recorded in each report |
+| `BIG_RAG_REGENERATE_HYPOTHETICALS` | `false` | At High depth, redraft every hypothetical instead of reusing `eval/hypotheticals.json` |
 | `BIG_RAG_EVAL_FILE` | `eval/questions.json` | Question set to run |
 | `BIG_RAG_EVAL_COUNT` | `30` | Questions to generate |
 | `BIG_RAG_EVAL_SEED` | `42` | Seed for choosing which chunks to generate questions from |
@@ -151,4 +152,5 @@ These values are fixed in the plugin (`src/settings/defaults.ts`) and have no se
 | Context compaction | off | `BIG_RAG_ENABLE_COMPACTION` (evaluation) |
 | Candidates the vector lane puts up at Medium | 50 | `BIG_RAG_LANE_CANDIDATES` (evaluation) |
 | Rank fusion constant | 60 | none |
-| Weights (meaning / date boost) | 1 / 1 | `BIG_RAG_LANE_WEIGHT_*` (evaluation) |
+| Weights (meaning / drafted answer / date boost) | 1 / 1 / 1 | `BIG_RAG_LANE_WEIGHT_*` (evaluation) |
+| Hypothetical drafting timeout | 10s | none |

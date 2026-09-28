@@ -38,7 +38,7 @@ Chunks follow the document's own sections, and each one carries a header naming 
 
 #### Hybrid Retrieval
 
-At the default *Medium* retrieval depth, each question is searched by meaning, and any passage whose date matches one the question names is lifted. *Low* depth searches by meaning only. Neither adds model calls.
+At the default *Medium* retrieval depth, each question is searched by meaning, and any passage whose date matches one the question names is lifted. *Low* depth searches by meaning only. Neither adds model calls. *High* depth also asks the loaded model to draft a likely answer and searches for that alongside the question, which reaches passages worded unlike the question — one model call and about half a second per message.
 
 #### Citations
 
