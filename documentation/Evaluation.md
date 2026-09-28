@@ -211,10 +211,9 @@ surfaces 32 answers and returns 16. The gap looks like a filter problem and most
 Scoring joins adjacent chunks into one passage, so that evidence straddling a boundary counts
 as found when both chunks are retrieved. That join is applied to the 50-deep pool as well as to
 the 5 returned, and neighbours are almost always both present in 50. So a pool rank of 1 often
-belongs to a *run* of chunks, only one of which reaches the top five.
-
-All four of the found-but-unreturned answers ranked inside the top five show it: the evidence
-chunk itself was never returned, its neighbour was.
+belongs to a *run* of chunks, only one of which reaches the top five. All four found-but-
+unreturned answers ranked inside the top five show it: the evidence chunk itself was never
+returned, its neighbour was.
 
 | Pool rank | Evidence at | Returned from that file |
 |---|---|---|
@@ -223,15 +222,34 @@ chunk itself was never returned, its neighbour was.
 | 3 | chunks 133–135 | 115, **136**, 114 |
 | 1 | chunks 2–4 | **3**, **2**, 145, 8 |
 
-The last is the clearest: chunks 2 and 3 were both returned and it is still not a hit, because
-the evidence runs into chunk 4. **32 of the 88 questions have evidence spanning more than one
+The last is clearest: chunks 2 and 3 were both returned and it is still not a hit, because the
+evidence runs into chunk 4. **32 of the 88 questions have evidence spanning more than one
 chunk**, so this is structural.
 
-Two consequences. **The threshold is not the constraint** — measured directly, dropping it from
-0.5 to 0.35 changed nothing at all, every metric identical to four decimal places. And
-`filterLoss` overstates what a longer result list would recover, because part of it is the pool
-reconstructing evidence that five passages cannot. What is left is a ranking failure in new
-clothing: retrieval puts chunk 116 above chunk 115 when the answer is in 115.
+**The threshold is not the constraint.** Measured directly, dropping it from 0.5 to 0.35
+changed nothing — every metric identical. **The passage limit is**, and its ceiling is now
+known:
+
+| | Hits | Filter loss |
+|---|---|---|
+| High, 5 passages | 16 | 18.2% |
+| High, 10 passages | **23** | 10.2% |
+
+Seven answers sit at ranks 6 to 10. Ten 512-token passages is most of an 8,192-token window, so
+this measures headroom rather than offering a setting. Sorting the 72 misses at 5 passages shows
+where that headroom is, and where it runs out:
+
+| | |
+|---|---|
+| Evidence partly returned, rest of its span missing | 4 |
+| Evidence not returned but a neighbour was | 3 |
+| **Nothing from the evidence's span or beside it** | **65** |
+
+Returning the neighbours of what is already returned reaches the same 23 as ten passages, for
+one or two extra chunks rather than five, and hands the model contiguous text instead of
+fragments. But the ceiling either way is 23, because **only 32 answers are reachable at all**.
+Two thirds of misses have nothing from the evidence's neighbourhood in the results, and no
+filter, limit or re-ranking touches them. Recall is the whole remaining problem.
 
 ### Rewriting the Question: HyDE
 
@@ -281,6 +299,8 @@ at +3, a leaking control run at +4, and this at +6.
 ## Run Log
 
 Newest first.
+
+**28 Sep — returning ten passages instead of five gives 23 hits.** Filter loss falls from 18.2% to 10.2%, so seven answers were sitting at ranks 6 to 10. It is a measurement, not a setting: ten 512-token passages is most of an 8,192-token window. Returning the neighbours of the five already chosen reaches the same 23 for one or two extra chunks, since 4 of the 7 are incomplete spans and 3 are chunks whose neighbour was returned instead. Both stop at 23: 65 of the 72 misses have nothing from the evidence's neighbourhood returned at all.
 
 **28 Sep — the threshold is settled, and filter loss means less than it looks.** Dropping `BIG_RAG_RETRIEVAL_THRESHOLD` from 0.5 to 0.35 at High changed nothing: 16 hits, pool 32, MRR 0.155, every metric identical. The four found-but-unreturned answers ranked inside the top five turned out not to be threshold casualties at all — in each one the evidence chunk was never returned and its neighbour was, and their pool rank came from the 50-deep pool holding enough adjacent chunks to reconstruct the evidence. See the analysis above.
 
