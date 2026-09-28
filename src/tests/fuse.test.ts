@@ -33,10 +33,15 @@ test("lane weight scales that lane's contribution", () => {
   assert.equal(weighted[0].key, "a");
 });
 
-test("a zero-weight lane contributes nothing but still records the lane", () => {
-  const fused = fuseLanes([lane("vector", ["a"]), lane("hyde", ["a"], 0)], 60);
+test("a zero-weight lane is absent, not merely silent", () => {
+  const fused = fuseLanes([lane("vector", ["a"]), lane("hyde", ["a", "b"], 0)], 60);
   assert.ok(Math.abs(fused[0].score - 1 / 61) < 1e-9);
-  assert.deepEqual(fused[0].lanes, ["vector", "hyde"]);
+  assert.deepEqual(fused[0].lanes, ["vector"], "the lane cast no vote, so it is not attributed");
+  assert.deepEqual(
+    fused.map((entry) => entry.key),
+    ["a"],
+    "a chunk only the zeroed lane found must not enter the ranking, where a boost could lift it",
+  );
 });
 
 test("ties keep the order the lanes listed them in", () => {

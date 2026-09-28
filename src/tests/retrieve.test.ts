@@ -445,24 +445,42 @@ test("high with no hypothetical produces exactly what medium produces", async ()
 });
 
 test("a hyde weight of zero reproduces medium even when a hypothetical was drafted", async () => {
+  // The failure this guards: a zeroed lane that still nominates puts its chunks in the
+  // ranking at no score, where the date boost lifts them into the results anyway.
   const byVector = [vectorResults(), [hydeOnlyResult()]];
+  const options = { ...LOW_OPTIONS, retrievalLimit: 3 };
+  const nowDate = () => new Date(2026, 8, 16);
+  // chunk-9 is the hyde-only passage, and it is the one the question's date matches.
+  const catalog = () => fakeCatalog({ chunksForRanges: () => [9] });
 
-  const weighted = await retrieve(
-    "what were capital expenditures",
+  const zeroed = await retrieve(
+    "bus collision on 8 Sep 2026",
     {
       ...makeDeps(vectorResults(), byVector).deps,
-      catalog: fakeCatalog(),
+      catalog: catalog(),
+      nowDate,
       hypothetical: async () => "a draft",
     },
-    { ...LOW_OPTIONS, depth: "high", retrievalLimit: 3, laneWeights: { vector: 1, hyde: 0, date: 1 } },
+    { ...options, depth: "high", diagnosticPoolSize: 10, laneWeights: { vector: 1, hyde: 0, date: 1 } },
   );
   const medium = await retrieve(
-    "what were capital expenditures",
-    { ...makeDeps(vectorResults()).deps, catalog: fakeCatalog() },
-    { ...LOW_OPTIONS, depth: "medium", retrievalLimit: 3 },
+    "bus collision on 8 Sep 2026",
+    { ...makeDeps(vectorResults()).deps, catalog: catalog(), nowDate },
+    { ...options, depth: "medium", diagnosticPoolSize: 10 },
   );
 
-  assert.deepEqual(weighted.passages.map((p) => p.text), medium.passages.map((p) => p.text));
+  assert.deepEqual(zeroed.passages.map((p) => p.text), medium.passages.map((p) => p.text));
+  assert.deepEqual(zeroed.passageLanes, medium.passageLanes);
+  assert.deepEqual(zeroed.laneCounts, medium.laneCounts);
+  // The pool too: a nomination that only shows up there still moves the pool metrics.
+  assert.deepEqual(
+    zeroed.diagnosticPool.map((p) => p.id),
+    medium.diagnosticPool.map((p) => p.id),
+  );
+  assert.ok(
+    !zeroed.passages.some((p) => p.id === "chunk-9") && !zeroed.diagnosticPool.some((p) => p.id === "chunk-9"),
+    "a chunk only the zeroed lane found must not appear anywhere",
+  );
 });
 
 test("the hypothetical's own text never reaches a returned passage", async () => {
