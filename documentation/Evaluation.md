@@ -8,6 +8,41 @@ How we measure retrieval objectively when the pipeline changes: same questions, 
 
 It is a hard and unrepresentative corpus: table-heavy filings, around ten near-identical documents per company, and half the questions need arithmetic rather than lookup. Read every number below with that in mind.
 
+## A Second Dataset: QASPER
+
+FinanceBench measures financial reasoning as much as retrieval, and its ten near-identical
+filings per company are unlike the manuals, papers and reports this plugin is meant for. Every
+conclusion here — including that keyword scoring does not work — may be a fact about that corpus
+rather than about retrieval.
+
+[QASPER](https://allenai.org/data/qasper) is 1,585 NLP papers with questions written by
+researchers who had read only the abstract, answered by others who marked the paragraphs holding
+the answer. It is a better instrument in one specific way: the documents are written from the
+same paragraphs the evidence comes from, so evidence matches the index verbatim and almost
+nothing is unscorable, where FinanceBench loses 62 of 150 questions to extraction differences.
+
+```powershell
+# Download qasper-dev-v0.3.json from allenai.org/data/qasper, then:
+node scripts/qasper-to-eval.mjs path	o\qasper-dev-v0.3.json --papers 300
+
+npm run index:cli -- .\eval\documents\qasper .\evaldbs\qasper
+$env:BIG_RAG_DOCS_DIR = "D:\...\eval\documents\qasper"
+$env:BIG_RAG_DB_DIR = "D:\...\evaldbs\qasper"
+$env:BIG_RAG_EVAL_FILE = "D:\...\eval\questions-qasper.json"
+$env:BIG_RAG_RETRIEVAL_DEPTH = "low"     # then medium, then high
+npm run eval:run
+```
+
+The converter writes one plain-text paper per file with section names as headings, and skips
+questions that are unanswerable, whose evidence is a figure or table, or whose evidence does not
+appear verbatim in the rendered paper.
+
+Numbers from it are not comparable with FinanceBench's — different documents, different
+questions, a different share of them answerable by lookup. What transfers is the *ordering* of
+configurations: whether Low, Medium and High rank the same way here as there, and whether
+keyword scoring is still worthless on a corpus whose documents are genuinely different from one
+another.
+
 ## Running It
 
 Build the indexes first ([Command-Line Tools](CLI.md#indexing)), one folder per configuration, then run each configuration in the same PowerShell window. Variables persist, so set every one explicitly.
