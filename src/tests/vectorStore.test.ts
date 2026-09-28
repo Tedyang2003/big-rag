@@ -202,3 +202,82 @@ test("chunks expose their item id and can be fetched by key", async () => {
     await fs.rm(dir, { recursive: true, force: true });
   }
 });
+
+test("searchMany returns one result list per query vector, ranked independently", async () => {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), "big-rag-many-"));
+  try {
+    const store = new VectorStore(dir);
+    await store.initialize();
+    await store.addChunks([
+      { id: "x-0", text: "points at x", vector: [1, 0, 0], filePath: "/docs/x.md", fileName: "x.md", fileHash: "x", chunkIndex: 0, metadata: {} },
+      { id: "y-0", text: "points at y", vector: [0, 1, 0], filePath: "/docs/y.md", fileName: "y.md", fileHash: "y", chunkIndex: 0, metadata: {} },
+    ]);
+
+    const [towardsX, towardsY] = await store.searchMany([[1, 0, 0], [0, 1, 0]], 10, 0);
+
+    assert.equal(towardsX[0].text, "points at x");
+    assert.equal(towardsY[0].text, "points at y");
+    // One vector matches what search() gave before, since search now delegates here.
+    assert.deepEqual(
+      (await store.searchMany([[1, 0, 0]], 10, 0))[0].map((r) => r.id),
+      (await store.search([1, 0, 0], 10, 0)).map((r) => r.id),
+    );
+  } finally {
+    await fs.rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("searchMany applies the limit and threshold to each vector's own results", async () => {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), "big-rag-many-"));
+  try {
+    const store = new VectorStore(dir);
+    await store.initialize();
+    await store.addChunks([
+      { id: "x-0", text: "x", vector: [1, 0, 0], filePath: "/docs/x.md", fileName: "x.md", fileHash: "x", chunkIndex: 0, metadata: {} },
+      { id: "y-0", text: "y", vector: [0, 1, 0], filePath: "/docs/y.md", fileName: "y.md", fileHash: "y", chunkIndex: 0, metadata: {} },
+    ]);
+
+    // Only the vector pointing at x clears a high threshold; the other list comes back empty
+    // rather than borrowing x's results.
+    const [towardsX, towardsY] = await store.searchMany([[1, 0, 0], [0, 0, 1]], 10, 0.9);
+    assert.equal(towardsX.length, 1);
+    assert.equal(towardsY.length, 0);
+
+    const [limited] = await store.searchMany([[1, 0, 0]], 1, 0);
+    assert.equal(limited.length, 1);
+  } finally {
+    await fs.rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("searchMany parses each shard once however many vectors it is given", async () => {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), "big-rag-many-"));
+  const fsModule = require("fs/promises") as { readFile: (...args: any[]) => Promise<any> };
+  const realReadFile = fsModule.readFile;
+  try {
+    const seed = new VectorStore(dir, 1);
+    await seed.initialize();
+    await seed.addChunks([chunkFor("A", 0)]);
+    await seed.addChunks([chunkFor("B", 0)]);
+
+    // A fresh store so nothing is cached from indexing; reads are counted per search.
+    const store = new VectorStore(dir, 1);
+    await store.initialize();
+
+    let reads = 0;
+    fsModule.readFile = (async (...args: any[]) => {
+      if (String(args[0]).endsWith("index.json")) reads++;
+      return realReadFile(...args);
+    }) as typeof fsModule.readFile;
+
+    await store.searchMany([[1, 0, 0]], 5, 0);
+    const forOneVector = reads;
+
+    reads = 0;
+    await store.searchMany([[1, 0, 0], [0, 1, 0], [0, 0, 1]], 5, 0);
+    assert.equal(reads, forOneVector, "three vectors should cost the same parsing as one");
+  } finally {
+    fsModule.readFile = realReadFile;
+    await fs.rm(dir, { recursive: true, force: true });
+  }
+});

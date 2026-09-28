@@ -212,34 +212,46 @@ export class VectorStore {
     limit: number = 5,
     threshold: number = 0.5,
   ): Promise<SearchResult[]> {
-    const merged: SearchResult[] = [];
+    return (await this.searchMany([queryVector], limit, threshold))[0] ?? [];
+  }
+
+  /**
+   * Search several query vectors in one pass, returning one result list per vector in the order
+   * given. Each shard is opened once and queried once per vector, so N vectors cost one parse of
+   * that shard rather than N - and a parse is most of what a search costs, since `openShard`
+   * deliberately does not cache (see its comment). Nothing is retained past the call.
+   */
+  async searchMany(
+    queryVectors: number[][],
+    limit: number = 5,
+    threshold: number = 0.5,
+  ): Promise<SearchResult[][]> {
+    const merged: SearchResult[][] = queryVectors.map(() => []);
     for (const dir of this.shardDirs) {
       const shard = this.openShard(dir);
-      const results = await shard.queryItems(
-        queryVector,
-        "",
-        limit,
-        undefined,
-        false,
-      );
-      for (const r of results) {
-        const m = r.item.metadata as ChunkMetadata;
-        merged.push({
-          id: r.item.id,
-          text: m?.text ?? "",
-          score: r.score,
-          filePath: m?.filePath ?? "",
-          fileName: m?.fileName ?? "",
-          chunkIndex: m?.chunkIndex ?? 0,
-          shardName: dir,
-          metadata: (r.item.metadata as Record<string, any>) ?? {},
-        });
+      for (let i = 0; i < queryVectors.length; i++) {
+        const results = await shard.queryItems(queryVectors[i], "", limit, undefined, false);
+        for (const r of results) {
+          const m = r.item.metadata as ChunkMetadata;
+          merged[i].push({
+            id: r.item.id,
+            text: m?.text ?? "",
+            score: r.score,
+            filePath: m?.filePath ?? "",
+            fileName: m?.fileName ?? "",
+            chunkIndex: m?.chunkIndex ?? 0,
+            shardName: dir,
+            metadata: (r.item.metadata as Record<string, any>) ?? {},
+          });
+        }
       }
     }
-    return merged
-      .filter((r) => r.score >= threshold)
-      .sort((a, b) => b.score - a.score)
-      .slice(0, limit);
+    return merged.map((results) =>
+      results
+        .filter((r) => r.score >= threshold)
+        .sort((a, b) => b.score - a.score)
+        .slice(0, limit),
+    );
   }
 
   /**
