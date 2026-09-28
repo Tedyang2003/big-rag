@@ -48,8 +48,8 @@ function daysOf(metadata: Record<string, any>): number[] {
 
 /**
  * A derived index of the vector store: one row per chunk plus a day lookup. Holds no chunk
- * text and can be rebuilt from the store at any time. Keyword reranking reads everything it
- * needs from the candidate passages themselves, so nothing about words is stored here.
+ * text and nothing about words - dates are the only signal read from here - so it stays small
+ * at any collection size and can be rebuilt from the store at any time.
  */
 export class ChunkCatalog {
   private constructor(private readonly file: CatalogFile) {}

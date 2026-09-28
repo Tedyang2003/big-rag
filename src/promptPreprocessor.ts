@@ -89,7 +89,7 @@ async function getCitationFileHandle(
   return fileHandle;
 }
 
-/** Human-readable lane names for a passage, e.g. "meaning, keywords". */
+/** Human-readable lane names for a passage, e.g. "meaning, dates". */
 const LANE_LABELS: Record<string, string> = { vector: "meaning", hyde: "likely wording", date: "dates" };
 
 /**
