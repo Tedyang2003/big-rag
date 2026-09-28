@@ -9,7 +9,7 @@ export interface RetrievalSettings {
   enableContextCompaction: boolean;
   retrievalDepth: RetrievalDepth;
   /** Set a signal's weight to 0 to run without it, which is how its contribution is attributed. */
-  laneWeights: { vector: number; date: number };
+  laneWeights: { vector: number; hyde: number; date: number };
   laneCandidates: number;
 }
 
@@ -49,8 +49,10 @@ export function readRetrievalSettings(env: Record<string, string | undefined>): 
   }
 
   const rawDepth = (env.BIG_RAG_RETRIEVAL_DEPTH ?? "medium").trim().toLowerCase();
-  if (rawDepth !== "low" && rawDepth !== "medium") {
-    throw new Error(`BIG_RAG_RETRIEVAL_DEPTH must be "low" or "medium", got "${env.BIG_RAG_RETRIEVAL_DEPTH}"`);
+  if (rawDepth !== "low" && rawDepth !== "medium" && rawDepth !== "high") {
+    throw new Error(
+      `BIG_RAG_RETRIEVAL_DEPTH must be "low", "medium" or "high", got "${env.BIG_RAG_RETRIEVAL_DEPTH}"`,
+    );
   }
 
   return {
@@ -61,6 +63,7 @@ export function readRetrievalSettings(env: Record<string, string | undefined>): 
     retrievalDepth: rawDepth,
     laneWeights: {
       vector: readWeight(env, "BIG_RAG_LANE_WEIGHT_VECTOR", FIXED_DEFAULTS.laneWeightVector),
+      hyde: readWeight(env, "BIG_RAG_LANE_WEIGHT_HYDE", FIXED_DEFAULTS.laneWeightHyde),
       date: readWeight(env, "BIG_RAG_LANE_WEIGHT_DATE", FIXED_DEFAULTS.laneWeightDate),
     },
     laneCandidates: readNumber(env, "BIG_RAG_LANE_CANDIDATES", FIXED_DEFAULTS.laneCandidates),

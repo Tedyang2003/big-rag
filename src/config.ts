@@ -104,11 +104,14 @@ export const configSchematics = createConfigSchematics()
     {
       displayName: "Retrieval Depth",
       subtitle:
-        "Medium searches by meaning, by keyword, and by date, then merges the results — better recall, no extra model calls. "
-        + "Low searches by meaning only, like earlier versions.",
+        "Medium searches by meaning and lifts passages matching any date your question names — no extra model calls. "
+        + "Low searches by meaning only, like earlier versions. "
+        + "High also asks the loaded model to draft a likely answer and searches for that too, "
+        + "which finds passages worded unlike the question, at one model call and about half a second per message.",
       options: [
         { value: "low", displayName: "Low" },
         { value: "medium", displayName: "Medium" },
+        { value: "high", displayName: "High" },
       ],
     },
     "medium",

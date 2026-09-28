@@ -27,6 +27,7 @@ import { runIndexingJob } from "./ingestion/runIndexing";
 import { retrieve } from "./retrieval/retrieve";
 import { renderPassageForPrompt } from "./retrieval/renderPassage";
 import { getCatalog, resetCatalogCache } from "./retrieval/catalogManager";
+import { hypotheticalFor } from "./retrieval/hypothetical";
 
 /**
  * Check the abort signal and throw if the request has been cancelled.
@@ -89,7 +90,7 @@ async function getCitationFileHandle(
 }
 
 /** Human-readable lane names for a passage, e.g. "meaning, keywords". */
-const LANE_LABELS: Record<string, string> = { vector: "meaning", keyword: "keywords", date: "dates" };
+const LANE_LABELS: Record<string, string> = { vector: "meaning", hyde: "likely wording", date: "dates" };
 
 /**
  * How a passage earned its place. At Medium depth the fused score is a reciprocal-rank
@@ -440,7 +441,7 @@ export async function preprocess(
     }
 
     let catalog = null as Awaited<ReturnType<typeof getCatalog>>["catalog"];
-    if (retrievalDepth === "medium") {
+    if (retrievalDepth === "medium" || retrievalDepth === "high") {
       // No status is shown at all on a cache hit or a successful disk load — only an
       // actual build or a failure gets a status line, and a failure is reported at most
       // once per session (see reportFailure).
@@ -479,9 +480,12 @@ export async function preprocess(
 
     retrievalStatus.setState({
       status: "loading",
-      text: retrievalDepth === "medium"
-        ? "Searching by meaning and dates..."
-        : "Searching for relevant content...",
+      text:
+        retrievalDepth === "high"
+          ? "Drafting a likely answer, then searching by meaning and dates..."
+          : retrievalDepth === "medium"
+            ? "Searching by meaning and dates..."
+            : "Searching for relevant content...",
     });
 
     const queryPreview =
@@ -498,6 +502,17 @@ export async function preprocess(
         embedSentences: (sentences) =>
           embeddingModel.embed(sentences.map((sentence) => documentText(resolvedEmbeddingModelId, sentence))),
         countTokens: (text) => embeddingModel.countTokens(text),
+        // Only reached at High. The draft is embedded and thrown away: its specifics are
+        // invented, so it must never reach the prompt, a citation or a status line.
+        hypothetical: async (question) =>
+          hypotheticalFor(question, {
+            generate: async (prompt, abortSignal) => {
+              const llm = await ctl.client.llm.model();
+              return (await llm.respond(prompt, { signal: abortSignal })).content;
+            },
+            timeoutMs: settings.hypotheticalTimeoutMs,
+            abortSignal: ctl.abortSignal,
+          }),
         catalog,
       },
       {
@@ -508,7 +523,11 @@ export async function preprocess(
         depth: retrievalDepth,
         laneCandidates: settings.laneCandidates,
         rrfConstant: settings.rrfConstant,
-        laneWeights: { vector: settings.laneWeightVector, date: settings.laneWeightDate },
+        laneWeights: {
+          vector: settings.laneWeightVector,
+          hyde: settings.laneWeightHyde,
+          date: settings.laneWeightDate,
+        },
         abortSignal: ctl.abortSignal,
       },
     );
@@ -517,7 +536,7 @@ export async function preprocess(
       `[BigRAG] Retrieval timings: ${timings.map((t) => `${t.stage}=${t.ms.toFixed(0)}ms`).join(" ")}`,
     );
     console.info(
-      `[BigRAG] Lanes: meaning=${laneCounts.vector} dates=${laneCounts.date}` +
+      `[BigRAG] Lanes: meaning=${laneCounts.vector} likely-wording=${laneCounts.hyde} dates=${laneCounts.date}` +
         (dayRanges.length > 0 ? ` ranges=${dayRanges.map((r) => `${r.start}-${r.end}`).join(",")}` : " ranges=none"),
     );
     if (results.length > 0) {
@@ -557,9 +576,12 @@ export async function preprocess(
       : "";
     retrievalStatus.setState({
       status: "done",
-      text: retrievalDepth === "medium"
-        ? `Retrieved ${results.length} relevant passages (meaning ${laneCounts.vector}, dates ${laneCounts.date}${dateSuffix})`
-        : `Retrieved ${results.length} relevant passages`,
+      text:
+        retrievalDepth === "high"
+          ? `Retrieved ${results.length} relevant passages (meaning ${laneCounts.vector}, likely wording ${laneCounts.hyde}, dates ${laneCounts.date}${dateSuffix})`
+          : retrievalDepth === "medium"
+            ? `Retrieved ${results.length} relevant passages (meaning ${laneCounts.vector}, dates ${laneCounts.date}${dateSuffix})`
+            : `Retrieved ${results.length} relevant passages`,
     });
 
     ctl.debug("Retrieval results:", results);

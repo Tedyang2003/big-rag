@@ -21,8 +21,10 @@ export interface ResolvedSettings {
   laneCandidates: number;
   rrfConstant: number;
   laneWeightVector: number;
+  laneWeightHyde: number;
   laneWeightDate: number;
   catalogVersion: number;
+  hypotheticalTimeoutMs: number;
   retrievalLimit: number;
   retrievalThreshold: number;
   chunkSize: number;

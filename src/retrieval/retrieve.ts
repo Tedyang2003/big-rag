@@ -10,6 +10,7 @@ export const CONTEXT_COMPACTION_POOL_MULTIPLIER = 3;
 
 export type StageName =
   | "embedQuery"
+  | "hypothetical"
   | "vectorSearch"
   | "dateLane"
   | "fuse"
@@ -21,7 +22,7 @@ export interface StageTiming {
   ms: number;
 }
 
-export type RetrievalDepth = "low" | "medium";
+export type RetrievalDepth = "low" | "medium" | "high";
 
 /** The subset of ChunkCatalog the retrieval lanes need. */
 export interface CatalogLanes {
@@ -33,19 +34,26 @@ export interface CatalogLanes {
 
 export interface LaneCounts {
   vector: number;
+  hyde: number;
   date: number;
 }
 
 export interface RetrieveDeps {
-  vectorStore: Pick<VectorStore, "search">;
+  vectorStore: Pick<VectorStore, "searchMany">;
   embedQuery: (text: string) => Promise<number[]>;
   embedSentences: EmbedSentences;
   countTokens: CountTokens;
   now?: () => number;
-  /** Present only at Medium depth; null when it could not be built. */
+  /** Present at Medium and High depth; null when it could not be built. */
   catalog?: CatalogLanes | null;
   /** Clock for relative date phrases in the query. */
   nowDate?: () => Date;
+  /**
+   * Drafts a passage that would answer the question, for High depth to search alongside it.
+   * Returns null when none could be produced, which makes High behave as Medium. Absent at
+   * Low and Medium, where it is never called.
+   */
+  hypothetical?: (question: string) => Promise<string | null>;
 }
 
 export interface RetrieveOptions {
@@ -58,10 +66,10 @@ export interface RetrieveOptions {
   /** Checked between stages so a cancelled request stops before doing more work. */
   abortSignal?: AbortSignal;
   depth: RetrievalDepth;
-  /** Passages the vector lane puts up for fusion, and so the pool BM25 reranks. */
+  /** Passages each lane puts up for fusion. */
   laneCandidates: number;
   rrfConstant: number;
-  laneWeights: { vector: number; date: number };
+  laneWeights: { vector: number; hyde: number; date: number };
 }
 
 export interface RetrieveResult {
@@ -133,24 +141,41 @@ export async function retrieve(
   const queryEmbedding = await timed("embedQuery", () => deps.embedQuery(query));
   options.abortSignal?.throwIfAborted();
 
-  const medium = options.depth === "medium";
+  // Medium and High both fuse and both need the catalog; only High drafts a hypothetical.
+  const fusing = options.depth === "medium" || options.depth === "high";
 
   // Compaction shrinks passages, so it needs a larger candidate pool to choose from.
-  // At Medium depth the vector lane always asks for laneCandidates, whichever way
-  // compaction is set: that pool is the whole shortlist the later stages work over.
-  const searchLimit = medium
+  // When fusing, the vector lane always asks for laneCandidates, whichever way compaction
+  // is set: that pool is the whole shortlist the later stages work over.
+  const searchLimit = fusing
     ? options.laneCandidates
     : options.enableContextCompaction
       ? options.retrievalLimit * CONTEXT_COMPACTION_POOL_MULTIPLIER
       : options.retrievalLimit;
 
-  const searched = await timed("vectorSearch", () =>
-    deps.vectorStore.search(queryEmbedding, searchLimit, options.retrievalThreshold),
+  // A question in English sits far from a grid of numbers; a passage written as the document
+  // would write it does not. The draft is embedded and discarded - its specifics are invented -
+  // and it is searched beside the question rather than instead of it, because measured alone it
+  // loses ground. See documentation/Evaluation.md.
+  let hypotheticalEmbedding: number[] | null = null;
+  if (options.depth === "high" && deps.hypothetical) {
+    hypotheticalEmbedding = await timed("hypothetical", async () => {
+      const drafted = await deps.hypothetical!(query);
+      return drafted === null ? null : await deps.embedQuery(drafted);
+    });
+    options.abortSignal?.throwIfAborted();
+  }
+
+  const queryVectors = hypotheticalEmbedding ? [queryEmbedding, hypotheticalEmbedding] : [queryEmbedding];
+  // One pass for both vectors: a search is mostly the cost of parsing each shard, which two
+  // separate searches would pay twice.
+  const [searched, hypotheticalResults = []] = await timed("vectorSearch", () =>
+    deps.vectorStore.searchMany(queryVectors, searchLimit, options.retrievalThreshold),
   );
   options.abortSignal?.throwIfAborted();
 
-  const catalog = medium ? deps.catalog ?? null : null;
-  const laneCounts: LaneCounts = { vector: 0, date: 0 };
+  const catalog = fusing ? deps.catalog ?? null : null;
+  const laneCounts: LaneCounts = { vector: 0, hyde: 0, date: 0 };
   let dayRanges: DayRange[] = [];
   let ranked: SearchResult[] = searched;
   // Set only on the catalog path: chunk key -> the lanes that ranked it while
@@ -161,8 +186,7 @@ export async function retrieve(
   // Set only on the catalog path: the fused ranking, so the diagnostic pool measures
   // fusion rather than the vector lane alone.
   let fusedKeys: string[] | null = null;
-  // Every passage in play, by key. Dates only reorder what the vector lane found, so the
-  // ranking can never name a chunk that is not already here.
+  // Every passage in play, by key: both lanes' results, since either may nominate one.
   const resolvedByKey = new Map<string, SearchResult>();
 
   if (catalog) {
@@ -186,6 +210,18 @@ export async function retrieve(
     const lanes: RankedLane[] = [
       { name: "vector", weight: options.laneWeights.vector, keys: [...vectorByKey.keys()] },
     ];
+
+    // The hypothetical nominates, where dates only boost. That is deliberate and measured: its
+    // value is recall - it reached passages the question alone never did - and a boost can only
+    // move what another lane already found.
+    if (hypotheticalResults.length > 0) {
+      for (const result of hypotheticalResults) resolvedByKey.set(chunkKey(result), result);
+      lanes.push({
+        name: "hyde",
+        weight: options.laneWeights.hyde,
+        keys: hypotheticalResults.map(chunkKey),
+      });
+    }
 
     const dated = new Set(datedKeys);
     const dateBoost = options.laneWeights.date / (options.rrfConstant + 1);
@@ -235,7 +271,7 @@ export async function retrieve(
     );
   }
 
-  // At Medium the pool is the fused ranking, so pool metrics measure every lane. At Low
+  // When fusing, the pool is the fused ranking, so pool metrics measure every lane. At Low
   // there is no fusion, so it stays an unthresholded vector search.
   let diagnosticPool: SearchResult[] = [];
   if (options.diagnosticPoolSize && fusedKeys) {
@@ -244,11 +280,9 @@ export async function retrieve(
       .map((key) => resolvedByKey.get(key))
       .filter((result): result is SearchResult => result !== undefined);
   } else if (options.diagnosticPoolSize) {
-    diagnosticPool = await deps.vectorStore.search(
-      queryEmbedding,
-      options.diagnosticPoolSize,
-      Number.NEGATIVE_INFINITY,
-    );
+    diagnosticPool = (
+      await deps.vectorStore.searchMany([queryEmbedding], options.diagnosticPoolSize, Number.NEGATIVE_INFINITY)
+    )[0];
   }
 
   let passageLanes: string[][] = passages.map(() => []);
@@ -256,9 +290,11 @@ export async function retrieve(
     const finalLanesByKey = winnerLanesByKey;
     passageLanes = passages.map((passage) => finalLanesByKey.get(chunkKey(passage)) ?? []);
     laneCounts.vector = 0;
+    laneCounts.hyde = 0;
     laneCounts.date = 0;
     for (const lanes of passageLanes) {
       if (lanes.includes("vector")) laneCounts.vector++;
+      if (lanes.includes("hyde")) laneCounts.hyde++;
       if (lanes.includes("date")) laneCounts.date++;
     }
   }
