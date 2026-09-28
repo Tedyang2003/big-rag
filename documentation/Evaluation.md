@@ -281,11 +281,26 @@ where that headroom is, and where it runs out:
 | Evidence not returned but a neighbour was | 3 |
 | **Nothing from the evidence's span or beside it** | **65** |
 
-Returning the neighbours of what is already returned reaches the same 23 as ten passages, for
-one or two extra chunks rather than five, and hands the model contiguous text instead of
-fragments. But the ceiling either way is 23, because **only 32 answers are reachable at all**.
-Two thirds of misses have nothing from the evidence's neighbourhood in the results, and no
-filter, limit or re-ranking touches them. Recall is the whole remaining problem.
+Returning the neighbours of what is already returned was measured and is kept:
+
+| | Hits | Mean passages returned | Hits per extra passage |
+|---|---|---|---|
+| High, 5 passages | 16 | 5.0 | — |
+| **High, 5 passages plus neighbours** | **19** | **6.9** | **1.58** |
+| High, 10 passages | 23 | 10.0 | 1.40 |
+
+Three questions gained, none lost, at a better rate per token than simply returning more — and
+the model receives contiguous text rather than fragments. Filter loss falls from 18.2% to 14.8%,
+right-document-wrong-passage from 61.4% to 58.0%. Result sizes run from 5 to 13 passages.
+
+Its ceiling was 4, not the 7 first estimated: three of those seven had evidence that was never a
+candidate at all, so no expansion could reach it — the estimate had counted adjacency without
+checking pool membership. Of the 4 genuinely reachable, 3 converted; the fourth needs three
+chunks back from the passage that matched, beyond `neighbourChunks: 1`.
+
+**The ceiling either way is what is in the pool.** 32 answers are reachable and 56 are not, and
+two thirds of misses have nothing from the evidence's neighbourhood returned. No filter, limit
+or expansion touches those. Recall is the whole remaining problem.
 
 ### Rewriting the Question: HyDE
 
@@ -335,6 +350,8 @@ at +3, a leaking control run at +4, and this at +6.
 ## Run Log
 
 Newest first.
+
+**28 Sep — returning a passage with its neighbours: 19 hits for 6.9 passages.** Three gained, none lost, against 16 hits for 5.0 passages — a better rate per token than the 23 hits for 10.0 that simply raising the limit gives, and the model gets contiguous text. Its ceiling was 4 rather than the 7 predicted: the estimate counted evidence adjacent to a returned passage without checking that the evidence was a candidate at all, and three of the seven were never in the pool. The fourth needs three chunks of reach rather than one.
 
 **28 Sep — returning ten passages instead of five gives 23 hits.** Filter loss falls from 18.2% to 10.2%, so seven answers were sitting at ranks 6 to 10. It is a measurement, not a setting: ten 512-token passages is most of an 8,192-token window. Returning the neighbours of the five already chosen reaches the same 23 for one or two extra chunks, since 4 of the 7 are incomplete spans and 3 are chunks whose neighbour was returned instead. Both stop at 23: 65 of the 72 misses have nothing from the evidence's neighbourhood returned at all.
 
