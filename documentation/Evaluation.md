@@ -174,7 +174,11 @@ The previous build, before tables and prefixes, gave Legacy 7 hits and Structure
 
 Nine times in ten the right company is found. The date boost is what converts wrong-document failures into right-document ones, 31 down to 14 — isolated in the table above, where it accounts for all of Hybrid's gain.
 
-**Statements remain the stubborn case.** Of the 31 questions whose evidence sits in a financial statement, 2 are hits — up from 1 before tables. The gains landed elsewhere: 7 of 39 for press releases and short sections, 2 of 2 for notes to the accounts, 1 of 16 for MD&A narrative. Recovering the grid was necessary but has not been sufficient; a statement chunk is still hundreds of words of figures in which one linearised row is easily diluted.
+**Statements remain the stubborn case.** Of the 31 questions whose evidence sits in a financial statement, 2 are hits — up from 1 before tables. The gains landed elsewhere: 7 of 39 for press releases and short sections, 2 of 2 for notes to the accounts, 1 of 16 for MD&A narrative.
+
+**It is a recall problem, not a dilution one.** The explanation assumed until now — a relevant row averaged away among hundreds of words of figures — has been measured and is wrong. Scoring each candidate by its best sentence or table row instead of its whole-chunk embedding makes statements *worse*, taking them from 3 of 41 in the top five to 0 and MRR from 0.050 to 0.015. The unit is too small, not too large: `Capital expenditures — 2018: 1,577` is short and mostly numeric, and embeds badly against a sentence of English, while the whole chunk at least carries its context header and its collective subject.
+
+The real barrier is upstream of ranking. Only 9 of those 41 questions have their evidence anywhere in the top 50, so for 32 of them no re-scoring of candidates can help — the answer is never a candidate. What moves them is changing the *question* rather than examining the passage: see the HyDE spike below.
 
 **Why found answers do not reach the model.** Both Structured and Hybrid surface the same 26 answers in the top 50; Structured returns 12 and Hybrid 14. Hybrid's remaining 12 sit at ranks 1, 4, 7, 8, 9, 11, 15, 17, 21, 22, 24 and 32 — one inside the top five, so cut by the 0.5 threshold, and eleven below the five-passage limit. Returning 10 passages instead of 5 would convert a few, but it treats the symptom: the goal is the answer at rank 1, not a longer list.
 
@@ -200,6 +204,46 @@ Hits average 45% overlap against 33% for misses, and the effect is starkest at t
 
 **Why the right document yields the wrong passage.** Of the 41 such misses, 36 returned passages from elsewhere in the document entirely — only 3 landed in the evidence's own section and 5 within two chunks of it. The evidence fits a single chunk in 21 of the 41, and in 56 of all 88, so chunk boundaries are not the barrier. What comes back instead is narrative: an English question embeds close to prose discussing a topic and far from a grid of figures, even after the grid has rows.
 
+### Rewriting the Question: the HyDE Spike
+
+Measured without touching the retrieval path: for each of the 88 questions, generate one
+hypothetical answer with the chat model, embed it, and see where the known evidence chunk
+lands. Generation is `gemma-4-e2b-it` at a median 542ms; retrieval is vector-only over the
+50-candidate pool, so these numbers are not comparable with the Medium runs above.
+
+| Configuration | In pool | Top 5 | Median | MRR | Better / worse |
+|---|---|---|---|---|---|
+| Question alone | 31 | **15** | 7 | 0.119 | — |
+| Hypothetical, `search_query:` | 31 | 13 | 8 | 0.123 | 17 / 13 |
+| Hypothetical, `search_document:` | 26 | 11 | 9 | 0.088 | 14 / 22 |
+| **Question + hypothetical, fused** | **34** | **16** | 8 | **0.129** | **20 / 9** |
+
+**Fusing works; replacing does not.** Searching on the hypothetical instead of the question
+loses ground. Adding its results to the question's gains three questions of pool coverage and
+one of the top five, at a ratio of 20 improved to 9 worsened — the first signal measured here
+that adds rather than trades.
+
+**The gain is almost all on statements**, which the aggregate hides:
+
+| | Statements (41) | | Other sections (47) | |
+|---|---|---|---|---|
+| | Question | + HyDE | Question | + HyDE |
+| In pool | 9 | **11** | 22 | 23 |
+| Top 5 | 3 | **5** | **12** | 11 |
+| Median rank | 24 | **8** | **5** | 8 |
+| MRR | 0.050 | **0.078** | **0.180** | 0.174 |
+
+A question written in English is far from a grid of numbers, and the way to close that is to
+make the question look like the document rather than to inspect the document more closely.
+Asked for "a passage as the document would write it", a 2B model answers in markdown tables —
+which is what our chunks now contain, so some of this gain was bought by the table work rather
+than by HyDE itself, and may not transfer to a corpus without tables.
+
+Two cautions. The generated specifics are entirely invented, so the text may only ever be
+embedded and discarded, never shown or cited. And similarity proved a poor guide to ranking
+twice over: the `search_document:` variant won on cosine against the evidence, 73 of 88, and
+came last on rank.
+
 ## Run Log
 
 **21 Sep — indexes rebuilt** after the parser chain changed to MuPDF first. All 368 files indexed, no failures, including filings whose damaged fonts previously defeated every parser. Structured chunks fell from 214,643 to 116,741 (2.4x legacy to 1.31x) after heading detection and the no-overlap chunker. No text lost: the 27.5M vs 34.0M word gap is exactly legacy's overlap duplication.
@@ -224,6 +268,10 @@ Hits average 45% overlap against 33% for misses, and the effect is starkest at t
 Reading years halved wrong-document failures but doubled wrong-company ones, because "FY2023" matches every company's 2023 filing. Making dates a boost — lifting passages the other lanes already found, never introducing one — kept the gain and removed the cost.
 
 **24 Sep — the length penalty was costing rank, not hits.** With `b = 0` the reranker's MRR goes 0.117 to 0.134 and its rank-1 answers 6 to 8, so `bm25B` now defaults to 0: the classic 0.75 assumes documents of wildly differing length, while these are chunks the chunker already caps. The outcome is unchanged — the same four questions gained, the same four lost. Across corpus idf, local idf and both length settings, BM25 reranking is a fixed four-for-four exchange, still behind vector + date's 14 hits at MRR 0.140 with 9 at rank 1. `k1` and `b` are now settable per run.
+
+**24 Sep — sentence-level scoring measured and rejected.** Re-ranking the vector lane's 50 candidates by their best sentence or table row, rather than their whole-chunk embedding, takes top-5 from 15 to 10 and MRR from 0.119 to 0.075. Blending it with the chunk score is neutral at best — "max of both" moves 8 questions, +1 into the top five, MRR 0.113 — and costs 741 unit embeddings and 3 seconds per question against a 5-second search. Worst of all on the group it was meant to help: statements go from 3 in the top five to 0. The long-standing dilution explanation is wrong.
+
+**24 Sep — HyDE measured: fusing helps, replacing hurts, and it lands on statements.** Question plus hypothetical gives 34 of 88 in pool against 31 and 16 in the top five against 15, improving 20 questions and worsening 9. On statement evidence the median rank goes from 24 to 8. Generation is 542ms with `gemma-4-e2b-it`. Not yet built; it belongs in an opt-in High depth.
 
 **24 Sep — the keyword rerank is off by default.** Vector + date, measured under the current architecture, gives the same 14 hits as the reranker with 9 answers at rank 1 against 6, median rank 3 against 4, and MRR 0.140 against 0.117. Three forms of BM25 have now been tried and none beat the date boost, so `laneWeightKeyword` defaults to 0. The run also cleared the nomination defect: the contaminated baseline gave 0.141 where the clean one gives 0.140, so nothing measured earlier was wrong because of it.
 
@@ -253,8 +301,9 @@ They shipped in one rebuild, so their effects cannot be attributed separately.
 
 - **Can a boost rescue without displacing?** Fusion is flat enough that any boost large enough to lift a passage from rank 28 can push another off rank 1 — which is why every keyword configuration traded hits rather than adding them. Weighting by the vector lane's own similarity score, rather than by its rank, would let a confident rank 1 defend itself, and is the one change that might make reranking pay.
 - **Would BM25 help on a corpus it suits?** It failed here because a filing's distinctive words are on every page of it. Where documents are heterogeneous — a manual, a paper, a report — a rare word plausibly names a passage. The code is in place at weight 0; a general question set would settle it.
-- **Why are statements still missed?** Tables raised statement hits only from 1 of 31 to 2. Either the statement chunk is not retrieved at all, or it is retrieved and diluted — 240 words of figures around one relevant row. Scoring a chunk by its best sentence rather than its average, using the embedding model already loaded, would test the second.
 - **Is the 0.5 threshold still right?** The prefixes shift the score distribution, and the threshold was not re-tuned. If hits fall while pool hits rise, suspect this first.
-- **Should the question be rewritten before searching?** Two untested techniques, both using the chat model LM Studio already has loaded: embedding a hypothetical answer instead of the question, so "quick ratio" reaches the balance sheet through the line items it implies; and decomposing a compound question into sub-questions. They would belong to a High and an Extra High depth.
+- **Should HyDE ship?** Measured and it works, concentrated on the statement group; not yet built. The remaining unknowns are how much of its gain survives beside the date boost, which already converts wrong-document failures, and whether a generation call per question is worth one to three hits. It belongs in an opt-in High depth.
+- **Should a compound question be decomposed?** Untested. "Compare X and Y across FY21 and FY22" is four lookups wearing one question, and retrieval can only serve it by luck. It would belong in an Extra High depth, above HyDE.
+- **Why is so little reachable at all?** Only 31 of 88 questions have their evidence in the top 50, and 9 of 41 for statements. Every technique measured so far — keyword reranking, sentence scoring, HyDE — reorders candidates or changes the query, and none can reach an answer the vector search never returns. Raising recall, rather than improving ranking, is where the remaining headroom is.
 - **Can retrieval cover several documents at once?** A cross-document comparison needs the best passage *per document*, not the five best overall, which fusion cannot currently express.
 - **Would a second dataset help?** FinanceBench measures financial reasoning as much as retrieval. A lookup-style question set over ordinary documents — manuals, papers, reports — would measure the plugin as a general tool.
