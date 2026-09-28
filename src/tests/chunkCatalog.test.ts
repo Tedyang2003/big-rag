@@ -45,7 +45,6 @@ test("build indexes keys and days", () => {
   assert.deepEqual(catalog.chunksForRanges([{ start: 20260908, end: 20260908 }]), [0]);
   assert.deepEqual(catalog.chunksForRanges([{ start: 20260908, end: 20260911 }]), [0, 1]);
   assert.deepEqual(catalog.yearsPresent(), [2026, 2025]);
-  assert.equal(catalog.latestDayOf(1), 20260911);
 });
 
 test("save and load round trip", async () => {

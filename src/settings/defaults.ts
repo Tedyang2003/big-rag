@@ -18,7 +18,7 @@ export const FIXED_DEFAULTS = {
   laneWeightVector: 1,
   laneWeightHyde: 1,
   laneWeightDate: 1,
-  catalogVersion: 3,
+  catalogVersion: 4,
   // Bounds a pathological generator at High depth; drafting measured a median 542ms.
   hypotheticalTimeoutMs: 10_000,
 } as const;

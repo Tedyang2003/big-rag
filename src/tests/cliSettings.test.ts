@@ -20,7 +20,7 @@ test("FIXED_DEFAULTS holds the spec's fixed values", () => {
     laneWeightVector: 1,
     laneWeightHyde: 1,
     laneWeightDate: 1,
-    catalogVersion: 3,
+    catalogVersion: 4,
     hypotheticalTimeoutMs: 10_000,
   });
 });

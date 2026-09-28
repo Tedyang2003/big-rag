@@ -120,7 +120,7 @@ test("releaseShardCache drops every shard but the active one", async () => {
       .sort();
     assert.deepEqual(ids, ["C-0", "D-0"]);
 
-    const results = await store.search([1, 0, 0], 10, 0);
+    const [results] = await store.searchMany([[1, 0, 0]], 10, 0);
     const resultHashes = results.map((r) => r.metadata.fileHash).sort();
     assert.deepEqual(resultHashes, ["C", "D"]);
   } finally {
@@ -157,7 +157,7 @@ test("repeated deletions reuse parsed shards instead of re-reading index.json", 
   }
 });
 
-test("chunks expose their item id and can be fetched by key", async () => {
+test("chunks expose their item id and a stable key across shards", async () => {
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), "big-rag-keys-"));
   try {
     const store = new VectorStore(dir);
@@ -191,13 +191,9 @@ test("chunks expose their item id and can be fetched by key", async () => {
       ["shard_000/hashA-0", "shard_000/hashA-1"],
     );
 
-    const searched = await store.search([1, 0, 0], 1, 0);
+    const [searched] = await store.searchMany([[1, 0, 0]], 1, 0);
     assert.equal(searched[0].id, "hashA-0");
-
-    const fetched = await store.getChunksByKeys(["shard_000/hashA-1", "shard_000/missing", "shard_000/hashA-0"]);
-    assert.deepEqual(fetched.map((chunk) => chunk.text), ["second chunk", "first chunk"]);
-    assert.equal(fetched[0].chunkIndex, 1);
-    assert.equal(fetched[0].score, 0);
+    assert.equal(chunkKey(searched[0]), "shard_000/hashA-0");
   } finally {
     await fs.rm(dir, { recursive: true, force: true });
   }
@@ -217,11 +213,6 @@ test("searchMany returns one result list per query vector, ranked independently"
 
     assert.equal(towardsX[0].text, "points at x");
     assert.equal(towardsY[0].text, "points at y");
-    // One vector matches what search() gave before, since search now delegates here.
-    assert.deepEqual(
-      (await store.searchMany([[1, 0, 0]], 10, 0))[0].map((r) => r.id),
-      (await store.search([1, 0, 0], 10, 0)).map((r) => r.id),
-    );
   } finally {
     await fs.rm(dir, { recursive: true, force: true });
   }

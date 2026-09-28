@@ -43,12 +43,6 @@ export function chunkKey(parts: { shardName: string; id: string }): string {
   return `${parts.shardName}/${parts.id}`;
 }
 
-function parseChunkKey(key: string): { shardName: string; id: string } | null {
-  const separator = key.indexOf("/");
-  if (separator <= 0 || separator === key.length - 1) return null;
-  return { shardName: key.slice(0, separator), id: key.slice(separator + 1) };
-}
-
 type ChunkMetadata = {
   text: string;
   filePath: string;
@@ -205,17 +199,6 @@ export class VectorStore {
   }
 
   /**
-   * Search: query each shard in turn, merge results, sort by score, filter by threshold, return top limit.
-   */
-  async search(
-    queryVector: number[],
-    limit: number = 5,
-    threshold: number = 0.5,
-  ): Promise<SearchResult[]> {
-    return (await this.searchMany([queryVector], limit, threshold))[0] ?? [];
-  }
-
-  /**
    * Search several query vectors in one pass, returning one result list per vector in the order
    * given. Each shard is opened once and queried once per vector, so N vectors cost one parse of
    * that shard rather than N - and a parse is most of what a search costs, since `openShard`
@@ -336,33 +319,6 @@ export class VectorStore {
       }
     }
     return chunks;
-  }
-
-  /**
-   * Fetch chunks by `chunkKey`, in the order given. Keys that no longer exist are skipped.
-   * Scores are 0: the caller supplies its own ranking.
-   */
-  async getChunksByKeys(keys: string[]): Promise<SearchResult[]> {
-    const results: SearchResult[] = [];
-    for (const key of keys) {
-      const parsed = parseChunkKey(key);
-      if (!parsed || !this.shardDirs.includes(parsed.shardName)) continue;
-      const shard = this.openShard(parsed.shardName);
-      const item = await shard.getItem(parsed.id);
-      const m = item?.metadata as ChunkMetadata | undefined;
-      if (!item || !m || typeof m.text !== "string") continue;
-      results.push({
-        id: item.id,
-        text: m.text,
-        score: 0,
-        filePath: m.filePath ?? "",
-        fileName: m.fileName ?? "",
-        chunkIndex: m.chunkIndex ?? 0,
-        shardName: parsed.shardName,
-        metadata: m as Record<string, any>,
-      });
-    }
-    return results;
   }
 
   /**

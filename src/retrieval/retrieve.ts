@@ -28,7 +28,6 @@ export type RetrievalDepth = "low" | "medium" | "high";
 export interface CatalogLanes {
   chunksForRanges(ranges: DayRange[]): number[];
   keyOf(chunkNumber: number): string;
-  latestDayOf(chunkNumber: number): number;
   yearsPresent(): number[];
 }
 

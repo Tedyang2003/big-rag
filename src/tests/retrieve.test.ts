@@ -183,7 +183,6 @@ function fakeCatalog(overrides: Partial<CatalogLanes> = {}): CatalogLanes {
   return {
     chunksForRanges: () => [],
     keyOf: (chunkNumber) => `shard_000/chunk-${chunkNumber}`,
-    latestDayOf: () => 0,
     yearsPresent: () => [2026],
     ...overrides,
   };

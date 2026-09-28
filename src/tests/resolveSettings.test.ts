@@ -76,7 +76,7 @@ test("resolveSettings exposes the hybrid retrieval defaults", () => {
   assert.equal(settings.laneWeightVector, 1);
   assert.equal(settings.laneWeightHyde, 1);
   assert.equal(settings.laneWeightDate, 1);
-  assert.equal(settings.catalogVersion, 3);
+  assert.equal(settings.catalogVersion, 4);
   assert.equal(settings.hypotheticalTimeoutMs, 10_000);
 });
 

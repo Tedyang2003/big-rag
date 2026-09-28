@@ -12,7 +12,6 @@ export interface CatalogOptions {
 interface CatalogChunkRow {
   key: string;
   filePath: string;
-  days: number[];
 }
 
 interface CatalogFile {
@@ -60,7 +59,7 @@ export class ChunkCatalog {
 
     chunks.forEach((chunk, chunkNumber) => {
       const chunkDays = daysOf(chunk.metadata ?? {});
-      rows.push({ key: chunkKey(chunk), filePath: chunk.filePath, days: chunkDays });
+      rows.push({ key: chunkKey(chunk), filePath: chunk.filePath });
 
       for (const day of chunkDays) {
         const key = String(day);
@@ -107,20 +106,11 @@ export class ChunkCatalog {
     return storeChunkCount !== this.file.chunkCount;
   }
 
-  /** The file a chunk came from, used to stop one document filling a lane. */
-  fileOf(chunkNumber: number): string {
-    return this.file.chunks[chunkNumber]?.filePath ?? "";
-  }
 
   keyOf(chunkNumber: number): string {
     return this.file.chunks[chunkNumber]?.key ?? "";
   }
 
-  /** Most recent day recorded for a chunk, or 0 when it has none. */
-  latestDayOf(chunkNumber: number): number {
-    const days = this.file.chunks[chunkNumber]?.days ?? [];
-    return days.length > 0 ? days[days.length - 1] : 0;
-  }
 
   /** Years present in the index, most recent first. */
   yearsPresent(): number[] {
