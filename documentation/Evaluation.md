@@ -205,11 +205,33 @@ chunks of it. The evidence fits a single chunk in 21 of the 41 and in 56 of all 
 boundaries are not the barrier. What comes back is narrative: an English question embeds close
 to prose about a topic and far from a grid of figures, even after the grid has rows.
 
-**Why found answers do not reach the model.** High now surfaces 32 answers and returns 16, a
-filter loss of 18.2%: six newly reachable answers sit in the pool held out by the 0.5 threshold
-or the five-passage limit, neither re-tuned since the embedding prefixes moved the score
-distribution. Returning 10 passages instead of 5 would convert a few, but treats the symptom —
-the goal is the answer at rank 1, not a longer list.
+**Why found answers do not reach the model, and what filter loss is really measuring.** High
+surfaces 32 answers and returns 16. The gap looks like a filter problem and mostly is not.
+
+Scoring joins adjacent chunks into one passage, so that evidence straddling a boundary counts
+as found when both chunks are retrieved. That join is applied to the 50-deep pool as well as to
+the 5 returned, and neighbours are almost always both present in 50. So a pool rank of 1 often
+belongs to a *run* of chunks, only one of which reaches the top five.
+
+All four of the found-but-unreturned answers ranked inside the top five show it: the evidence
+chunk itself was never returned, its neighbour was.
+
+| Pool rank | Evidence at | Returned from that file |
+|---|---|---|
+| 2 | chunk 115 | 116, 103 |
+| 2 | chunk 182 | 188, **183**, 185, 100, 296 |
+| 3 | chunks 133–135 | 115, **136**, 114 |
+| 1 | chunks 2–4 | **3**, **2**, 145, 8 |
+
+The last is the clearest: chunks 2 and 3 were both returned and it is still not a hit, because
+the evidence runs into chunk 4. **32 of the 88 questions have evidence spanning more than one
+chunk**, so this is structural.
+
+Two consequences. **The threshold is not the constraint** — measured directly, dropping it from
+0.5 to 0.35 changed nothing at all, every metric identical to four decimal places. And
+`filterLoss` overstates what a longer result list would recover, because part of it is the pool
+reconstructing evidence that five passages cannot. What is left is a ranking failure in new
+clothing: retrieval puts chunk 116 above chunk 115 when the answer is in 115.
 
 ### Rewriting the Question: HyDE
 
@@ -259,6 +281,8 @@ at +3, a leaking control run at +4, and this at +6.
 ## Run Log
 
 Newest first.
+
+**28 Sep — the threshold is settled, and filter loss means less than it looks.** Dropping `BIG_RAG_RETRIEVAL_THRESHOLD` from 0.5 to 0.35 at High changed nothing: 16 hits, pool 32, MRR 0.155, every metric identical. The four found-but-unreturned answers ranked inside the top five turned out not to be threshold casualties at all — in each one the evidence chunk was never returned and its neighbour was, and their pool rank came from the 50-deep pool holding enough adjacent chunks to reconstruct the evidence. See the analysis above.
 
 **28 Sep — High measured: 16 hits, and the statement group finally moves.** Drafting an answer
 and searching it beside the question gives 16 hits against Medium's 14, pool 32 against 26, MRR
@@ -366,7 +390,8 @@ one chunk and counted unfindable evidence as a miss.
 
 - **Can a boost rescue without displacing?** Fusion is flat enough that any boost large enough to lift a passage from rank 28 can push another off rank 1 — which is why every keyword configuration traded hits rather than adding them. Weighting by the vector lane's own similarity score, rather than by its rank, would let a confident rank 1 defend itself, and is the one change that might make reranking pay.
 - **Would BM25 help on a corpus it suits?** It failed here because a filing's distinctive words are on every page of it. Where documents are heterogeneous — a manual, a paper, a report — a rare word plausibly names a passage. The code has been removed rather than left switched off; the design above records what to rebuild if a general question set says it is worth it.
-- **Is the 0.5 threshold and the five-passage limit still right?** This is now the largest gap: High reaches 32 answers and returns 16, a filter loss of 18.2%. Neither number has been re-tuned since the embedding prefixes changed the score distribution, and unlike every other open question here it needs no new technique.
+- **How much is recoverable by returning more?** The 0.5 threshold is settled — dropping it to 0.35 changed nothing — so the five-passage limit is the only filter left to test. A run at 10 passages measures the ceiling available from returning more rather than ranking better, though ten 512-token passages is most of an 8,192-token window and not a setting to ship.
+- **Why is the evidence chunk outranked by its own neighbour?** In every found-but-unreturned answer inside the top five, the chunk beside the evidence was returned and the evidence was not. Chunk boundaries are not the problem — the evidence fits one chunk in 56 of 88 — so this is the narrative-outranks-the-grid failure again, one chunk over.
 - **Should a compound question be decomposed?** Untested. "Compare X and Y across FY21 and FY22" is four lookups wearing one question, and retrieval can only serve it by luck. It would belong in an Extra High depth, above HyDE.
 - **Why is so little reachable at all?** Even at High, only 32 of 88 questions have their evidence in the top 50, and 11 of 41 for statements. Every technique measured so far — keyword reranking, sentence scoring, HyDE — reorders candidates or changes the query, and none can reach an answer the vector search never returns. Raising recall, rather than improving ranking, is where the remaining headroom is.
 - **Can retrieval cover several documents at once?** A cross-document comparison needs the best passage *per document*, not the five best overall, which fusion cannot currently express.
