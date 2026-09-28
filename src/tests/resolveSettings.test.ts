@@ -72,13 +72,9 @@ test("resolveSettings reads the retrieval depth from the chat config", () => {
 test("resolveSettings exposes the hybrid retrieval defaults", () => {
   const settings = resolveSettings(reader({ documentsDirectory: "/d", vectorStoreDirectory: "/v" }), reader({}));
   assert.equal(settings.laneCandidates, 50);
-  assert.equal(settings.rerankDepth, 10);
   assert.equal(settings.rrfConstant, 60);
   assert.equal(settings.laneWeightVector, 1);
-  assert.equal(settings.laneWeightKeyword, 0);
   assert.equal(settings.laneWeightDate, 1);
-  assert.equal(settings.bm25K1, 1.2);
-  assert.equal(settings.bm25B, 0);
   assert.equal(settings.catalogVersion, 3);
 });
 

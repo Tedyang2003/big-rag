@@ -16,13 +16,9 @@ test("FIXED_DEFAULTS holds the spec's fixed values", () => {
     structuredIndexing: true,
     enableContextCompaction: false,
     laneCandidates: 50,
-    rerankDepth: 10,
     rrfConstant: 60,
     laneWeightVector: 1,
-    laneWeightKeyword: 0,
     laneWeightDate: 1,
-    bm25K1: 1.2,
-    bm25B: 0,
     catalogVersion: 3,
   });
 });
@@ -61,12 +57,8 @@ test("eval retrieval settings use the fixed defaults when env vars are unset", (
     retrievalDepth: "medium",
     laneWeights: {
       vector: FIXED_DEFAULTS.laneWeightVector,
-      keyword: FIXED_DEFAULTS.laneWeightKeyword,
       date: FIXED_DEFAULTS.laneWeightDate,
     },
     laneCandidates: FIXED_DEFAULTS.laneCandidates,
-    rerankDepth: FIXED_DEFAULTS.rerankDepth,
-    bm25K1: FIXED_DEFAULTS.bm25K1,
-    bm25B: FIXED_DEFAULTS.bm25B,
   });
 });

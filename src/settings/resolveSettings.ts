@@ -19,13 +19,9 @@ export interface ResolvedSettings {
   reindexMode: ReindexMode;
   retrievalDepth: RetrievalDepth;
   laneCandidates: number;
-  rerankDepth: number;
   rrfConstant: number;
   laneWeightVector: number;
-  laneWeightKeyword: number;
   laneWeightDate: number;
-  bm25K1: number;
-  bm25B: number;
   catalogVersion: number;
   retrievalLimit: number;
   retrievalThreshold: number;

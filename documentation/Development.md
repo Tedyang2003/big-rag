@@ -18,7 +18,7 @@ A message passes through two pipelines. **Indexing** turns the documents folder 
 ### Retrieval Pipeline
 
 1. **Settings.** `settings/resolveSettings.ts` merges global settings, chat settings and the fixed defaults into one object.
-2. **Search.** `retrieval/retrieve.ts` runs the vector search, and at Medium depth reorders its candidates with BM25 (`retrieval/bm25.ts`) and any date the question names (`retrieval/queryDates.ts`), both read from the catalog (`retrieval/chunkCatalog.ts`, managed by `retrieval/catalogManager.ts`). Only the vector search nominates passages; the other two can move a passage but never add one. BM25 boosts only its own top `rerankDepth` candidates: reciprocal rank fusion is flat enough that a boost every candidate receives reorders nothing. It counts document frequency over the candidates rather than the corpus, so a term on every page of the document in hand — the company's name — carries no weight while the terms that separate one candidate from another take it all.
+2. **Search.** `retrieval/retrieve.ts` runs the vector search, and at Medium depth lifts any candidate whose date matches the question (`retrieval/queryDates.ts`, over the catalog in `retrieval/chunkCatalog.ts`, managed by `retrieval/catalogManager.ts`). Only the vector search nominates passages; a date can move one but never add one. Keyword scoring was measured four ways and removed — see documentation/Evaluation.md.
 3. **Fuse.** `retrieval/fuse.ts` merges the lanes with weighted reciprocal rank fusion, and only the winning chunks are read back from the store.
 4. **Prompt.** `promptPreprocessor.ts` trims overlapping passages, renders each one with its header (`retrieval/renderPassage.ts`), fills the prompt template, adds citations and reports status.
 
@@ -59,7 +59,7 @@ big-rag/
 │   ├── parsers/                  One parser per format, plus markdown/ normalization helpers
 │   ├── chunking/                 Section building and structured chunking
 │   ├── metadata/                 Date extraction
-│   ├── retrieval/                retrieve(), BM25, fusion, query dates, catalog
+│   ├── retrieval/                retrieve(), fusion, query dates, catalog
 │   ├── vectorstore/              Sharded Vectra store
 │   ├── eval/                     Question generation, scoring, reports
 │   ├── utils/                    Manifest, hashing, locks, exclude patterns, sanity checks

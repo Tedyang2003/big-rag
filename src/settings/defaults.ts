@@ -14,26 +14,8 @@ export const FIXED_DEFAULTS = {
   structuredIndexing: true,
   enableContextCompaction: false,
   laneCandidates: 50,
-  // How many of BM25's top passages collect a boost. A boost every candidate receives is a
-  // constant added to every row, which changes no ordering: almost any passage of a document
-  // contains some query term, so the reranker only separates anything if most candidates come
-  // away with nothing. Small values trust BM25 over the vector lane; see documentation/Evaluation.md.
-  rerankDepth: 10,
   rrfConstant: 60,
   laneWeightVector: 1,
-  // Off by default. BM25 was measured three ways on FinanceBench - nominating its own
-  // candidates, reranking with corpus idf, reranking with idf counted over the candidates -
-  // and the best of them only tied the date boost on hits while costing three rank-1 answers
-  // and a fifth of the mean reciprocal rank. By the time 50 candidates are in hand the
-  // question BM25 answers well, which document this is, is already settled. The reranker
-  // costs 1ms, so it stays available for collections where words identify a passage rather
-  // than a document; see documentation/Evaluation.md.
-  laneWeightKeyword: 0,
   laneWeightDate: 1,
-  bm25K1: 1.2,
-  // No length penalty. The classic 0.75 assumes documents of wildly different lengths; these
-  // are chunks the chunker already caps, and penalising the longer ones cost 0.017 of mean
-  // reciprocal rank and two rank-1 answers when the reranker was measured with it.
-  bm25B: 0,
   catalogVersion: 3,
 } as const;

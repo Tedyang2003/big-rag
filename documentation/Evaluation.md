@@ -49,15 +49,12 @@ Any of these can be set per run, so a configuration differs from its neighbour b
 |---|---|---|
 | `BIG_RAG_RETRIEVAL_LIMIT` | 5 | Passages returned to the model |
 | `BIG_RAG_RETRIEVAL_THRESHOLD` | 0.5 | Minimum similarity for a passage to be returned |
-| `BIG_RAG_LANE_WEIGHT_VECTOR` / `_KEYWORD` / `_DATE` | 1 / **0** / 1 | **Set a signal to 0 to run without it**, which is how its contribution is attributed. Keywords ship off; see below |
+| `BIG_RAG_LANE_WEIGHT_VECTOR` / `_DATE` | 1 / 1 | **Set a signal to 0 to run without it**, which is how its contribution is attributed |
 | `BIG_RAG_LANE_CANDIDATES` | 50 | Passages the vector lane puts up, and so the pool the others reorder |
-| `BIG_RAG_RERANK_DEPTH` | 10 | Of those, how many of BM25's best collect a boost. **The reranker's sharpness dial** |
-| `BIG_RAG_BM25_K1` | 1.2 | How fast a repeated term stops adding score |
-| `BIG_RAG_BM25_B` | 0 | How hard a long passage is penalised for its length; 0.75 is the classic value and measured worse here |
 
-Attributing hybrid retrieval takes four runs against the same index: weights `1/0/0` should reproduce Low exactly and proves the harness, `1/1/0` isolates the keyword rerank, `1/0/1` the date boost, `1/1/1` is today's Medium.
+Attributing hybrid retrieval takes two runs against the same index: weight `1/0` should reproduce Low exactly and proves the harness, `1/1` is today's Medium.
 
-Held constant: `nomic-embed-text-v1.5` embeddings, 512-token chunks (100 overlap, legacy only), 5 passages returned, 0.5 threshold, compaction off, a 50-passage diagnostic pool. The vector lane puts up 50 candidates, of which BM25 boosts its best 10 when it is switched on, RRF constant 60, BM25 k1 1.2 / b 0.75. Full list in [CLI.md](CLI.md).
+Held constant: `nomic-embed-text-v1.5` embeddings, 512-token chunks (100 overlap, legacy only), 5 passages returned, 0.5 threshold, compaction off, a 50-passage diagnostic pool. The vector lane puts up 50 candidates, RRF constant 60. Full list in [CLI.md](CLI.md).
 
 **Where document frequency is counted.** Over the 50 candidates, not the corpus. Corpus-wide, a company name is rare and scores high, yet it sits on every page of the filing the shortlist came from and separates nothing — which is how boilerplate came to outrank statements. Counted over the shortlist it collapses to near zero, and the terms that distinguish one candidate from another take the weight.
 
@@ -269,6 +266,8 @@ Reading years halved wrong-document failures but doubled wrong-company ones, bec
 
 **24 Sep — the length penalty was costing rank, not hits.** With `b = 0` the reranker's MRR goes 0.117 to 0.134 and its rank-1 answers 6 to 8, so `bm25B` now defaults to 0: the classic 0.75 assumes documents of wildly differing length, while these are chunks the chunker already caps. The outcome is unchanged — the same four questions gained, the same four lost. Across corpus idf, local idf and both length settings, BM25 reranking is a fixed four-for-four exchange, still behind vector + date's 14 hits at MRR 0.140 with 9 at rank 1. `k1` and `b` are now settable per run.
 
+**24 Sep — keyword scoring removed.** Four configurations measured, none beat the date boost, and the last of them shipped switched off. Code that never runs is not measured and rots, so `bm25.ts`, the rerank in `retrieve.ts`, `laneWeightKeyword`, `rerankDepth`, `bm25K1` and `bm25B` are gone. The design is recorded above and in git if a corpus ever turns up where a rare word names a passage rather than a document.
+
 **24 Sep — sentence-level scoring measured and rejected.** Re-ranking the vector lane's 50 candidates by their best sentence or table row, rather than their whole-chunk embedding, takes top-5 from 15 to 10 and MRR from 0.119 to 0.075. Blending it with the chunk score is neutral at best — "max of both" moves 8 questions, +1 into the top five, MRR 0.113 — and costs 741 unit embeddings and 3 seconds per question against a 5-second search. Worst of all on the group it was meant to help: statements go from 3 in the top five to 0. The long-standing dilution explanation is wrong.
 
 **24 Sep — HyDE measured: fusing helps, replacing hurts, and it lands on statements.** Question plus hypothetical gives 34 of 88 in pool against 31 and 16 in the top five against 15, improving 20 questions and worsening 9. On statement evidence the median rank goes from 24 to 8. Generation is 542ms with `gemma-4-e2b-it`. Not yet built; it belongs in an opt-in High depth.
@@ -300,7 +299,7 @@ They shipped in one rebuild, so their effects cannot be attributed separately.
 ## Open Questions
 
 - **Can a boost rescue without displacing?** Fusion is flat enough that any boost large enough to lift a passage from rank 28 can push another off rank 1 — which is why every keyword configuration traded hits rather than adding them. Weighting by the vector lane's own similarity score, rather than by its rank, would let a confident rank 1 defend itself, and is the one change that might make reranking pay.
-- **Would BM25 help on a corpus it suits?** It failed here because a filing's distinctive words are on every page of it. Where documents are heterogeneous — a manual, a paper, a report — a rare word plausibly names a passage. The code is in place at weight 0; a general question set would settle it.
+- **Would BM25 help on a corpus it suits?** It failed here because a filing's distinctive words are on every page of it. Where documents are heterogeneous — a manual, a paper, a report — a rare word plausibly names a passage. The code has been removed rather than left switched off; the design above records what to rebuild if a general question set says it is worth it.
 - **Is the 0.5 threshold still right?** The prefixes shift the score distribution, and the threshold was not re-tuned. If hits fall while pool hits rise, suspect this first.
 - **Should HyDE ship?** Measured and it works, concentrated on the statement group; not yet built. The remaining unknowns are how much of its gain survives beside the date boost, which already converts wrong-document failures, and whether a generation call per question is worth one to three hits. It belongs in an opt-in High depth.
 - **Should a compound question be decomposed?** Untested. "Compare X and Y across FY21 and FY22" is four lookups wearing one question, and retrieval can only serve it by luck. It would belong in an Extra High depth, above HyDE.

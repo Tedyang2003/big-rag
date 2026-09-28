@@ -480,7 +480,7 @@ export async function preprocess(
     retrievalStatus.setState({
       status: "loading",
       text: retrievalDepth === "medium"
-        ? "Searching by meaning, keywords and dates..."
+        ? "Searching by meaning and dates..."
         : "Searching for relevant content...",
     });
 
@@ -507,15 +507,8 @@ export async function preprocess(
         enableContextCompaction,
         depth: retrievalDepth,
         laneCandidates: settings.laneCandidates,
-        rerankDepth: settings.rerankDepth,
-        bm25K1: settings.bm25K1,
-        bm25B: settings.bm25B,
         rrfConstant: settings.rrfConstant,
-        laneWeights: {
-          vector: settings.laneWeightVector,
-          keyword: settings.laneWeightKeyword,
-          date: settings.laneWeightDate,
-        },
+        laneWeights: { vector: settings.laneWeightVector, date: settings.laneWeightDate },
         abortSignal: ctl.abortSignal,
       },
     );
@@ -524,7 +517,7 @@ export async function preprocess(
       `[BigRAG] Retrieval timings: ${timings.map((t) => `${t.stage}=${t.ms.toFixed(0)}ms`).join(" ")}`,
     );
     console.info(
-      `[BigRAG] Lanes: meaning=${laneCounts.vector} keywords=${laneCounts.keyword} dates=${laneCounts.date}` +
+      `[BigRAG] Lanes: meaning=${laneCounts.vector} dates=${laneCounts.date}` +
         (dayRanges.length > 0 ? ` ranges=${dayRanges.map((r) => `${r.start}-${r.end}`).join(",")}` : " ranges=none"),
     );
     if (results.length > 0) {
@@ -565,7 +558,7 @@ export async function preprocess(
     retrievalStatus.setState({
       status: "done",
       text: retrievalDepth === "medium"
-        ? `Retrieved ${results.length} relevant passages (meaning ${laneCounts.vector}, keywords ${laneCounts.keyword}, dates ${laneCounts.date}${dateSuffix})`
+        ? `Retrieved ${results.length} relevant passages (meaning ${laneCounts.vector}, dates ${laneCounts.date}${dateSuffix})`
         : `Retrieved ${results.length} relevant passages`,
     });
 

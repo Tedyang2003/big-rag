@@ -2,7 +2,6 @@ import { chunkKey, type SearchResult, type VectorStore } from "../vectorstore/ve
 import { trimOverlappingChunks } from "../utils/trimOverlappingChunks";
 import { compactPassageText, type EmbedSentences } from "../utils/compactPassages";
 import { type CountTokens } from "../utils/textChunker";
-import { rankTexts, tokenize, type Bm25Candidate } from "./bm25";
 import { fuseLanes, type RankedLane } from "./fuse";
 import { queryDayRanges, type DayRange } from "./queryDates";
 
@@ -12,7 +11,6 @@ export const CONTEXT_COMPACTION_POOL_MULTIPLIER = 3;
 export type StageName =
   | "embedQuery"
   | "vectorSearch"
-  | "keywordRerank"
   | "dateLane"
   | "fuse"
   | "trimOverlap"
@@ -35,7 +33,6 @@ export interface CatalogLanes {
 
 export interface LaneCounts {
   vector: number;
-  keyword: number;
   date: number;
 }
 
@@ -63,12 +60,8 @@ export interface RetrieveOptions {
   depth: RetrievalDepth;
   /** Passages the vector lane puts up for fusion, and so the pool BM25 reranks. */
   laneCandidates: number;
-  /** How many of BM25's top passages collect a boost; the rest collect nothing. */
-  rerankDepth: number;
-  bm25K1: number;
-  bm25B: number;
   rrfConstant: number;
-  laneWeights: { vector: number; keyword: number; date: number };
+  laneWeights: { vector: number; date: number };
 }
 
 export interface RetrieveResult {
@@ -157,7 +150,7 @@ export async function retrieve(
   options.abortSignal?.throwIfAborted();
 
   const catalog = medium ? deps.catalog ?? null : null;
-  const laneCounts: LaneCounts = { vector: 0, keyword: 0, date: 0 };
+  const laneCounts: LaneCounts = { vector: 0, date: 0 };
   let dayRanges: DayRange[] = [];
   let ranked: SearchResult[] = searched;
   // Set only on the catalog path: chunk key -> the lanes that ranked it while
@@ -168,29 +161,11 @@ export async function retrieve(
   // Set only on the catalog path: the fused ranking, so the diagnostic pool measures
   // fusion rather than the vector lane alone.
   let fusedKeys: string[] | null = null;
-  // Every passage in play, by key. Keywords and dates only reorder what the vector lane
-  // found, so the ranking can never name a chunk that is not already here.
+  // Every passage in play, by key. Dates only reorder what the vector lane found, so the
+  // ranking can never name a chunk that is not already here.
   const resolvedByKey = new Map<string, SearchResult>();
 
   if (catalog) {
-    const terms = tokenize(query);
-    const candidates: Bm25Candidate[] = searched.map((result) => ({
-      key: chunkKey(result),
-      text: result.text,
-    }));
-
-    // Keywords reorder what the vector lane found; they do not nominate passages of their
-    // own. Measured on FinanceBench, letting BM25 nominate cost 3 of 12 hits and half the
-    // rank-1 answers, because it fills the shortlist with a document's boilerplate. Every
-    // question it rescued was one the vector lane had already surfaced further down, so
-    // reranking keeps the rescues and drops the flooding. See documentation/Evaluation.md.
-    const keywordRanking = await timed("keywordRerank", () =>
-      safeLane("keyword", async () =>
-        rankTexts(terms, candidates, { k1: options.bm25K1, b: options.bm25B }),
-      ),
-    );
-    options.abortSignal?.throwIfAborted();
-
     // Dates are a boost, not a source of candidates. A year says which documents are
     // eligible, not which passage answers the question, so a chunk is never retrieved
     // because of its date - it is only lifted once another lane has found it.
@@ -216,24 +191,11 @@ export async function retrieve(
     const dateBoost = options.laneWeights.date / (options.rrfConstant + 1);
     const fused = await timed("fuse", async () => {
       const ranking = fuseLanes(lanes, options.rrfConstant);
-      const byKey = new Map(ranking.map((entry) => [entry.key, entry]));
       let boosted = false;
 
-      // Both boosts are worth what topping a lane of their own was worth, so a passage the
-      // vector lane ranked low can still win on the strength of the other two - which is the
-      // whole point - while neither can put a passage in the pool by itself.
-      //
-      // Only BM25's first rerankDepth passages are boosted. Reciprocal rank fusion is flat -
-      // the whole spread from rank 1 to rank 50 is worth less than having a boost at all - and
-      // nearly every candidate contains some query term, so boosting them all would add roughly
-      // the same number to every row and reorder nothing.
-      keywordRanking.slice(0, options.rerankDepth).forEach((key, index) => {
-        const entry = byKey.get(key);
-        if (!entry) return;
-        entry.score += options.laneWeights.keyword / (options.rrfConstant + index + 1);
-        entry.lanes.push("keyword");
-        boosted = true;
-      });
+      // The boost is worth what topping a lane of its own was worth, so a passage the vector
+      // lane ranked low can still win on the strength of its date - which is the point - while
+      // a date cannot put a passage in the pool by itself.
       for (const entry of ranking) {
         if (!dated.has(entry.key)) continue;
         entry.score += dateBoost;
@@ -294,11 +256,9 @@ export async function retrieve(
     const finalLanesByKey = winnerLanesByKey;
     passageLanes = passages.map((passage) => finalLanesByKey.get(chunkKey(passage)) ?? []);
     laneCounts.vector = 0;
-    laneCounts.keyword = 0;
     laneCounts.date = 0;
     for (const lanes of passageLanes) {
       if (lanes.includes("vector")) laneCounts.vector++;
-      if (lanes.includes("keyword")) laneCounts.keyword++;
       if (lanes.includes("date")) laneCounts.date++;
     }
   }

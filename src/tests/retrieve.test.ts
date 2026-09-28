@@ -53,11 +53,8 @@ test("retrieve searches with retrievalLimit and threshold when compaction is off
     enableContextCompaction: false,
     depth: "low",
     laneCandidates: 30,
-    rerankDepth: 10,
-    bm25K1: 1.2,
-    bm25B: 0.75,
     rrfConstant: 60,
-    laneWeights: { vector: 1, keyword: 1, date: 1 },
+    laneWeights: { vector: 1, date: 1 },
   });
 
   assert.deepEqual(searchCalls, [{ limit: 2, threshold: 0.5 }]);
@@ -84,11 +81,8 @@ test("retrieve trims overlapping adjacent chunks", async () => {
     enableContextCompaction: false,
     depth: "low",
     laneCandidates: 30,
-    rerankDepth: 10,
-    bm25K1: 1.2,
-    bm25B: 0.75,
     rrfConstant: 60,
-    laneWeights: { vector: 1, keyword: 1, date: 1 },
+    laneWeights: { vector: 1, date: 1 },
   });
 
   assert.equal(output.passages[1].text, "six seven");
@@ -110,11 +104,8 @@ test("retrieve widens the pool and fills the token budget when compaction is on"
     enableContextCompaction: true,
     depth: "low",
     laneCandidates: 30,
-    rerankDepth: 10,
-    bm25K1: 1.2,
-    bm25B: 0.75,
     rrfConstant: 60,
-    laneWeights: { vector: 1, keyword: 1, date: 1 },
+    laneWeights: { vector: 1, date: 1 },
   });
 
   assert.deepEqual(searchCalls, [{ limit: 3, threshold: 0.5 }]);
@@ -137,11 +128,8 @@ test("retrieve collects an unthresholded diagnostic pool when requested", async 
     diagnosticPoolSize: 50,
     depth: "low",
     laneCandidates: 30,
-    rerankDepth: 10,
-    bm25K1: 1.2,
-    bm25B: 0.75,
     rrfConstant: 60,
-    laneWeights: { vector: 1, keyword: 1, date: 1 },
+    laneWeights: { vector: 1, date: 1 },
   });
 
   assert.deepEqual(searchCalls[1], { limit: 50, threshold: Number.NEGATIVE_INFINITY });
@@ -167,11 +155,8 @@ test("retrieve stops before searching when aborted after embedding the query", a
         abortSignal: controller.signal,
         depth: "low",
         laneCandidates: 30,
-        rerankDepth: 10,
-        bm25K1: 1.2,
-        bm25B: 0.75,
         rrfConstant: 60,
-        laneWeights: { vector: 1, keyword: 1, date: 1 },
+        laneWeights: { vector: 1, date: 1 },
       }),
     (error: unknown) => error instanceof Error && error.name === "AbortError",
   );
@@ -185,11 +170,8 @@ const LOW_OPTIONS = {
   enableContextCompaction: false,
   depth: "low" as const,
   laneCandidates: 30,
-  rerankDepth: 10,
-  bm25K1: 1.2,
-  bm25B: 0.75,
   rrfConstant: 60,
-  laneWeights: { vector: 1, keyword: 1, date: 1 },
+  laneWeights: { vector: 1, date: 1 },
 };
 
 function fakeCatalog(overrides: Partial<CatalogLanes> = {}): CatalogLanes {
@@ -202,11 +184,7 @@ function fakeCatalog(overrides: Partial<CatalogLanes> = {}): CatalogLanes {
   };
 }
 
-/**
- * The three passages the vector lane finds in most of the Medium tests, in its own order.
- * Reranking is real, so the text decides the keyword order: against "bus collision" only
- * chunk-3 has both terms, chunk-2 has one, and chunk-1 has neither.
- */
+/** The three passages the vector lane finds in most of the Medium tests, in its own order. */
 function vectorResults(): SearchResult[] {
   return [
     makeResult({ text: "timetable notice for the new term", id: "chunk-1", chunkIndex: 0 }),
@@ -219,7 +197,7 @@ const VECTOR_1 = "timetable notice for the new term";
 const VECTOR_2 = "bus route update for commuters";
 const VECTOR_3 = "bus collision on the expressway";
 
-test("medium reranks the vector lane's candidates with keywords and dates", async () => {
+test("medium lifts a dated passage above the vector lane's own order", async () => {
   const { deps } = makeDeps(vectorResults());
 
   const result = await retrieve(
@@ -227,62 +205,21 @@ test("medium reranks the vector lane's candidates with keywords and dates", asyn
     {
       ...deps,
       nowDate: () => new Date(2026, 8, 16),
-      // chunk-2 is the one the question's date matches.
-      catalog: fakeCatalog({ chunksForRanges: () => [2] }),
+      // chunk-3, which the vector lane ranked last, is the one the question's date matches.
+      catalog: fakeCatalog({ chunksForRanges: () => [3] }),
     },
     { ...LOW_OPTIONS, depth: "medium", retrievalLimit: 3 },
   );
 
-  // chunk-2 carries one query term and the date, which together beat chunk-3's two terms;
-  // both pass chunk-1, which the vector lane had ranked first and which neither boost reaches.
-  assert.deepEqual(result.passages.map((passage) => passage.text), [VECTOR_2, VECTOR_3, VECTOR_1]);
-  assert.deepEqual(result.passageLanes, [["vector", "keyword", "date"], ["vector", "keyword"], ["vector"]]);
-  assert.deepEqual(result.laneCounts, { vector: 3, keyword: 2, date: 1 });
+  assert.deepEqual(result.passages.map((passage) => passage.text), [VECTOR_3, VECTOR_1, VECTOR_2]);
+  assert.deepEqual(result.passageLanes, [["vector", "date"], ["vector"], ["vector"]]);
+  assert.deepEqual(result.laneCounts, { vector: 3, date: 1 });
   assert.deepEqual(result.dayRanges, [{ start: 20260908, end: 20260908 }]);
-  assert.ok(result.timings.some((timing) => timing.stage === "keywordRerank"));
   assert.ok(result.timings.some((timing) => timing.stage === "dateLane"));
   assert.ok(result.timings.some((timing) => timing.stage === "fuse"));
 });
 
-test("only BM25's top rerankDepth passages collect a boost", async () => {
-  const { deps } = makeDeps(vectorResults());
-
-  const result = await retrieve(
-    "bus collision",
-    { ...deps, catalog: fakeCatalog() },
-    { ...LOW_OPTIONS, depth: "medium", retrievalLimit: 3, rerankDepth: 1 },
-  );
-
-  // BM25 ranks chunk-3 first and chunk-2 second, but only the first collects anything, so
-  // chunk-2 keeps its own place while chunk-3 climbs from last to first.
-  assert.deepEqual(result.passages.map((passage) => passage.text), [VECTOR_3, VECTOR_1, VECTOR_2]);
-  assert.deepEqual(result.passageLanes, [["vector", "keyword"], ["vector"], ["vector"]]);
-  assert.equal(result.laneCounts.keyword, 1);
-});
-
-test("a term every candidate shares cannot reorder them", async () => {
-  // "bus" is in two of the three, "notice" in one - but "ulta" is in all three, so a query
-  // of nothing but that term leaves the vector lane's order exactly as it was.
-  const { deps } = makeDeps([
-    makeResult({ text: "ulta first passage", id: "chunk-1", chunkIndex: 0 }),
-    makeResult({ text: "ulta ulta ulta second passage", id: "chunk-2", chunkIndex: 10 }),
-    makeResult({ text: "ulta third passage", id: "chunk-3", chunkIndex: 20 }),
-  ]);
-
-  const result = await retrieve(
-    "ulta",
-    { ...deps, catalog: fakeCatalog() },
-    { ...LOW_OPTIONS, depth: "medium", retrievalLimit: 3 },
-  );
-
-  assert.deepEqual(result.passages.map((passage) => passage.text), [
-    "ulta first passage",
-    "ulta ulta ulta second passage",
-    "ulta third passage",
-  ]);
-});
-
-test("keywords and dates cannot introduce a passage the vector lane did not find", async () => {
+test("a date cannot introduce a passage the vector lane did not find", async () => {
   const { deps } = makeDeps(vectorResults());
 
   const result = await retrieve(
@@ -311,28 +248,15 @@ test("low depth ignores the catalog entirely", async () => {
   );
   assert.equal(catalogUsed, false);
   assert.equal(result.passages.length, 1);
-  assert.deepEqual(result.laneCounts, { vector: 1, keyword: 0, date: 0 });
+  assert.deepEqual(result.laneCounts, { vector: 1, date: 0 });
   assert.deepEqual(searchCalls, [{ limit: 2, threshold: 0.5 }]);
-});
-
-test("medium without a date reranks on keywords alone", async () => {
-  const { deps } = makeDeps(vectorResults());
-  const result = await retrieve(
-    "what caused the collision",
-    { ...deps, catalog: fakeCatalog() },
-    { ...LOW_OPTIONS, depth: "medium", retrievalLimit: 3 },
-  );
-  assert.deepEqual(result.dayRanges, []);
-  assert.equal(result.laneCounts.date, 0);
-  assert.equal(result.laneCounts.keyword, 1);
-  assert.equal(result.passages[0].text, VECTOR_3);
 });
 
 test("medium without a catalog falls back to the vector lane", async () => {
   const { deps } = makeDeps([makeResult({ text: "vector hit", id: "chunk-1" })]);
   const result = await retrieve("collision", { ...deps, catalog: null }, { ...LOW_OPTIONS, depth: "medium" });
   assert.deepEqual(result.passages.map((passage) => passage.text), ["vector hit"]);
-  assert.deepEqual(result.laneCounts, { vector: 1, keyword: 0, date: 0 });
+  assert.deepEqual(result.laneCounts, { vector: 1, date: 0 });
 });
 
 test("a lane that throws does not fail the query", async () => {
@@ -350,7 +274,7 @@ test("a lane that throws does not fail the query", async () => {
     },
     { ...LOW_OPTIONS, depth: "medium", retrievalLimit: 3 },
   );
-  assert.equal(result.passages[0].text, VECTOR_3, "the keyword rerank still ran");
+  assert.deepEqual(result.passages.map((passage) => passage.text), [VECTOR_1, VECTOR_2, VECTOR_3]);
   assert.equal(result.laneCounts.date, 0);
 });
 
@@ -381,8 +305,8 @@ test("medium reports the lanes that ranked each returned passage", async () => {
     { ...LOW_OPTIONS, depth: "medium", retrievalLimit: 2 },
   );
 
-  assert.deepEqual(result.passageLanes, [["vector", "keyword", "date"], ["vector", "keyword"]]);
-  assert.deepEqual(result.passages.map((passage) => passage.text), [VECTOR_2, VECTOR_3]);
+  assert.deepEqual(result.passageLanes, [["vector", "date"], ["vector"]]);
+  assert.deepEqual(result.passages.map((passage) => passage.text), [VECTOR_2, VECTOR_1]);
 });
 
 test("low depth reports no lanes per passage", async () => {
@@ -399,15 +323,15 @@ test("at medium depth the diagnostic pool is the fused ranking, not a vector-onl
     {
       ...deps,
       nowDate: () => new Date(2026, 8, 16),
-      catalog: fakeCatalog({ chunksForRanges: () => [2] }),
+      catalog: fakeCatalog({ chunksForRanges: () => [3] }),
     },
     { ...LOW_OPTIONS, depth: "medium", retrievalLimit: 1, diagnosticPoolSize: 10 },
   );
 
-  assert.deepEqual(result.passages.map((passage) => passage.text), [VECTOR_2]);
-  // The pool is the fused ranking, so pool metrics measure the rerank rather than the
+  assert.deepEqual(result.passages.map((passage) => passage.text), [VECTOR_3]);
+  // The pool is the fused ranking, so pool metrics measure the date boost rather than the
   // vector lane's own order.
-  assert.deepEqual(result.diagnosticPool.map((passage) => passage.text), [VECTOR_2, VECTOR_3, VECTOR_1]);
+  assert.deepEqual(result.diagnosticPool.map((passage) => passage.text), [VECTOR_3, VECTOR_1, VECTOR_2]);
   assert.equal(searchCalls.length, 1, "the pool reuses the vector search instead of running another");
 });
 

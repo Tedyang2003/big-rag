@@ -4,14 +4,14 @@ Big RAG is a Retrieval-Augmented Generation plugin for [LM Studio](https://lmstu
 
 ## Introduction
 
-This project is a custom update of [ari99/lm_studio_big_rag_plugin](https://github.com/ari99/lm_studio_big_rag_plugin), hosted at [Tedyang2003/big-rag](https://github.com/Tedyang2003/big-rag). It has since been reworked around retrieval accuracy on small local models: documents are split by their structure rather than fixed word counts, every chunk carries its dates and section, and search combines meaning, keywords and dates instead of relying on embeddings alone. The reasoning behind each change is recorded in [documentation/updates](documentation/updates).
+This project is a custom update of [ari99/lm_studio_big_rag_plugin](https://github.com/ari99/lm_studio_big_rag_plugin), hosted at [Tedyang2003/big-rag](https://github.com/Tedyang2003/big-rag). It has since been reworked around retrieval accuracy on small local models: documents are split by their structure rather than fixed word counts, every chunk carries its dates and section, and search combines meaning with the dates a question names, instead of relying on embeddings alone. The reasoning behind each change is recorded in [documentation/updates](documentation/updates).
 
 ## What It Does
 
 1. Scans your documents folder, including every subfolder, and parses each supported file into a common Markdown structure.
 2. Splits each document into chunks along its headings, sections and list items, recording the dates each chunk mentions.
 3. Embeds the chunks and stores them in a local, sharded vector store that persists between sessions.
-4. On every chat message, searches the store by meaning, by keyword and by date, then merges the results.
+4. On every chat message, searches the store by meaning, then lifts passages matching any date the message names.
 5. Adds the best passages to the prompt, and links each one back to its source file through LM Studio's citations.
 
 ## Features
@@ -38,11 +38,11 @@ Chunks follow the document's own sections, and each one carries a header naming 
 
 #### Hybrid Retrieval
 
-At the default *Medium* retrieval depth, each question is searched by meaning, and the passages found are then reordered by exact keyword match (BM25) and by any date the question names, using reciprocal rank fusion. *Low* depth searches by meaning only. Neither adds model calls.
+At the default *Medium* retrieval depth, each question is searched by meaning, and any passage whose date matches one the question names is lifted. *Low* depth searches by meaning only. Neither adds model calls.
 
 #### Citations
 
-Retrieved passages appear in LM Studio's citation panel, each labelled with how it matched, for example `match #1 via meaning, keywords`.
+Retrieved passages appear in LM Studio's citation panel, each labelled with how it matched, for example `match #1 via meaning, dates`.
 
 #### Incremental Indexing
 

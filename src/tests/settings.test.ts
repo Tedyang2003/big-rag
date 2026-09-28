@@ -12,13 +12,9 @@ test("readRetrievalSettings uses the plugin config defaults when env vars are un
     retrievalDepth: "medium",
     laneWeights: {
       vector: FIXED_DEFAULTS.laneWeightVector,
-      keyword: FIXED_DEFAULTS.laneWeightKeyword,
       date: FIXED_DEFAULTS.laneWeightDate,
     },
     laneCandidates: FIXED_DEFAULTS.laneCandidates,
-    rerankDepth: FIXED_DEFAULTS.rerankDepth,
-    bm25K1: FIXED_DEFAULTS.bm25K1,
-    bm25B: FIXED_DEFAULTS.bm25B,
   });
 });
 
@@ -37,7 +33,7 @@ test("readRetrievalSettings reads overrides from env vars", () => {
       BIG_RAG_CHUNK_SIZE: "1024",
       BIG_RAG_ENABLE_COMPACTION: "TRUE",
     }),
-    { retrievalLimit: 8, retrievalThreshold: 0.35, chunkSize: 1024, enableContextCompaction: true, retrievalDepth: "medium", laneWeights: { vector: FIXED_DEFAULTS.laneWeightVector, keyword: FIXED_DEFAULTS.laneWeightKeyword, date: FIXED_DEFAULTS.laneWeightDate }, laneCandidates: FIXED_DEFAULTS.laneCandidates, rerankDepth: FIXED_DEFAULTS.rerankDepth, bm25K1: FIXED_DEFAULTS.bm25K1, bm25B: FIXED_DEFAULTS.bm25B },
+    { retrievalLimit: 8, retrievalThreshold: 0.35, chunkSize: 1024, enableContextCompaction: true, retrievalDepth: "medium", laneWeights: { vector: FIXED_DEFAULTS.laneWeightVector, date: FIXED_DEFAULTS.laneWeightDate }, laneCandidates: FIXED_DEFAULTS.laneCandidates },
   );
 });
 
@@ -87,15 +83,12 @@ test("readGenerationSettings rejects invalid count and seed values", () => {
 test("lane weights and candidate counts can be tuned from the environment", () => {
   const settings = readRetrievalSettings({
     BIG_RAG_LANE_WEIGHT_VECTOR: "1",
-    BIG_RAG_LANE_WEIGHT_KEYWORD: "0",
     BIG_RAG_LANE_WEIGHT_DATE: "0.5",
     BIG_RAG_LANE_CANDIDATES: "40",
-    BIG_RAG_RERANK_DEPTH: "3",
   });
 
-  assert.deepEqual(settings.laneWeights, { vector: 1, keyword: 0, date: 0.5 });
+  assert.deepEqual(settings.laneWeights, { vector: 1, date: 0.5 });
   assert.equal(settings.laneCandidates, 40);
-  assert.equal(settings.rerankDepth, 3);
 });
 
 test("lane settings fall back to the plugin's fixed defaults", () => {
@@ -103,24 +96,11 @@ test("lane settings fall back to the plugin's fixed defaults", () => {
 
   assert.deepEqual(settings.laneWeights, {
     vector: FIXED_DEFAULTS.laneWeightVector,
-    keyword: FIXED_DEFAULTS.laneWeightKeyword,
     date: FIXED_DEFAULTS.laneWeightDate,
   });
   assert.equal(settings.laneCandidates, FIXED_DEFAULTS.laneCandidates);
-  assert.equal(settings.rerankDepth, FIXED_DEFAULTS.rerankDepth);
-  assert.equal(settings.bm25K1, FIXED_DEFAULTS.bm25K1);
-  assert.equal(settings.bm25B, FIXED_DEFAULTS.bm25B);
-});
-
-test("the BM25 parameters can be tuned, and are bounded", () => {
-  const settings = readRetrievalSettings({ BIG_RAG_BM25_K1: "0.9", BIG_RAG_BM25_B: "0" });
-  assert.equal(settings.bm25K1, 0.9);
-  assert.equal(settings.bm25B, 0);
-
-  assert.throws(() => readRetrievalSettings({ BIG_RAG_BM25_K1: "-1" }), /BIG_RAG_BM25_K1/);
-  assert.throws(() => readRetrievalSettings({ BIG_RAG_BM25_B: "1.5" }), /BIG_RAG_BM25_B/);
 });
 
 test("a negative lane weight is rejected", () => {
-  assert.throws(() => readRetrievalSettings({ BIG_RAG_LANE_WEIGHT_KEYWORD: "-1" }), /BIG_RAG_LANE_WEIGHT_KEYWORD/);
+  assert.throws(() => readRetrievalSettings({ BIG_RAG_LANE_WEIGHT_DATE: "-1" }), /BIG_RAG_LANE_WEIGHT_DATE/);
 });

@@ -50,7 +50,7 @@ An empty index is always filled automatically on the first message, whatever Rei
 
 Controls how the plugin searches.
 
-- **Medium** (default): searches by meaning, by exact keywords, and by date when your question names one, then merges the results
+- **Medium** (default): searches by meaning, then lifts passages whose date matches one your question names
 - **Low**: searches by meaning only, as versions before 1.5 did
 
 Neither level makes extra model calls. The first Medium search builds a small search index next to your vector store, `.big-rag-catalog.json`, and shows its progress. It is rebuilt automatically when the number of indexed chunks changes and is safe to delete. Keywords and dates reorder the passages the meaning search found rather than adding their own, so they work at any collection size.
@@ -59,11 +59,11 @@ Neither level makes extra model calls. The first Medium search builds a small se
 
 #### Status Lines
 
-While it works, the plugin shows short status lines above the answer: *Using Big RAG* on first use, indexing progress with file counts, *Preparing search index…* the first time Medium runs, then the search result, for example *Retrieved 5 relevant passages (meaning 3, keywords 4, dates 2, dates: 20260908)*. A passage counts once for each way it matched.
+While it works, the plugin shows short status lines above the answer: *Using Big RAG* on first use, indexing progress with file counts, *Preparing search index…* the first time Medium runs, then the search result, for example *Retrieved 5 relevant passages (meaning 5, dates 2, dates: 20260908)*. A passage counts once for each way it matched.
 
 #### Citations
 
-Each retrieved passage appears in LM Studio's citation panel. At Medium depth it is labelled with its rank and how it matched, such as `match #1 via meaning, keywords`. At Low depth it shows the similarity score instead.
+Each retrieved passage appears in LM Studio's citation panel. At Medium depth it is labelled with its rank and how it matched, such as `match #1 via meaning, dates`. At Low depth it shows the similarity score instead.
 
 ## How Documents Are Indexed
 
@@ -73,7 +73,7 @@ Documents are split along their headings, sections and list items rather than fi
 
 #### Index Files
 
-Alongside the shards, the vector store folder holds `.big-rag-embedding.json`, which records the embedding model and index format, and `.big-rag-catalog.json`, the keyword and date index used at Medium depth. If the embedding model no longer matches the one recorded, retrieval stops until you reindex or change the setting back.
+Alongside the shards, the vector store folder holds `.big-rag-embedding.json`, which records the embedding model and index format, and `.big-rag-catalog.json`, the date index used at Medium depth. If the embedding model no longer matches the one recorded, retrieval stops until you reindex or change the setting back.
 
 #### Index Format Changes
 
