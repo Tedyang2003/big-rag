@@ -396,18 +396,31 @@ at +3, a leaking control run at +4, and this at +6.
 
 ## Results: QASPER
 
-281 papers, 892 questions, all scorable. Not yet run.
+281 papers, 3,676 chunks, 892 questions, **all scorable**. Ranks here use the corrected
+measure, so they cannot be compared with the FinanceBench table above; hit rate, pool rate and
+right-file-wrong-passage can.
 
 | Metric | Legacy | Structured | + Hybrid | + HyDE |
 |---|---|---|---|---|
-| Questions scored | | | | |
-| Final hit rate | | | | |
-| Pool hit rate (top 50) | | | | |
-| Answers at rank 1 | | | | |
-| Median answer rank in pool | | | | |
-| Mean reciprocal rank | | | | |
-| Right file, wrong passage | | | | |
-| Mean passages returned | | | | |
+| Questions scored | 892 | | | |
+| Final hit rate | 13.1% (117) | | | |
+| Pool hit rate (top 50) | 28.0% (250) | | | |
+| Answers at rank 1 | 115 | | | |
+| Median answer rank in pool | 7 | | | |
+| Mean reciprocal rank | 0.086 | | | |
+| Right file, wrong passage | 21.2% | | | |
+| Mean passages returned | 5.0 | | | |
+| Vector search, median | 4ms | | | |
+
+**A run takes about a minute.** 3,676 chunks against FinanceBench's 91,541 means a 4ms search
+rather than 5 seconds, so sweeping a parameter here costs what reading the result costs. It also
+reopens options rejected on cost alone: ten times the vectors would still be a 40ms search.
+
+**Legacy chunking already finds more here than any FinanceBench configuration does**, 13.1%
+against its best of 21.6%... on a different question set, so the rates are not comparable
+either. What is comparable is the shape of the failure: right-document-wrong-passage is 21.2%
+where FinanceBench's legacy run is 46.6%. Documents that differ from one another are simply
+easier to tell apart.
 
 What these runs are for, in order of how much they would change:
 
