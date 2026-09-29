@@ -252,22 +252,19 @@ so three more crossed into the five returned. They shipped together and cannot b
 Nine times in ten the right company is found. The date boost is what converts wrong-document
 failures into right-document ones, 31 down to 14.
 
-**Statements are the stubborn case, and it is recall, not dilution.** By manual classification,
-31 of the 88 questions have their answer inside a financial statement and 2 are hits, up from 1
-before tables; the gains landed elsewhere — 7 of 39 for press releases and short sections, 2 of
-2 for notes to the accounts, 1 of 16 for MD&A narrative. (A looser match on section path counts
-41 such questions; the tables below use that wider set, so its counts run higher.)
+**Statements are the stubborn case, and it is recall, not dilution.** 31 of the 88 have their
+answer inside a statement and 2 are hits, up from 1 before tables; the gains landed elsewhere —
+7 of 39 for press releases and short sections, 2 of 2 for notes, 1 of 16 for MD&A narrative. (A
+looser match on section path counts 41, which the tables below use.)
 
-The explanation assumed until now — one relevant row averaged away among hundreds of words of
-figures — was measured and is wrong. Scoring each candidate by its best sentence or table row
-instead of its whole-chunk embedding makes statements *worse*, from 3 of 41 in the top five to
-0, MRR 0.050 to 0.015. The unit is too small, not too large: `Capital expenditures — 2018:
-1,577` is short and mostly numeric and embeds badly against a sentence of English, while the
-whole chunk at least carries its context header and its subject.
+The assumed explanation — one row averaged away among hundreds of words of figures — is wrong.
+Scoring a candidate by its best sentence or table row instead of its whole-chunk embedding makes
+statements *worse*, 3 of 41 in the top five down to 0, MRR 0.050 to 0.015. The unit is too small,
+not too large: `Capital expenditures — 2018: 1,577` is short and mostly numeric and embeds badly
+against a sentence of English, where the whole chunk at least carries its context header.
 
-The barrier is upstream of ranking. Only 9 of those 41 have their evidence anywhere in the top
-50, so for 32 of them no re-scoring can help — the answer is never a candidate. What moves them
-is changing the question rather than inspecting the passage.
+The barrier is upstream of ranking: only 9 of those 41 have evidence anywhere in the top 50, so
+for 32 no re-scoring can help.
 
 **What the questions actually ask.** Classifying all 88, and measuring how much of each
 question's wording appears in its evidence chunk:
@@ -279,28 +276,24 @@ question's wording appears in its evidence chunk:
 | Judgement call | 11 | 2 | | 40–60% | 19 | 6 | 2 |
 | Multi-year comparison | 11 | 1 | | Over 60% | 10 | **9** | **4** |
 
-Hits average 45% word overlap against 33% for misses, and the effect is starkest at the ends: 9
-of the 10 questions sharing more than 60% of their words with the evidence surface it, against 1
-of 15 at the bottom. Derived metrics sit at the bottom by construction — "quick ratio" appears
-nowhere in a balance sheet, because it is calculated from line items. **Roughly 46 of 88
-questions are financial reasoning rather than retrieval**, so the realistic target is the 42
-lookups, 31 of which sit in a statement. A hit rate of 20% would be a strong result.
+Hits average 45% word overlap against 33% for misses. Derived metrics sit at the bottom by
+construction — "quick ratio" appears nowhere in a balance sheet, being calculated from line
+items. **Roughly 46 of 88 questions are financial reasoning rather than retrieval**, so the
+realistic target is the 42 lookups, 31 of them in a statement; 20% would be a strong result.
 
 **Why the right document yields the wrong passage.** Of 41 such misses, 36 returned passages
-from elsewhere in the document entirely — 3 landed in the evidence's own section, 5 within two
-chunks of it. The evidence fits a single chunk in 21 of the 41 and in 56 of all 88, so chunk
-boundaries are not the barrier. What comes back is narrative: an English question embeds close
-to prose about a topic and far from a grid of figures, even after the grid has rows.
+from elsewhere in the document entirely; 3 landed in the evidence's own section, 5 within two
+chunks. The evidence fits one chunk in 21 of the 41 and 56 of all 88, so boundaries are not the
+barrier. What comes back is narrative: an English question embeds close to prose about a topic
+and far from a grid of figures, even after the grid has rows.
 
 **Why found answers do not reach the model, and what filter loss is really measuring.** High
 surfaces 32 answers and returns 16. The gap looks like a filter problem and mostly is not.
 
-Scoring joins adjacent chunks into one passage, so that evidence straddling a boundary counts
-as found when both chunks are retrieved. That join is applied to the 50-deep pool as well as to
-the 5 returned, and neighbours are almost always both present in 50. So a pool rank of 1 often
-belongs to a *run* of chunks, only one of which reaches the top five. All four found-but-
-unreturned answers ranked inside the top five show it: the evidence chunk itself was never
-returned, its neighbour was.
+Scoring joins adjacent chunks into one passage, and that join runs over the 50-deep pool as well
+as the 5 returned. Neighbours are nearly always both in 50, so a pool rank of 1 often belongs to
+a *run* of which only one chunk reaches the top five. All four found-but-unreturned answers
+inside the top five show it — the evidence chunk was never returned, its neighbour was.
 
 | Pool rank | Evidence at | Returned from that file |
 |---|---|---|
@@ -418,21 +411,15 @@ right-file-wrong-passage can.
 | Chunks indexed | 3,676 | 4,699 | 4,699 | 4,699 | 4,699 | 4,699 |
 | Vector search, median | 4ms | 6ms | 5ms | 5ms | 5ms | 10ms |
 
-**Keyword reranking was wrongly deleted, and the reason it looked useless is the reason it
-works here.** On QASPER it adds 21 questions, takes the median rank from 7 to 5 and MRR from
-0.107 to 0.130, gaining 52 and losing 31 — while the pool is untouched at 332, since it reranks
-and never nominates.
-
-The gain is entirely in finding the *document*: the right paper is returned 32 times more often,
-356 against 324, while passage accuracy barely moves, 61.1% to 61.5%. **BM25 says which document,
-not which passage in it.** On FinanceBench that was worthless, because the candidates were ten
-near-identical filings of one company and the document was never in doubt — a company's
-distinctive words sit on every page of it. On a corpus of unlike papers, choosing the document
-*is* the hard part.
-
-Re-measured on FinanceBench with the current build, it is neutral there rather than harmful:
-16 hits either way, MRR 0.112 against 0.109, passage accuracy 24.6% against 22.5%. Neutral on
-one corpus and clearly positive on the other, so `laneWeightKeyword` now defaults to 1.
+**BM25 says which document, not which passage in it** — which is why it was deleted and why it
+came back. It adds 21 questions here, median rank 7 to 5, MRR 0.107 to 0.130, gaining 52 and
+losing 31, with the pool untouched since it reranks and never nominates. The gain is *all*
+document-finding: the right paper returns 32 times more often while passage accuracy barely
+moves, 61.1% to 61.5%. On FinanceBench the document was never in doubt — ten near-identical
+filings of one company, its distinctive words on every page — so the same signal did nothing.
+Re-measured there on the current build it is neutral — 16 hits either way, MRR 0.112 against
+0.109, passage accuracy 24.6% against 22.5%. Neutral on one corpus and clearly positive on the
+other, so `laneWeightKeyword` defaults to 1.
 
 **The date boost does nothing here.** Not "little" — nothing. Every figure in the `+ dates`
 column is identical to `Structured`, and **not one returned passage carries the date lane**: no
@@ -442,11 +429,10 @@ company apart. Papers have no such ambiguity, so Medium is a FinanceBench featur
 general one.
 
 **Neighbour expansion is worth far more here than there: 56 hits against 3.** It contributed
-2,530 of the 6,990 passages returned, cut filter loss from 21.3% to 15.0% and
-right-document-wrong-passage from 20.4% to 14.1%. The reason is in the chunking: structured
-chunks do not overlap, 333 of the 892 questions have evidence spanning two or more of them, and
-expansion is what completes them. It is the one change so far that matters more on the
-representative corpus than on the awkward one.
+2,530 of 6,990 returned passages, cut filter loss 21.3% to 15.0% and right-document-wrong-passage
+20.4% to 14.1%. Structured chunks do not overlap, 333 of 892 questions have evidence spanning two
+or more, and expansion completes them — the one change that matters more on the representative
+corpus than the awkward one.
 
 **Passage accuracy improves at every step, including HyDE**: 38.2%, 43.8%, 43.8%, 61.1%, 64.1%.
 On the measure that excludes questions naming no document, every change made this month helps,
@@ -454,36 +440,26 @@ and the ordering matches FinanceBench's. Note also that finding the right docume
 across Structured, dates and neighbours — 324 — because expansion only ever adds chunks from a
 document already returned. Only HyDE moves it, and downwards.
 
-**So HyDE trades document-finding for passage-finding, and the two directions say why.** It finds the right
-document 43 times *less* often — 281 against 324, pool 313 against 332 — while locating the
-passage slightly *better* when it does, 64.1% against 61.1%. Its lane nominates, and a drafted
-answer to a question that names no paper is generic prose that nominates generic paragraphs
-from the wrong papers, displacing good vector candidates out of the pool. The vocabulary-gap
-mechanism works; it just costs more in document identification than it earns in passage
-location. It gained 28 questions and lost 46.
+**HyDE trades document-finding for passage-finding.** It finds the right document 43 times less
+often — 281 against 324, pool 313 against 332 — while locating the passage better when it does,
+64.1% against 61.1%; gained 28, lost 46. Its lane nominates, and a draft answering a question
+that names no paper is generic prose that nominates generic paragraphs from the wrong papers.
+The opposite of FinanceBench, where the draft *added* 6 to the pool: there a question names its
+company and year and the draft inherits them, while "what were the baselines?" gives it nothing.
 
-That is the opposite of FinanceBench, where the draft's nominations *added* 6 to the pool. The
-difference is what a draft can know: a FinanceBench question names its company and year, so the
-draft inherits them, while "what were the baselines?" gives it nothing to be specific about.
+Both readings are true, so HyDE is worth having available and not on by default — which is what
+shipping it at High already means.
 
-Which of the two readings matters depends on the questions a user actually asks. If they name
-what they are looking for, HyDE's cost mostly disappears and its 64.1% is the relevant figure;
-if they ask "what were the baselines?" of a corpus, its 180 hits against 198 is. Both are true,
-and the honest summary is that HyDE is worth having available and not worth having on by
-default — which is what shipping it at High already means.
-
-**Read passage accuracy, not hit rate, on this dataset.** A hit needs the right document and the
-right passage; where the question does not say which document is meant, the first is not a
+**Read passage accuracy, not hit rate, on this dataset.** A hit needs the right document *and*
+the right passage; where the question does not say which document is meant, the first is not a
 retrieval failure. 87 QASPER questions have text appearing verbatim for two or more papers, and
-88% of the questions that never reach the pool fail to retrieve the right paper at all. The
-overall rate is capped by that; passage accuracy is not.
+88% of the questions that never reach the pool fail on the paper, not the paragraph.
 
-Two cautions on reading this table. Expansion runs only on the fused path, so `Structured` at
-Low cannot have it and `+ neighbours` differs from `+ dates` by that one setting — the
-`+ dates` column exists to separate them, and was measured with `BIG_RAG_NEIGHBOUR_CHUNKS=0` at
-Medium. And rank-1 answers drop from legacy's 115 to 51 while everything else improves: legacy
-chunks overlap, so short evidence often sits complete in the single best-matching chunk, while
-structured chunks more often need two and the depth measure counts where the second lands.
+Two cautions. Expansion runs only on the fused path, so Low cannot have it; the `+ dates` column
+exists to separate the two and was measured with `BIG_RAG_NEIGHBOUR_CHUNKS=0` at Medium. And
+rank-1 answers fall from 115 to 51 while all else improves, because legacy chunks overlap and
+often hold short evidence whole, where structured chunks need two and the depth measure counts
+the second.
 
 **Structured chunking generalises.** It is the first FinanceBench conclusion confirmed on a
 corpus sharing none of that one's properties: 25 more answers returned, 82 more reachable, MRR
@@ -634,11 +610,30 @@ one chunk and counted unfindable evidence as a miss.
 
 ## Open Questions
 
-- **Can a boost rescue without displacing?** Fusion is flat enough that any boost large enough to lift a passage from rank 28 can push another off rank 1 — which is why every keyword configuration traded hits rather than adding them. Weighting by the vector lane's own similarity score, rather than by its rank, would let a confident rank 1 defend itself, and is the one change that might make reranking pay.
-- **Answered: BM25 helps where documents are unlike each other.** Restored and on by default. See the QASPER table.
-- **How much is recoverable by returning more?** The 0.5 threshold is settled — dropping it to 0.35 changed nothing — so the five-passage limit is the only filter left to test. A run at 10 passages measures the ceiling available from returning more rather than ranking better, though ten 512-token passages is most of an 8,192-token window and not a setting to ship.
-- **Why is the evidence chunk outranked by its own neighbour?** In every found-but-unreturned answer inside the top five, the chunk beside the evidence was returned and the evidence was not. Chunk boundaries are not the problem — the evidence fits one chunk in 56 of 88 — so this is the narrative-outranks-the-grid failure again, one chunk over.
-- **Should a compound question be decomposed?** Untested. "Compare X and Y across FY21 and FY22" is four lookups wearing one question, and retrieval can only serve it by luck. It would belong in an Extra High depth, above HyDE.
-- **Why is so little reachable at all?** Even at High, only 32 of 88 questions have their evidence in the top 50, and 11 of 41 for statements. Every technique measured so far — keyword reranking, sentence scoring, HyDE — reorders candidates or changes the query, and none can reach an answer the vector search never returns. Raising recall, rather than improving ranking, is where the remaining headroom is.
-- **Can retrieval cover several documents at once?** A cross-document comparison needs the best passage *per document*, not the five best overall, which fusion cannot currently express.
-- **Would a second dataset help?** FinanceBench measures financial reasoning as much as retrieval. A lookup-style question set over ordinary documents — manuals, papers, reports — would measure the plugin as a general tool.
+- **Why is so little reachable?** At best 32 of 88 on FinanceBench and 332 of 892 on QASPER have
+  their evidence in the top 50. Everything measured so far reorders candidates or rewrites the
+  query; none of it reaches an answer the vector search never returned. Recall is where the
+  headroom is.
+- **Can a boost rescue without displacing?** Fusion is flat: a boost big enough to lift rank 28
+  is big enough to push one off rank 1. Weighting the vector lane by its similarity score rather
+  than its rank would let a confident top answer defend itself.
+- **Why is the evidence chunk outranked by its own neighbour?** In every FinanceBench
+  found-but-unreturned answer inside the top five, the chunk beside the evidence came back and
+  the evidence did not. Chunk boundaries are not the cause — the evidence fits one chunk in 56 of
+  88.
+- **Should a compound question be decomposed?** "Compare X and Y across FY21 and FY22" is four
+  lookups in one, and retrieval serves it only by luck. It would belong above HyDE, at an Extra
+  High depth.
+- **Can retrieval cover several documents at once?** A cross-document comparison needs the best
+  passage *per document*, which fusion cannot express.
+- **Would a third dataset help?** QASPER is a single-document QA set used over a corpus, so 560
+  of its 892 questions name no document and are unanswerable by design. A retrieval-native set —
+  real queries against a corpus, with answer spans — would give an absolute number that neither
+  of these two can.
+
+## Out of Scope
+
+**Whether retrieval improves the model's answers.** Everything here measures whether the evidence
+reached the model, never whether it was used. That is deliberate: the answer is bounded by a 2B
+model on an edge device, so retrieval is the part worth improving and the part these numbers
+describe. Noted so it is not repeatedly re-raised as a gap.
