@@ -16,7 +16,7 @@ const questionSet = {
 
 function args(vectorStoreDir: string) {
   return {
-    settings: { retrievalLimit: 5, retrievalThreshold: 0.5, chunkSize: 512, enableContextCompaction: false, retrievalDepth: "medium" as const, laneWeights: { vector: 1, hyde: 1, date: 1 }, laneCandidates: 50, neighbourChunks: 1 },
+    settings: { retrievalLimit: 5, retrievalThreshold: 0.5, chunkSize: 512, enableContextCompaction: false, retrievalDepth: "medium" as const, laneWeights: { vector: 1, hyde: 1, keyword: 0, date: 1 }, laneCandidates: 50, neighbourChunks: 1, rerankDepth: 10, bm25K1: 1.2, bm25B: 0 },
     diagnosticPoolSize: 50,
     embeddingModelId: "embed-model",
     vectorStoreDir,

@@ -18,8 +18,12 @@ test("FIXED_DEFAULTS holds the spec's fixed values", () => {
     laneCandidates: 50,
     rrfConstant: 60,
     neighbourChunks: 1,
+    rerankDepth: 10,
+    bm25K1: 1.2,
+    bm25B: 0,
     laneWeightVector: 1,
     laneWeightHyde: 1,
+    laneWeightKeyword: 0,
     laneWeightDate: 1,
     catalogVersion: 4,
     hypotheticalTimeoutMs: 10_000,
@@ -61,9 +65,13 @@ test("eval retrieval settings use the fixed defaults when env vars are unset", (
     laneWeights: {
       vector: FIXED_DEFAULTS.laneWeightVector,
       hyde: FIXED_DEFAULTS.laneWeightHyde,
+      keyword: FIXED_DEFAULTS.laneWeightKeyword,
       date: FIXED_DEFAULTS.laneWeightDate,
     },
     laneCandidates: FIXED_DEFAULTS.laneCandidates,
     neighbourChunks: FIXED_DEFAULTS.neighbourChunks,
+    rerankDepth: FIXED_DEFAULTS.rerankDepth,
+    bm25K1: FIXED_DEFAULTS.bm25K1,
+    bm25B: FIXED_DEFAULTS.bm25B,
   });
 });

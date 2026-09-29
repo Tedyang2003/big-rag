@@ -90,7 +90,7 @@ async function getCitationFileHandle(
 }
 
 /** Human-readable lane names for a passage, e.g. "meaning, dates". */
-const LANE_LABELS: Record<string, string> = { vector: "meaning", hyde: "likely wording", date: "dates" };
+const LANE_LABELS: Record<string, string> = { vector: "meaning", hyde: "likely wording", keyword: "keywords", date: "dates" };
 
 /**
  * How a passage earned its place. At Medium depth the fused score is a reciprocal-rank
@@ -523,10 +523,14 @@ export async function preprocess(
         depth: retrievalDepth,
         laneCandidates: settings.laneCandidates,
         neighbourChunks: settings.neighbourChunks,
+        rerankDepth: settings.rerankDepth,
+        bm25K1: settings.bm25K1,
+        bm25B: settings.bm25B,
         rrfConstant: settings.rrfConstant,
         laneWeights: {
           vector: settings.laneWeightVector,
           hyde: settings.laneWeightHyde,
+          keyword: settings.laneWeightKeyword,
           date: settings.laneWeightDate,
         },
         abortSignal: ctl.abortSignal,

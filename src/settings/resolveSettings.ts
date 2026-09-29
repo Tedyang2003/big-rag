@@ -23,6 +23,10 @@ export interface ResolvedSettings {
   neighbourChunks: number;
   laneWeightVector: number;
   laneWeightHyde: number;
+  laneWeightKeyword: number;
+  rerankDepth: number;
+  bm25K1: number;
+  bm25B: number;
   laneWeightDate: number;
   catalogVersion: number;
   hypotheticalTimeoutMs: number;

@@ -24,7 +24,7 @@ function retrieval(passages: SearchResult[], diagnosticPool: SearchResult[]): Re
     passages,
     diagnosticPool,
     timings: [{ stage: "vectorSearch", ms: 10 }],
-    laneCounts: { vector: passages.length, hyde: 0, date: 0 },
+    laneCounts: { vector: passages.length, hyde: 0, keyword: 0, date: 0 },
     passageLanes: passages.map(() => []),
     dayRanges: [],
   };
@@ -121,7 +121,7 @@ test("evidence split across two retrieved chunks counts as a hit", () => {
     passages: [passage(7, "cash flows from operating activities net income 5349"), passage(8, "depreciation and amortization 1488 pension contributions")],
     diagnosticPool: [],
     timings: [],
-    laneCounts: { vector: 2, hyde: 0, date: 0 },
+    laneCounts: { vector: 2, hyde: 0, keyword: 0, date: 0 },
     passageLanes: [[], []],
     dayRanges: [],
   };
@@ -136,7 +136,7 @@ test("a question whose evidence is not in the index is unscorable, not a miss", 
     passages: [],
     diagnosticPool: [],
     timings: [],
-    laneCounts: { vector: 0, hyde: 0, date: 0 },
+    laneCounts: { vector: 0, hyde: 0, keyword: 0, date: 0 },
     passageLanes: [],
     dayRanges: [],
   };

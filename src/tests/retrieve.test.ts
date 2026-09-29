@@ -59,8 +59,11 @@ test("retrieve searches with retrievalLimit and threshold when compaction is off
     depth: "low",
     laneCandidates: 30,
     neighbourChunks: 1,
+    rerankDepth: 10,
+    bm25K1: 1.2,
+    bm25B: 0,
     rrfConstant: 60,
-    laneWeights: { vector: 1, hyde: 1, date: 1 },
+    laneWeights: { vector: 1, hyde: 1, keyword: 0, date: 1 },
   });
 
   assert.deepEqual(searchCalls, [{ limit: 2, threshold: 0.5, vectors: 1 }]);
@@ -88,8 +91,11 @@ test("retrieve trims overlapping adjacent chunks", async () => {
     depth: "low",
     laneCandidates: 30,
     neighbourChunks: 1,
+    rerankDepth: 10,
+    bm25K1: 1.2,
+    bm25B: 0,
     rrfConstant: 60,
-    laneWeights: { vector: 1, hyde: 1, date: 1 },
+    laneWeights: { vector: 1, hyde: 1, keyword: 0, date: 1 },
   });
 
   assert.equal(output.passages[1].text, "six seven");
@@ -112,8 +118,11 @@ test("retrieve widens the pool and fills the token budget when compaction is on"
     depth: "low",
     laneCandidates: 30,
     neighbourChunks: 1,
+    rerankDepth: 10,
+    bm25K1: 1.2,
+    bm25B: 0,
     rrfConstant: 60,
-    laneWeights: { vector: 1, hyde: 1, date: 1 },
+    laneWeights: { vector: 1, hyde: 1, keyword: 0, date: 1 },
   });
 
   assert.deepEqual(searchCalls, [{ limit: 3, threshold: 0.5, vectors: 1 }]);
@@ -137,8 +146,11 @@ test("retrieve collects an unthresholded diagnostic pool when requested", async 
     depth: "low",
     laneCandidates: 30,
     neighbourChunks: 1,
+    rerankDepth: 10,
+    bm25K1: 1.2,
+    bm25B: 0,
     rrfConstant: 60,
-    laneWeights: { vector: 1, hyde: 1, date: 1 },
+    laneWeights: { vector: 1, hyde: 1, keyword: 0, date: 1 },
   });
 
   assert.deepEqual(searchCalls[1], { limit: 50, threshold: Number.NEGATIVE_INFINITY, vectors: 1 });
@@ -165,8 +177,11 @@ test("retrieve stops before searching when aborted after embedding the query", a
         depth: "low",
         laneCandidates: 30,
         neighbourChunks: 1,
+        rerankDepth: 10,
+        bm25K1: 1.2,
+        bm25B: 0,
         rrfConstant: 60,
-        laneWeights: { vector: 1, hyde: 1, date: 1 },
+        laneWeights: { vector: 1, hyde: 1, keyword: 0, date: 1 },
       }),
     (error: unknown) => error instanceof Error && error.name === "AbortError",
   );
@@ -181,8 +196,11 @@ const LOW_OPTIONS = {
   depth: "low" as const,
   laneCandidates: 30,
   neighbourChunks: 1,
+  rerankDepth: 10,
+  bm25K1: 1.2,
+  bm25B: 0,
   rrfConstant: 60,
-  laneWeights: { vector: 1, hyde: 1, date: 1 },
+  laneWeights: { vector: 1, hyde: 1, keyword: 0, date: 1 },
 };
 
 function fakeCatalog(overrides: Partial<CatalogLanes> = {}): CatalogLanes {
@@ -223,7 +241,7 @@ test("medium lifts a dated passage above the vector lane's own order", async () 
 
   assert.deepEqual(result.passages.map((passage) => passage.text), [VECTOR_3, VECTOR_1, VECTOR_2]);
   assert.deepEqual(result.passageLanes, [["vector", "date"], ["vector"], ["vector"]]);
-  assert.deepEqual(result.laneCounts, { vector: 3, hyde: 0, date: 1 });
+  assert.deepEqual(result.laneCounts, { vector: 3, hyde: 0, keyword: 0, date: 1 });
   assert.deepEqual(result.dayRanges, [{ start: 20260908, end: 20260908 }]);
   assert.ok(result.timings.some((timing) => timing.stage === "dateLane"));
   assert.ok(result.timings.some((timing) => timing.stage === "fuse"));
@@ -258,7 +276,7 @@ test("low depth ignores the catalog entirely", async () => {
   );
   assert.equal(catalogUsed, false);
   assert.equal(result.passages.length, 1);
-  assert.deepEqual(result.laneCounts, { vector: 1, hyde: 0, date: 0 });
+  assert.deepEqual(result.laneCounts, { vector: 1, hyde: 0, keyword: 0, date: 0 });
   assert.deepEqual(searchCalls, [{ limit: 2, threshold: 0.5, vectors: 1 }]);
 });
 
@@ -266,7 +284,7 @@ test("medium without a catalog falls back to the vector lane", async () => {
   const { deps } = makeDeps([makeResult({ text: "vector hit", id: "chunk-1" })]);
   const result = await retrieve("collision", { ...deps, catalog: null }, { ...LOW_OPTIONS, depth: "medium" });
   assert.deepEqual(result.passages.map((passage) => passage.text), ["vector hit"]);
-  assert.deepEqual(result.laneCounts, { vector: 1, hyde: 0, date: 0 });
+  assert.deepEqual(result.laneCounts, { vector: 1, hyde: 0, keyword: 0, date: 0 });
 });
 
 test("a lane that throws does not fail the query", async () => {
@@ -467,7 +485,7 @@ test("a hyde weight of zero reproduces medium even when a hypothetical was draft
       nowDate,
       hypothetical: async () => "a draft",
     },
-    { ...options, depth: "high", diagnosticPoolSize: 10, laneWeights: { vector: 1, hyde: 0, date: 1 } },
+    { ...options, depth: "high", diagnosticPoolSize: 10, laneWeights: { vector: 1, hyde: 0, keyword: 0, date: 1 } },
   );
   const medium = await retrieve(
     "bus collision on 8 Sep 2026",

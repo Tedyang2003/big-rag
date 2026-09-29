@@ -9,9 +9,12 @@ export interface RetrievalSettings {
   enableContextCompaction: boolean;
   retrievalDepth: RetrievalDepth;
   /** Set a signal's weight to 0 to run without it, which is how its contribution is attributed. */
-  laneWeights: { vector: number; hyde: number; date: number };
+  laneWeights: { vector: number; hyde: number; keyword: number; date: number };
   laneCandidates: number;
   neighbourChunks: number;
+  rerankDepth: number;
+  bm25K1: number;
+  bm25B: number;
 }
 
 function readNumber(env: Record<string, string | undefined>, name: string, fallback: number): number {
@@ -65,10 +68,14 @@ export function readRetrievalSettings(env: Record<string, string | undefined>): 
     laneWeights: {
       vector: readWeight(env, "BIG_RAG_LANE_WEIGHT_VECTOR", FIXED_DEFAULTS.laneWeightVector),
       hyde: readWeight(env, "BIG_RAG_LANE_WEIGHT_HYDE", FIXED_DEFAULTS.laneWeightHyde),
+      keyword: readWeight(env, "BIG_RAG_LANE_WEIGHT_KEYWORD", FIXED_DEFAULTS.laneWeightKeyword),
       date: readWeight(env, "BIG_RAG_LANE_WEIGHT_DATE", FIXED_DEFAULTS.laneWeightDate),
     },
     laneCandidates: readNumber(env, "BIG_RAG_LANE_CANDIDATES", FIXED_DEFAULTS.laneCandidates),
     neighbourChunks: readNumber(env, "BIG_RAG_NEIGHBOUR_CHUNKS", FIXED_DEFAULTS.neighbourChunks),
+    rerankDepth: readNumber(env, "BIG_RAG_RERANK_DEPTH", FIXED_DEFAULTS.rerankDepth),
+    bm25K1: readNumber(env, "BIG_RAG_BM25_K1", FIXED_DEFAULTS.bm25K1),
+    bm25B: readNumber(env, "BIG_RAG_BM25_B", FIXED_DEFAULTS.bm25B),
   };
 }
 

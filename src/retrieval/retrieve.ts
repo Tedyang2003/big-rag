@@ -2,6 +2,7 @@ import { chunkKey, type SearchResult, type VectorStore } from "../vectorstore/ve
 import { trimOverlappingChunks } from "../utils/trimOverlappingChunks";
 import { compactPassageText, type EmbedSentences } from "../utils/compactPassages";
 import { type CountTokens } from "../utils/textChunker";
+import { rankTexts, tokenize, type Bm25Candidate } from "./bm25";
 import { fuseLanes, type RankedLane } from "./fuse";
 import { queryDayRanges, type DayRange } from "./queryDates";
 
@@ -11,6 +12,7 @@ export const CONTEXT_COMPACTION_POOL_MULTIPLIER = 3;
 export type StageName =
   | "embedQuery"
   | "hypothetical"
+  | "keywordRerank"
   | "vectorSearch"
   | "dateLane"
   | "fuse"
@@ -34,6 +36,7 @@ export interface CatalogLanes {
 export interface LaneCounts {
   vector: number;
   hyde: number;
+  keyword: number;
   date: number;
 }
 
@@ -73,7 +76,11 @@ export interface RetrieveOptions {
    * candidates. 0 returns winners alone.
    */
   neighbourChunks: number;
-  laneWeights: { vector: number; hyde: number; date: number };
+  /** How many of BM25's top passages collect a boost; the rest collect nothing. */
+  rerankDepth: number;
+  bm25K1: number;
+  bm25B: number;
+  laneWeights: { vector: number; hyde: number; keyword: number; date: number };
 }
 
 export interface RetrieveResult {
@@ -218,7 +225,7 @@ export async function retrieve(
   options.abortSignal?.throwIfAborted();
 
   const catalog = fusing ? deps.catalog ?? null : null;
-  const laneCounts: LaneCounts = { vector: 0, hyde: 0, date: 0 };
+  const laneCounts: LaneCounts = { vector: 0, hyde: 0, keyword: 0, date: 0 };
   let dayRanges: DayRange[] = [];
   let ranked: SearchResult[] = searched;
   // Set only on the catalog path: chunk key -> the lanes that ranked it while
@@ -233,6 +240,21 @@ export async function retrieve(
   const resolvedByKey = new Map<string, SearchResult>();
 
   if (catalog) {
+    // Keywords reorder what the other lanes found; they never nominate. Measured on
+    // FinanceBench, letting BM25 nominate cost 3 of 12 hits, because it fills the shortlist
+    // with a document's boilerplate. Document frequency is counted over the candidates, not
+    // the corpus, so a term every candidate shares carries no weight.
+    const candidates: Bm25Candidate[] = [...resolvedByKey.values()].map((result) => ({
+      key: chunkKey(result),
+      text: result.text,
+    }));
+    const keywordRanking = await timed("keywordRerank", () =>
+      safeLane("keyword", async () =>
+        rankTexts(tokenize(query), candidates, { k1: options.bm25K1, b: options.bm25B }),
+      ),
+    );
+    options.abortSignal?.throwIfAborted();
+
     // Dates are a boost, not a source of candidates. A year says which documents are
     // eligible, not which passage answers the question, so a chunk is never retrieved
     // because of its date - it is only lifted once another lane has found it.
@@ -275,6 +297,18 @@ export async function retrieve(
       // The boost is worth what topping a lane of its own was worth, so a passage the vector
       // lane ranked low can still win on the strength of its date - which is the point - while
       // a date cannot put a passage in the pool by itself.
+      // Only BM25's first rerankDepth passages are boosted. Fusion is flat - the whole spread
+      // from rank 1 to rank 50 is worth less than having a boost at all - and nearly every
+      // candidate holds some query term, so boosting them all reorders nothing.
+      const byKey = new Map(ranking.map((entry) => [entry.key, entry]));
+      keywordRanking.slice(0, options.rerankDepth).forEach((key, index) => {
+        const entry = byKey.get(key);
+        if (!entry) return;
+        entry.score += options.laneWeights.keyword / (options.rrfConstant + index + 1);
+        entry.lanes.push("keyword");
+        boosted = true;
+      });
+
       for (const entry of ranking) {
         if (!dated.has(entry.key)) continue;
         entry.score += dateBoost;
@@ -336,10 +370,12 @@ export async function retrieve(
     passageLanes = passages.map((passage) => finalLanesByKey.get(chunkKey(passage)) ?? []);
     laneCounts.vector = 0;
     laneCounts.hyde = 0;
+    laneCounts.keyword = 0;
     laneCounts.date = 0;
     for (const lanes of passageLanes) {
       if (lanes.includes("vector")) laneCounts.vector++;
       if (lanes.includes("hyde")) laneCounts.hyde++;
+      if (lanes.includes("keyword")) laneCounts.keyword++;
       if (lanes.includes("date")) laneCounts.date++;
     }
   }

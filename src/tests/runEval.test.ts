@@ -39,7 +39,7 @@ test("runEval scores each question, writes a report with settings, and skips uns
           passages: [answer],
           diagnosticPool: [answer],
           timings: [{ stage: "vectorSearch", ms: 12 }],
-          laneCounts: { vector: 1, hyde: 0, date: 0 },
+          laneCounts: { vector: 1, hyde: 0, keyword: 0, date: 0 },
           passageLanes: [[]],
           dayRanges: [],
         };
@@ -79,7 +79,7 @@ test("runEval throws and writes nothing when no questions can be scored", async 
             passages: [],
             diagnosticPool: [],
             timings: [],
-            laneCounts: { vector: 1, hyde: 0, date: 0 },
+            laneCounts: { vector: 1, hyde: 0, keyword: 0, date: 0 },
             passageLanes: [],
             dayRanges: [],
           }),
@@ -164,7 +164,7 @@ test("retrieve is given each question's id, so per-question state cannot collide
           passages: [],
           diagnosticPool: [],
           timings: [],
-          laneCounts: { vector: 0, hyde: 0, date: 0 },
+          laneCounts: { vector: 0, hyde: 0, keyword: 0, date: 0 },
           passageLanes: [],
           dayRanges: [],
         };
