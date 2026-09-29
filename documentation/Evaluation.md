@@ -1,85 +1,109 @@
 # Evaluation
 
-How we measure retrieval objectively when the pipeline changes: same questions, same documents, one variable at a time.
+How we measure retrieval objectively when the pipeline changes: same questions, same documents,
+one variable at a time.
 
-## Dataset
+## Datasets
 
-[FinanceBench](https://github.com/patronus-ai/financebench/tree/main/pdfs): 368 PDFs of public company filings, 363 unique. Download the PDFs into `eval\documents\financebench`. The question set is already in `eval\questions.json` — 150 questions with the dataset's own evidence strings.
+Two, deliberately unalike. FinanceBench is the harder and the less representative; QASPER is the
+check that nothing here is an artefact of it.
 
-It is a hard and unrepresentative corpus: table-heavy filings, around ten near-identical documents per company, and half the questions need arithmetic rather than lookup. Read every number below with that in mind.
+### FinanceBench
 
-## A Second Dataset: QASPER
+[368 PDFs of public company filings](https://github.com/patronus-ai/financebench/tree/main/pdfs),
+363 unique. Download the PDFs into `eval\documents\financebench`; the question set is already in
+`eval\questions.json`, 150 questions with the dataset's own evidence strings.
 
-FinanceBench measures financial reasoning as much as retrieval, and its ten near-identical
-filings per company are unlike the manuals, papers and reports this plugin is meant for. Every
-conclusion here — including that keyword scoring does not work — may be a fact about that corpus
-rather than about retrieval.
+A hard and unrepresentative corpus: table-heavy filings, around ten near-identical documents per
+company, and half the questions needing arithmetic rather than lookup. **62 of the 150 are
+unscorable** because the dataset's evidence strings come from a different PDF extractor than
+ours, leaving 88. Read every FinanceBench number with that in mind.
 
-[QASPER](https://allenai.org/data/qasper) is 1,585 NLP papers with questions written by
-researchers who had read only the abstract, answered by others who marked the paragraphs holding
-the answer. It is a better instrument in one specific way: the documents are written from the
-same paragraphs the evidence comes from, so evidence matches the index verbatim and almost
-nothing is unscorable, where FinanceBench loses 62 of 150 questions to extraction differences.
+### QASPER
+
+1,585 NLP papers with questions written by researchers who had read only the abstract, answered
+by others who marked the paragraphs holding the answer. Papers are one of the document types this
+plugin is actually for, and every conclusion drawn from FinanceBench alone — including that
+keyword scoring is worthless — may be a fact about ten-filings-per-company rather than about
+retrieval.
+
+It is also the better measuring instrument. The documents are written from the same paragraphs
+the evidence is taken from, so evidence matches the index verbatim: **281 papers yield 892
+questions with none lost** to extraction differences, against FinanceBench's 62 of 150 lost.
 
 ```powershell
 # Download qasper-dev-v0.3.json from allenai.org/data/qasper, then:
-node scripts/qasper-to-eval.mjs path	o\qasper-dev-v0.3.json --papers 300
-
-npm run index:cli -- .\eval\documents\qasper .\evaldbs\qasper
-$env:BIG_RAG_DOCS_DIR = "D:\...\eval\documents\qasper"
-$env:BIG_RAG_DB_DIR = "D:\...\evaldbs\qasper"
-$env:BIG_RAG_EVAL_FILE = "D:\...\eval\questions-qasper.json"
-$env:BIG_RAG_RETRIEVAL_DEPTH = "low"     # then medium, then high
-npm run eval:run
+node scripts/qasper-to-eval.mjs path\to\qasper-dev-v0.3.json --papers 300
 ```
 
 The converter writes one plain-text paper per file with section names as headings, and skips
 questions that are unanswerable, whose evidence is a figure or table, or whose evidence does not
 appear verbatim in the rendered paper.
 
-Numbers from it are not comparable with FinanceBench's — different documents, different
-questions, a different share of them answerable by lookup. What transfers is the *ordering* of
-configurations: whether Low, Medium and High rank the same way here as there, and whether
-keyword scoring is still worthless on a corpus whose documents are genuinely different from one
-another.
+Numbers are not comparable between the two datasets — different documents, different questions,
+a different share answerable by lookup at all. What transfers is the **ordering** of
+configurations: whether Legacy, Structured, Hybrid and HyDE rank the same way on both.
 
 ## Running It
 
-Build the indexes first ([Command-Line Tools](CLI.md#indexing)), one folder per configuration, then run each configuration in the same PowerShell window. Variables persist, so set every one explicitly.
+Build one index per chunking strategy ([Command-Line Tools](CLI.md#indexing)), then run each
+configuration in the same PowerShell window. Variables persist, so set every one explicitly.
 
 ```powershell
-$env:BIG_RAG_DOCS_DIR = "D:\...\eval\documents\financebench"
-
-# Legacy chunking
-$env:BIG_RAG_DB_DIR = "D:\...\eval\vdbs\legacy"
-$env:BIG_RAG_RETRIEVAL_DEPTH = "low"
-npm run eval:run
-
-# Structured
-$env:BIG_RAG_DB_DIR = "D:\...\eval\vdbs\structured"
-npm run eval:run
-
-# Structured + Hybrid
-$env:BIG_RAG_RETRIEVAL_DEPTH = "medium"
-npm run eval:run
-
-# Structured + HyDE (drafts an answer per question; reuses eval\hypotheticals.json after the first run)
-$env:BIG_RAG_RETRIEVAL_DEPTH = "high"
-npm run eval:run
+# --- indexes, once per dataset and chunking strategy ---
+$env:BIG_RAG_STRUCTURED_INDEXING = "false"
+npm run index:cli -- ".\eval\documents\financebench" ".\eval\vdbs\legacy"
+npm run index:cli -- ".\eval\documents\qasper"       ".\eval\vdbs\qasper-legacy"
+$env:BIG_RAG_STRUCTURED_INDEXING = "true"
+npm run index:cli -- ".\eval\documents\financebench" ".\eval\vdbs\structured"
+npm run index:cli -- ".\eval\documents\qasper"       ".\eval\vdbs\qasper"
 ```
 
-`BIG_RAG_DOCS_DIR` must be the exact folder the indexes were built from, or nothing can be matched to its source file.
+```powershell
+# --- FinanceBench ---
+$env:BIG_RAG_DOCS_DIR = "D:\...\eval\documents\financebench"
+Remove-Item Env:BIG_RAG_EVAL_FILE -ErrorAction SilentlyContinue   # defaults to eval\questions.json
 
-Each run prints a summary and writes a full report to `eval\reports\run-<timestamp>.json`, including every setting, each returned passage's section, and where the evidence sits.
+$env:BIG_RAG_DB_DIR = "D:\...\eval\vdbs\legacy"
+$env:BIG_RAG_RETRIEVAL_DEPTH = "low"
+npm run eval:run                                    # Legacy
+
+$env:BIG_RAG_DB_DIR = "D:\...\eval\vdbs\structured"
+npm run eval:run                                    # Structured
+$env:BIG_RAG_RETRIEVAL_DEPTH = "medium"; npm run eval:run   # + Hybrid
+$env:BIG_RAG_RETRIEVAL_DEPTH = "high";   npm run eval:run   # + HyDE
+```
+
+```powershell
+# --- QASPER: same four, different corpus and question set ---
+$env:BIG_RAG_DOCS_DIR  = "D:\...\eval\documents\qasper"
+$env:BIG_RAG_EVAL_FILE = "D:\...\eval\questions-qasper.json"
+
+$env:BIG_RAG_DB_DIR = "D:\...\eval\vdbs\qasper-legacy"
+$env:BIG_RAG_RETRIEVAL_DEPTH = "low"
+npm run eval:run                                    # Legacy
+
+$env:BIG_RAG_DB_DIR = "D:\...\eval\vdbs\qasper"
+npm run eval:run                                    # Structured
+$env:BIG_RAG_RETRIEVAL_DEPTH = "medium"; npm run eval:run   # + Hybrid
+$env:BIG_RAG_RETRIEVAL_DEPTH = "high";   npm run eval:run   # + HyDE
+```
+
+`BIG_RAG_DOCS_DIR` must be the exact folder the index was built from, or nothing can be matched
+to its source file. `BIG_RAG_EVAL_FILE` must match the corpus — pointing FinanceBench questions
+at the QASPER index reports every question unscorable.
+
+Each run prints a summary and writes a full report to `eval\reports\run-<timestamp>.json`,
+including every setting, each returned passage's section, and where the evidence sits.
 
 ### Configurations
 
-| Configuration | Index | `BIG_RAG_STRUCTURED_INDEXING` | Depth | What it isolates |
-|---|---|---|---|---|
-| Legacy Chunking | `eval\vdbs\legacy` | `false` | `low` | Fixed-size chunks, vector search only |
-| Structured | `eval\vdbs\structured` | `true` | `low` | Section-aware chunks with file, date and section headers |
-| Structured + Hybrid | `eval\vdbs\structured` | `true` | `medium` | Keyword and date signals reordering the vector search's passages |
-| Structured + HyDE | `eval\vdbs\structured` | `true` | `high` | A drafted answer searched alongside the question |
+| Configuration | Chunking | Depth | What it isolates |
+|---|---|---|---|
+| Legacy | `false` | `low` | Fixed-size chunks, vector search only |
+| Structured | `true` | `low` | Section-aware chunks with file, date and section headers |
+| + Hybrid | `true` | `medium` | A date the question names lifting passages already found |
+| + HyDE | `true` | `high` | A drafted answer searched alongside the question |
 
 ### Tuning a Run
 
@@ -90,19 +114,22 @@ Any of these can be set per run, so a configuration differs from its neighbour b
 | `BIG_RAG_RETRIEVAL_LIMIT` | 5 | Passages returned to the model |
 | `BIG_RAG_RETRIEVAL_THRESHOLD` | 0.5 | Minimum similarity for a passage to be returned |
 | `BIG_RAG_LANE_WEIGHT_VECTOR` / `_HYDE` / `_DATE` | 1 / 1 / 1 | **Set a signal to 0 to run without it**, which is how its contribution is attributed |
-| `BIG_RAG_REGENERATE_HYPOTHETICALS` | `false` | Redraft rather than reuse `eval/hypotheticals.json` |
 | `BIG_RAG_LANE_CANDIDATES` | 50 | Passages the vector lane puts up, and so the pool the others reorder |
 | `BIG_RAG_NEIGHBOUR_CHUNKS` | 1 | Chunks either side of a returned passage to return with it; 0 disables |
+| `BIG_RAG_REGENERATE_HYPOTHETICALS` | `false` | Redraft rather than reuse `eval\hypotheticals.json` |
 
-Attributing hybrid retrieval takes two runs against the same index: weight `1/0` should reproduce Low exactly and proves the harness, `1/1` is today's Medium. At High, `_HYDE=0` must reproduce Medium exactly, which is the same harness check one level up.
+Attributing a signal takes two runs against one index: at Medium, `_DATE=0` should reproduce Low
+exactly and proves the harness; at High, `_HYDE=0` must reproduce Medium exactly. Both checks
+have caught real defects.
 
-**High runs reuse their drafts.** The first writes `eval/hypotheticals.json`, one passage per question id, tagged with the model that wrote it; later runs with that model reuse it. Drafting is not deterministic, so without this two runs of one configuration differ by the generator's variance rather than by the change being measured.
+**High runs reuse their drafts.** The first writes `eval\hypotheticals.json`, one passage per
+question id, tagged with the model that wrote it; later runs with that model reuse it. Drafting
+is not deterministic, so without this two runs of one configuration differ by the generator's
+variance rather than by the change being measured.
 
-Held constant: `nomic-embed-text-v1.5` embeddings, 512-token chunks (100 overlap, legacy only), 5 passages returned, 0.5 threshold, compaction off, a 50-passage diagnostic pool. The vector lane puts up 50 candidates, RRF constant 60. Full list in [CLI.md](CLI.md).
-
-**Where document frequency is counted.** Over the 50 candidates, not the corpus. Corpus-wide, a company name is rare and scores high, yet it sits on every page of the filing the shortlist came from and separates nothing — which is how boilerplate came to outrank statements. Counted over the shortlist it collapses to near zero, and the terms that distinguish one candidate from another take the weight.
-
-**Why the rerank has a depth.** Fusion is flat: the whole spread from rank 1 to rank 50 is worth less than the difference between receiving a boost and receiving none. Nearly every candidate contains some query term — a filing's every page says `fiscal` and its year — so boosting all of them adds roughly the same number to every row and reorders nothing. The boost draws its power from the candidates that do *not* get it, and `BIG_RAG_RERANK_DEPTH` is how much of BM25's opinion is allowed to count: small values trust it over the vector lane, large values dissolve it. There is no principled value, so it is swept.
+Held constant: `nomic-embed-text-v1.5` embeddings, 512-token chunks (100 overlap, legacy only),
+5 passages returned, 0.5 threshold, compaction off, a 50-passage diagnostic pool, RRF constant
+60. Full list in [CLI.md](CLI.md).
 
 ## How a Question Is Scored
 
@@ -111,29 +138,42 @@ A question is a **hit** when the evidence string appears in the passages returne
 - **Consecutive chunks count as one passage.** If evidence spans a boundary and both chunks are returned, the model received all of it.
 - **Questions whose evidence is not in the index are unscorable, not misses.** Each file is rebuilt from its chunks and searched for the evidence. If it isn't there, no retrieval could find it.
 
-**62 of 150 are unscorable**, leaving **88 scored in every run**. Their evidence comes from the dataset's own PDF extraction: 28 begin with page furniture (`Table of Contents`, a page number) that our parser strips, and the rest differ in spacing or table layout. The information is usually in the index; the verbatim string is not. The split is even across question types, so the 88 keep the same mix as the 150.
+How many survive that rule is the clearest difference between the two datasets. On
+FinanceBench, **62 of 150 are unscorable**, leaving **88 scored in every run**: 28 of the
+evidence strings begin with page furniture (`Table of Contents`, a page number) our parser
+strips, and the rest differ in spacing or table layout. The information is usually in the index;
+the verbatim string is not. The split is even across question types, so the 88 keep the same mix
+as the 150. On QASPER the documents are written from the evidence's own paragraphs, so **892 of
+892 are scorable**.
 
-At 88 questions, one question is 1.1% — treat differences of one or two as noise.
+At 88 questions one question is 1.1%, so treat FinanceBench differences of one or two as noise.
+QASPER's 892 are far less noisy, which is the other reason to have it.
 
 Two measurement caveats: a split table repeats its header row in each piece, so those words appear twice when a file is reconstructed and evidence straddling that boundary can read as unscorable; and the diagnostic pool is the fused ranking at Medium depth, the vector ranking at Low — the same 50 chunks either way, since nothing but the vector lane nominates.
 
-## Results
+## Results: FinanceBench
 
-Indexes rebuilt 24 September 2026 with PDF table rows and the Nomic prefixes: legacy 91,541 chunks, structured 119,403.
+Indexes rebuilt 24 September 2026 with PDF table rows and the Nomic prefixes: legacy 91,541
+chunks, structured 119,403. The last column is what ships.
 
-| Metric | Legacy | Structured | + Hybrid | + HyDE |
-|---|---|---|---|---|
-| Questions scored | 88 | 88 | 88 | 88 |
-| Final hit rate | 9.1% (8) | 13.6% (12) | 15.9% (14) | **18.2% (16)** |
-| Pool hit rate (top 50) | 19.3% (17) | 29.5% (26) | 29.5% (26) | **36.4% (32)** |
-| Answers at rank 1 | 4 | 6 | **9** | 8 |
-| Median answer rank in pool | 6 | 5 | **3** | 3.5 |
-| Mean reciprocal rank | 0.048 | 0.107 | 0.140 | **0.155** |
-| Right file, wrong passage | 46.6% | 46.6% | 64.8% | **61.4%** |
-| Vector search, median | 4.0s | 5.0s | 5.0s | 5.2s |
-| Drafting, median | — | — | — | 1.1s |
+| Metric | Legacy | Structured | + Hybrid | + HyDE | **+ neighbours** |
+|---|---|---|---|---|---|
+| Questions scored | 88 | 88 | 88 | 88 | 88 |
+| Final hit rate | 9.1% (8) | 13.6% (12) | 15.9% (14) | 18.2% (16) | **21.6% (19)** |
+| Pool hit rate (top 50) | 19.3% (17) | 29.5% (26) | 29.5% (26) | **36.4% (32)** | **36.4% (32)** |
+| Answers at rank 1 | 4 | 6 | **9** | 8 | 8 |
+| Median answer rank in pool | 6 | 5 | **3** | 3.5 | 3.5 |
+| Mean reciprocal rank | 0.048 | 0.107 | 0.140 | **0.155** | **0.155** |
+| Right file, wrong passage | 46.6% | 46.6% | 64.8% | 61.4% | **58.0%** |
+| Mean passages returned | 5.0 | 5.0 | 5.0 | 5.0 | 6.9 |
+| Vector search, median | 4.0s | 5.0s | 5.0s | 5.2s | 5.1s |
+| Drafting, median | — | — | — | 1.1s | 1.1s |
 
-All three columns now draw their pool from the same place — an unthresholded top-50 vector search — so the pool row is comparable across them. Medium reorders those 50; it cannot add to them, which is why its pool figure is identical to Structured's.
+Every column draws its pool from the same place, an unthresholded top-50 search, so the pool row
+is comparable across them. Medium reorders those 50 and cannot add to them, which is why its
+pool figure matches Structured's; High searches a second vector, which is why its pool is the
+only one that moves. Neighbour expansion changes what is returned, not what is found, so it
+shares High's pool and rank figures and differs only on hits and passages.
 
 ### Which Signal Does the Work
 
@@ -187,7 +227,7 @@ prefixes gave Legacy 7 hits and Structured 9 at median rank 9, so **tables and p
 ordering rather than recall** — structured found the same 26-odd answers and ranked them higher,
 so three more crossed into the five returned. They shipped together and cannot be separated.
 
-## What the Numbers Say
+### What the Numbers Say
 
 **Where retrieval lands:**
 
@@ -346,6 +386,35 @@ passage sometimes resembles the wrong filing.
 **Two hits on 88 questions is near the 1.1% noise floor.** What carries the finding is the pool:
 +6 is larger and steadier than +2, and it was seen three times independently — the offline spike
 at +3, a leaking control run at +4, and this at +6.
+
+## Results: QASPER
+
+281 papers, 892 questions, all scorable. Not yet run.
+
+| Metric | Legacy | Structured | + Hybrid | + HyDE |
+|---|---|---|---|---|
+| Questions scored | | | | |
+| Final hit rate | | | | |
+| Pool hit rate (top 50) | | | | |
+| Answers at rank 1 | | | | |
+| Median answer rank in pool | | | | |
+| Mean reciprocal rank | | | | |
+| Right file, wrong passage | | | | |
+| Mean passages returned | | | | |
+
+What these runs are for, in order of how much they would change:
+
+- **Does the date boost survive?** It earned its place by choosing between ten near-identical
+  filings of one company. Papers have no such ambiguity, so Hybrid may collapse back to
+  Structured — which would mean Medium is a FinanceBench artefact rather than a feature.
+- **Does HyDE survive?** Its gain landed on financial statements, and part of it came from a 2B
+  model answering in markdown tables that matched chunks holding table rows. Papers are prose,
+  so the mechanism may not carry.
+- **Was keyword scoring wrongly removed?** It failed because a filing's distinctive words sit on
+  every page of it. Papers use genuinely distinct vocabulary, so a rare term may name a passage
+  here. `git show` restores the reranker and the design is recorded above.
+- **Does structured chunking still beat legacy?** The one result expected to hold, since section
+  structure is real in a paper and its headings are genuine.
 
 ## Run Log
 
