@@ -4,7 +4,8 @@ import { aggregateMetrics, scoreQuestion, type EvalMetrics, type QuestionResult 
 import { type QuestionSet } from "./questionSet";
 
 export interface RunEvalDeps {
-  retrieve: (query: string) => Promise<RetrieveResult>;
+  /** `questionId` lets a caller key per-question state, since question texts repeat across sets. */
+  retrieve: (query: string, questionId: string) => Promise<RetrieveResult>;
   listIndexedFiles: () => Promise<Set<string>>;
   /** Where each question's evidence sits in this index; a null entry is reported unscorable. */
   locateEvidence?: () => Promise<Map<string, import("./evidencePresence").EvidenceLocation | null>>;
@@ -35,7 +36,7 @@ export async function runEval(
   const questions: QuestionResult[] = [];
 
   for (const question of options.questionSet.questions) {
-    const retrieval = await deps.retrieve(question.question);
+    const retrieval = await deps.retrieve(question.question, question.id);
     questions.push(scoreQuestion(question, retrieval, options.documentsDir, indexedFiles, evidenceByQuestion));
   }
 

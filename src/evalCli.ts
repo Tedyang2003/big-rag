@@ -129,9 +129,6 @@ async function runRun(client: LMStudioClient, vectorStore: VectorStore, document
     );
   }
 
-  // runEval passes the question's text, not its id; the cache is keyed by id so a reworded
-  // question set cannot silently reuse the wrong draft.
-  const idByQuestion = new Map(questionSet.questions.map((question) => [question.question, question.id]));
   const diagnosticPoolSize = Math.max(
     MIN_DIAGNOSTIC_POOL_SIZE,
     settings.retrievalLimit * (settings.enableContextCompaction ? CONTEXT_COMPACTION_POOL_MULTIPLIER : 1),
@@ -160,7 +157,7 @@ async function runRun(client: LMStudioClient, vectorStore: VectorStore, document
 
   const { report, reportPath } = await runEval(
     {
-      retrieve: (query) =>
+      retrieve: (query, questionId) =>
         retrieve(
           query,
           {
@@ -171,7 +168,7 @@ async function runRun(client: LMStudioClient, vectorStore: VectorStore, document
             countTokens: (text) => embeddingModel.countTokens(text),
             catalog: catalogOutcome.catalog,
             hypothetical: hypotheticals
-              ? (question) => hypotheticals!.forQuestion(idByQuestion.get(question) ?? question, question)
+              ? (question) => hypotheticals!.forQuestion(questionId, question)
               : undefined,
           },
           {

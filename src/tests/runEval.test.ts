@@ -146,3 +146,40 @@ test("formatMetricsTable labels the pool with a custom diagnostic pool size", ()
   );
   assert.match(table, /Pool hit rate \(top 75\)\s+50\.0%/);
 });
+
+test("retrieve is given each question's id, so per-question state cannot collide on text", async () => {
+  // Two questions with identical text, as a single-document QA set produces when the same
+  // question is asked of two documents.
+  const seen: Array<{ query: string; id: string }> = [];
+  const questions = [
+    { id: "q-a", question: "what was the baseline?", sourceFile: "a.md", answerSnippet: "nothing" },
+    { id: "q-b", question: "what was the baseline?", sourceFile: "b.md", answerSnippet: "nothing" },
+  ];
+
+  await runEval(
+    {
+      retrieve: async (query, questionId) => {
+        seen.push({ query, id: questionId });
+        return {
+          passages: [],
+          diagnosticPool: [],
+          timings: [],
+          laneCounts: { vector: 0, hyde: 0, date: 0 },
+          passageLanes: [],
+          dayRanges: [],
+        };
+      },
+      listIndexedFiles: async () => new Set(["a.md", "b.md"]),
+      writeNewFile: async () => {},
+      now: () => new Date("2026-09-29T00:00:00Z"),
+    },
+    {
+      questionSet: { version: 1, generatedAt: "", generator: { model: "m", seed: 0 }, questions },
+      documentsDir: path.resolve("/docs"),
+      reportsDir: path.resolve("/reports"),
+      settingsSnapshot: {},
+    },
+  );
+
+  assert.deepEqual(seen.map((s) => s.id), ["q-a", "q-b"], "each call carries its own question's id");
+});
