@@ -45,28 +45,30 @@ configurations: whether Legacy, Structured, Hybrid and HyDE rank the same way on
 ## Running It
 
 Build one index per chunking strategy ([Command-Line Tools](CLI.md#indexing)), then run each
-configuration in the same PowerShell window. Variables persist, so set every one explicitly.
+configuration in the same PowerShell window, from the repository root. Every path below is
+relative to it and can be pasted as written; variables persist between runs, so set every one
+explicitly.
 
 ```powershell
 # --- indexes, once per dataset and chunking strategy ---
 $env:BIG_RAG_STRUCTURED_INDEXING = "false"
-npm run index:cli -- ".\eval\documents\financebench" ".\eval\vdbs\legacy"
-npm run index:cli -- ".\eval\documents\qasper"       ".\qasper_vdbs\legacy"
+npm run index:cli -- ".\eval\documents\financebench" ".\eval\financebench_vdbs\legacy"
+npm run index:cli -- ".\eval\documents\qasper"       ".\eval\qasper_vdbs\legacy"
 $env:BIG_RAG_STRUCTURED_INDEXING = "true"
-npm run index:cli -- ".\eval\documents\financebench" ".\eval\vdbs\structured"
-npm run index:cli -- ".\eval\documents\qasper"       ".\qasper_vdbs\structured"
+npm run index:cli -- ".\eval\documents\financebench" ".\eval\financebench_vdbs\structured"
+npm run index:cli -- ".\eval\documents\qasper"       ".\eval\qasper_vdbs\structured"
 ```
 
 ```powershell
 # --- FinanceBench ---
-$env:BIG_RAG_DOCS_DIR = "D:\...\eval\documents\financebench"
+$env:BIG_RAG_DOCS_DIR = "eval\documents\financebench"
 Remove-Item Env:BIG_RAG_EVAL_FILE -ErrorAction SilentlyContinue   # defaults to eval\questions.json
 
-$env:BIG_RAG_DB_DIR = "D:\...\eval\vdbs\legacy"
+$env:BIG_RAG_DB_DIR = "eval\financebench_vdbs\legacy"
 $env:BIG_RAG_RETRIEVAL_DEPTH = "low"
 npm run eval:run                                    # Legacy
 
-$env:BIG_RAG_DB_DIR = "D:\...\eval\vdbs\structured"
+$env:BIG_RAG_DB_DIR = "eval\financebench_vdbs\structured"
 npm run eval:run                                    # Structured
 $env:BIG_RAG_RETRIEVAL_DEPTH = "medium"; npm run eval:run   # + Hybrid
 $env:BIG_RAG_RETRIEVAL_DEPTH = "high";   npm run eval:run   # + HyDE
@@ -74,14 +76,14 @@ $env:BIG_RAG_RETRIEVAL_DEPTH = "high";   npm run eval:run   # + HyDE
 
 ```powershell
 # --- QASPER: same four, different corpus and question set ---
-$env:BIG_RAG_DOCS_DIR  = "D:\...\eval\documents\qasper"
-$env:BIG_RAG_EVAL_FILE = "D:\...\eval\questions-qasper.json"
+$env:BIG_RAG_DOCS_DIR  = "eval\documents\qasper"
+$env:BIG_RAG_EVAL_FILE = "eval\questions-qasper.json"
 
-$env:BIG_RAG_DB_DIR = "D:\...\eval\qasper_vdbs\legacy"
+$env:BIG_RAG_DB_DIR = "eval\qasper_vdbs\legacy"
 $env:BIG_RAG_RETRIEVAL_DEPTH = "low"
 npm run eval:run                                    # Legacy
 
-$env:BIG_RAG_DB_DIR = "D:\...\eval\qasper_vdbs\structured"
+$env:BIG_RAG_DB_DIR = "eval\qasper_vdbs\structured"
 npm run eval:run                                    # Structured
 $env:BIG_RAG_RETRIEVAL_DEPTH = "medium"; npm run eval:run   # + Hybrid
 $env:BIG_RAG_RETRIEVAL_DEPTH = "high";   npm run eval:run   # + HyDE
