@@ -409,8 +409,8 @@ right-file-wrong-passage can.
 |---|---|---|---|---|---|
 | Questions scored | 892 | 892 | 892 | 892 | 892 |
 | Final hit rate | 13.1% (117) | 15.9% (142) | 15.9% (142) | **22.2% (198)** | 20.2% (180) |
-| Found the right document | — | — | — | **324** | 281 |
-| Passage accuracy | — | — | — | 61.1% | **64.1%** |
+| Found the right document | 306 | 324 | 324 | **324** | 281 |
+| Passage accuracy | 38.2% | 43.8% | 43.8% | 61.1% | **64.1%** |
 | Pool hit rate (top 50) | 28.0% (250) | **37.2% (332)** | **37.2% (332)** | **37.2% (332)** | 35.1% (313) |
 | Answers at rank 1 | **115** | 51 | 51 | 51 | 47 |
 | Median answer rank in pool | 7 | 7 | 7 | **7** | 8 |
@@ -434,7 +434,13 @@ chunks do not overlap, 333 of the 892 questions have evidence spanning two or mo
 expansion is what completes them. It is the one change so far that matters more on the
 representative corpus than on the awkward one.
 
-**HyDE costs more than it returns here, and the two directions say why.** It finds the right
+**Passage accuracy improves at every step, including HyDE**: 38.2%, 43.8%, 43.8%, 61.1%, 64.1%.
+On the measure that excludes questions naming no document, every change made this month helps,
+and the ordering matches FinanceBench's. Note also that finding the right document is identical
+across Structured, dates and neighbours — 324 — because expansion only ever adds chunks from a
+document already returned. Only HyDE moves it, and downwards.
+
+**So HyDE trades document-finding for passage-finding, and the two directions say why.** It finds the right
 document 43 times *less* often — 281 against 324, pool 313 against 332 — while locating the
 passage slightly *better* when it does, 64.1% against 61.1%. Its lane nominates, and a drafted
 answer to a question that names no paper is generic prose that nominates generic paragraphs
@@ -445,6 +451,12 @@ location. It gained 28 questions and lost 46.
 That is the opposite of FinanceBench, where the draft's nominations *added* 6 to the pool. The
 difference is what a draft can know: a FinanceBench question names its company and year, so the
 draft inherits them, while "what were the baselines?" gives it nothing to be specific about.
+
+Which of the two readings matters depends on the questions a user actually asks. If they name
+what they are looking for, HyDE's cost mostly disappears and its 64.1% is the relevant figure;
+if they ask "what were the baselines?" of a corpus, its 180 hits against 198 is. Both are true,
+and the honest summary is that HyDE is worth having available and not worth having on by
+default — which is what shipping it at High already means.
 
 **Read passage accuracy, not hit rate, on this dataset.** A hit needs the right document and the
 right passage; where the question does not say which document is meant, the first is not a
