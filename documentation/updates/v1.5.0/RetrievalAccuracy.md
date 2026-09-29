@@ -12,7 +12,7 @@ Version 1.4.0 simplified the settings. Everything since has gone into one questi
 
 The honest answer at the start of this version was: rarely. On FinanceBench, 8 of 88 scorable questions. Three things were wrong, and they turned out to be independent — how documents are cut up, how candidates are chosen, and how any of it is measured. This version changes all three, and about half the changes made were measured and then reverted.
 
-Note on version numbering: the hybrid retrieval described in [v1.4.0's document](../v1.4.0/RetrivealStrategy.md) was written up against that version but landed after its tag, so it ships here. That document remains the record of the design; this one covers what happened to it.
+Note on version numbering: the hybrid retrieval described in [v1.4.0's document](../v1.4.0/RetrivalStrategy.md) was written up against that version but landed after its tag, so it ships here. That document remains the record of the design; this one covers what happened to it.
 
 ---
 
