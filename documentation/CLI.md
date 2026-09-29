@@ -109,7 +109,7 @@ If most candidates are dropped, the loaded model is probably too small to follow
 
 ### Using a Different Question Set
 
-`eval:run` reads `eval\questions.json` by default, which holds the FinanceBench questions. Save generated questions under another name and point runs at them, rather than overwriting that file:
+`eval:run` needs `BIG_RAG_EVAL_FILE`: the question sets are named after their dataset, so there is no single default. Save generated questions under their own name too, rather than overwriting one that exists:
 
 ```powershell
 $env:BIG_RAG_EVAL_FILE="D:\Projects\SAIC\SNIP\plugin_dev\big-rag\eval\generated-questions.json"
@@ -126,7 +126,7 @@ Only compare runs that used the same question set, and for generated sets, the s
 | `BIG_RAG_RETRIEVAL_DEPTH` | `medium` | `low`, `medium` or `high`; recorded in each report |
 | `BIG_RAG_REGENERATE_HYPOTHETICALS` | `false` | At High depth, redraft every hypothetical instead of reusing the cache |
 | `BIG_RAG_HYPOTHETICALS_FILE` | beside the question set | Where High's drafts are cached; `questions-qasper.json` gives `hypotheticals-qasper.json` |
-| `BIG_RAG_EVAL_FILE` | `eval/questions.json` | Question set to run |
+| `BIG_RAG_EVAL_FILE` | `eval/questions.json` | Question set to run; name it explicitly, since the sets are per-dataset |
 | `BIG_RAG_EVAL_COUNT` | `30` | Questions to generate |
 | `BIG_RAG_EVAL_SEED` | `42` | Seed for choosing which chunks to generate questions from |
 | `BIG_RAG_EVAL_LEAK_LIMIT` | `0.7` | Rejects a generated question when more than this share of its words are copied from the source; `1` disables the check |

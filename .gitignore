@@ -29,5 +29,8 @@ dist/
 # Retrieval evaluation sets and reports (contain excerpts from indexed documents)
 /eval/documents
 /eval/vdbs
+/eval/*_vdbs
+/eval/reports
+/eval/hypotheticals*.json
 .claude
 /eval/candidates-*

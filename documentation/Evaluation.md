@@ -10,7 +10,7 @@ QASPER is the check that nothing here is an artefact of it.
 
 [368 PDFs of public company filings](https://github.com/patronus-ai/financebench/tree/main/pdfs),
 363 unique. Download the PDFs into `eval\documents\financebench`; the question set is already in
-`eval\questions.json`, 150 questions with the dataset's own evidence strings.
+`eval\questions-financebench.json`, 150 questions with the dataset's own evidence strings.
 
 A hard and unrepresentative corpus: table-heavy filings, around ten near-identical documents per
 company, and half the questions needing arithmetic rather than lookup. **62 of the 150 are
@@ -61,8 +61,8 @@ npm run index:cli -- ".\eval\documents\qasper"       ".\eval\qasper_vdbs\structu
 
 ```powershell
 # --- FinanceBench ---
-$env:BIG_RAG_DOCS_DIR = "eval\documents\financebench"
-Remove-Item Env:BIG_RAG_EVAL_FILE -ErrorAction SilentlyContinue   # defaults to eval\questions.json
+$env:BIG_RAG_DOCS_DIR  = "eval\documents\financebench"
+$env:BIG_RAG_EVAL_FILE = "eval\questions-financebench.json"
 
 $env:BIG_RAG_DB_DIR = "eval\financebench_vdbs\legacy"
 $env:BIG_RAG_RETRIEVAL_DEPTH = "low"
@@ -128,10 +128,9 @@ model that wrote it; later runs with that model reuse it. Drafting is not determ
 without this two runs of one configuration differ by the generator's variance rather than by the
 change being measured.
 
-The cache is named after its question set and sits beside it — `eval\questions.json` gives
-`eval\hypotheticals.json`, `eval\questions-qasper.json` gives `eval\hypotheticals-qasper.json` —
-so two datasets can never share one, and a draft written for one question set can never be
-served to another.
+The cache is named after its question set and sits beside it — `eval\questions-qasper.json`
+gives `eval\hypotheticals-qasper.json` — so two datasets can never share one, and a draft
+written for one question set can never be served to another.
 
 Held constant: `nomic-embed-text-v1.5` embeddings, 512-token chunks (100 overlap, legacy only),
 5 passages returned, 0.5 threshold, compaction off, a 50-passage diagnostic pool, RRF constant
