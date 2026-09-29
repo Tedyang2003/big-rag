@@ -33,4 +33,8 @@ dist/
 /eval/reports
 /eval/hypotheticals*.json
 .claude
+
+# Agent scratch: plan ledgers, task briefs and review diffs. Ignored from the root rather than
+# by a .gitignore inside it, which LM Studio's packager refuses as a nested ignore file.
+/.superpowers
 /eval/candidates-*
