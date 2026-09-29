@@ -40,6 +40,7 @@ export interface EvalMetrics {
   poolHitRate: number;
   filterLoss: number;
   rightFileWrongPassage: number;
+  /** How deep the pool must be read before the evidence is all there; see `evidenceDepth`. */
   medianPoolRank: number | null;
   meanReciprocalRank: number;
   /** Mean passages handed to the model. Neighbour expansion buys hits by spending these. */
@@ -51,14 +52,36 @@ export interface EvalMetrics {
  * Consecutive chunks are matched as one passage: when evidence spans a chunk boundary and
  * both chunks are retrieved, the model received all of it, so scoring counts it as found.
  */
-function matchingRunPosition(
+function containsEvidence(
+  passages: SearchResult[],
+  question: EvalQuestion,
+  documentsDir: string,
+): boolean {
+  for (const run of joinAdjacentRuns(passages)) {
+    if (toRelativeSourcePath(documentsDir, run.filePath) !== question.sourceFile) continue;
+    if (containsSnippet(run.text, question.answerSnippet)) return true;
+  }
+  return false;
+}
+
+/**
+ * How far down the list the reader must go before the evidence is all there: the smallest `k`
+ * for which the first `k` passages hold it. Null when the whole list does not.
+ *
+ * Not the rank of the best-placed chunk of the run that holds the evidence, which is what this
+ * measured before. Grouping consecutive chunks is right for deciding whether the model received
+ * the text, but it let a chunk inherit its neighbour's rank: evidence at position 40, sitting
+ * next to something at position 3, was recorded as rank 3. That flattered the median rank and
+ * the mean reciprocal rank on every run made before 29 September 2026.
+ */
+function evidenceDepth(
   passages: SearchResult[],
   question: EvalQuestion,
   documentsDir: string,
 ): number | null {
-  for (const run of joinAdjacentRuns(passages)) {
-    if (toRelativeSourcePath(documentsDir, run.filePath) !== question.sourceFile) continue;
-    if (containsSnippet(run.text, question.answerSnippet)) return run.firstPosition;
+  if (!containsEvidence(passages, question, documentsDir)) return null;
+  for (let k = 1; k <= passages.length; k++) {
+    if (containsEvidence(passages.slice(0, k), question, documentsDir)) return k;
   }
   return null;
 }
@@ -98,8 +121,8 @@ export function scoreQuestion(
   }
 
   const finalFiles = [...new Set(retrieval.passages.map((p) => toRelativeSourcePath(documentsDir, p.filePath)))];
-  const finalHit = matchingRunPosition(retrieval.passages, question, documentsDir) !== null;
-  const poolPosition = matchingRunPosition(retrieval.diagnosticPool, question, documentsDir);
+  const finalHit = containsEvidence(retrieval.passages, question, documentsDir);
+  const poolPosition = evidenceDepth(retrieval.diagnosticPool, question, documentsDir);
 
   return {
     id: question.id,

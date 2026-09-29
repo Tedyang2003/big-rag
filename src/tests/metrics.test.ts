@@ -146,3 +146,42 @@ test("a question whose evidence is not in the index is unscorable, not a miss", 
   assert.equal(result.unscorableReason, "evidence-not-in-index");
   assert.equal(aggregateMetrics([result]).unscorableEvidenceNotInIndex, 1);
 });
+
+/** A chunk at a chosen position in a chosen file, so rank and adjacency can both be controlled. */
+function chunkAt(file: string, chunkIndex: number, text: string): SearchResult {
+  return {
+    id: `${file}-${chunkIndex}`, text, score: 0.8, filePath: path.join(DOCS, file),
+    fileName: file, chunkIndex, shardName: "shard_000", metadata: {},
+  };
+}
+
+test("pool rank is how deep the evidence is, not the rank of its neighbour", () => {
+  // The evidence sits in chunk 12, five passages down. Chunk 11 holds nothing and ranks first.
+  // They are consecutive, so they join - but joining must not lend chunk 12 chunk 11's rank.
+  const pool = [
+    chunkAt("a.md", 11, "Nothing useful here."),
+    chunkAt("a.md", 40, "Filler."),
+    chunkAt("a.md", 41, "Filler."),
+    chunkAt("a.md", 42, "Filler."),
+    chunkAt("a.md", 12, "Update: total members: 15.8M this quarter."),
+  ];
+  const result = scoreQuestion(QUESTION, retrieval([], pool), DOCS, INDEXED);
+  assert.equal(result.poolRank, 5, "the evidence is only available once five passages are read");
+});
+
+test("pool rank for evidence spanning two chunks is where the second one lands", () => {
+  // Neither half contains the whole snippet; it is complete only once both are in hand.
+  const pool = [
+    chunkAt("a.md", 7, "Update: total"),
+    chunkAt("b.md", 1, "Unrelated."),
+    chunkAt("a.md", 8, "members: 15.8M this quarter."),
+  ];
+  const result = scoreQuestion(QUESTION, retrieval([], pool), DOCS, INDEXED);
+  assert.equal(result.poolRank, 3);
+});
+
+test("a hit still counts when evidence spans two returned chunks", () => {
+  const passages = [chunkAt("a.md", 7, "Update: total"), chunkAt("a.md", 8, "members: 15.8M this quarter.")];
+  const result = scoreQuestion(QUESTION, retrieval(passages, passages), DOCS, INDEXED);
+  assert.equal(result.finalHit, true, "joining is still right for deciding what the model received");
+});

@@ -142,6 +142,7 @@ Held constant: `nomic-embed-text-v1.5` embeddings, 512-token chunks (100 overlap
 A question is a **hit** when the evidence string appears in the passages returned for it, ignoring case, punctuation and whitespace. Two rules keep that fair:
 
 - **Consecutive chunks count as one passage.** If evidence spans a boundary and both chunks are returned, the model received all of it.
+- **Rank is how deep you must read**, not where the best-placed neighbour sits. The median rank and mean reciprocal rank record the smallest number of passages that between them hold the whole evidence. Before 29 September 2026 they recorded the rank of the best chunk in the run holding the evidence, which let a passage at rank 40 be reported as rank 3 because something beside it ranked well. **FinanceBench's medians and MRRs above were measured that way and are optimistic**; its hit rates and pool rates are unaffected, since those only ask whether the evidence was there at all.
 - **Questions whose evidence is not in the index are unscorable, not misses.** Each file is rebuilt from its chunks and searched for the evidence. If it isn't there, no retrieval could find it.
 
 How many survive that rule is the clearest difference between the two datasets. On
