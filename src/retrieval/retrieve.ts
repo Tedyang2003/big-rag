@@ -240,21 +240,6 @@ export async function retrieve(
   const resolvedByKey = new Map<string, SearchResult>();
 
   if (catalog) {
-    // Keywords reorder what the other lanes found; they never nominate. Measured on
-    // FinanceBench, letting BM25 nominate cost 3 of 12 hits, because it fills the shortlist
-    // with a document's boilerplate. Document frequency is counted over the candidates, not
-    // the corpus, so a term every candidate shares carries no weight.
-    const candidates: Bm25Candidate[] = [...resolvedByKey.values()].map((result) => ({
-      key: chunkKey(result),
-      text: result.text,
-    }));
-    const keywordRanking = await timed("keywordRerank", () =>
-      safeLane("keyword", async () =>
-        rankTexts(tokenize(query), candidates, { k1: options.bm25K1, b: options.bm25B }),
-      ),
-    );
-    options.abortSignal?.throwIfAborted();
-
     // Dates are a boost, not a source of candidates. A year says which documents are
     // eligible, not which passage answers the question, so a chunk is never retrieved
     // because of its date - it is only lifted once another lane has found it.
@@ -287,6 +272,27 @@ export async function retrieve(
         keys: hypotheticalResults.map(chunkKey),
       });
     }
+
+    // Keywords reorder what the other lanes found; they never nominate. Measured on
+    // FinanceBench, letting BM25 nominate cost 3 of 12 hits, because it fills the shortlist
+    // with a document's boilerplate. Document frequency is counted over the candidates, not
+    // the corpus, so a term every candidate shares carries no weight.
+    //
+    // Must come after both lanes have populated resolvedByKey, or it scores nothing. Skipped
+    // entirely at weight 0, so a run made to measure retrieval without it is without it.
+    const keywordRanking =
+      options.laneWeights.keyword === 0
+        ? []
+        : await timed("keywordRerank", () =>
+            safeLane("keyword", async () =>
+              rankTexts(
+                tokenize(query),
+                [...resolvedByKey.values()].map((result) => ({ key: chunkKey(result), text: result.text })),
+                { k1: options.bm25K1, b: options.bm25B },
+              ),
+            ),
+          );
+    options.abortSignal?.throwIfAborted();
 
     const dated = new Set(datedKeys);
     const dateBoost = options.laneWeights.date / (options.rrfConstant + 1);

@@ -623,3 +623,41 @@ test("an evidence span left incomplete by the limit is completed by expansion", 
     "the whole span reaches the model",
   );
 });
+
+test("the keyword rerank actually reorders the candidates it is given", async () => {
+  // Against "bus collision", only chunk-3 holds both terms; the vector lane ranks it last.
+  // This fails if the reranker is handed an empty candidate list, which is how it was first
+  // wired back in - it ran, cost nothing, and changed nothing.
+  const { deps } = makeDeps(vectorResults());
+
+  const result = await retrieve(
+    "bus collision",
+    { ...deps, catalog: fakeCatalog() },
+    {
+      ...LOW_OPTIONS,
+      depth: "medium",
+      retrievalLimit: 3,
+      rerankDepth: 1,
+      neighbourChunks: 0,
+      laneWeights: { vector: 1, hyde: 1, keyword: 1, date: 1 },
+    },
+  );
+
+  assert.equal(result.passages[0].text, VECTOR_3, "the keyword match is lifted to the front");
+  assert.ok(result.passages[0] && result.laneCounts.keyword >= 1, "and is attributed to the keyword signal");
+});
+
+test("a keyword weight of zero leaves no trace at all", async () => {
+  const { deps } = makeDeps(vectorResults());
+  const options = { ...LOW_OPTIONS, depth: "medium" as const, retrievalLimit: 3, neighbourChunks: 0 };
+
+  const off = await retrieve(
+    "bus collision",
+    { ...deps, catalog: fakeCatalog() },
+    { ...options, laneWeights: { vector: 1, hyde: 1, keyword: 0, date: 1 } },
+  );
+
+  assert.deepEqual(off.passages.map((p) => p.text), [VECTOR_1, VECTOR_2, VECTOR_3], "the vector order stands");
+  assert.equal(off.laneCounts.keyword, 0, "and nothing is attributed to a signal that was off");
+  assert.ok(!off.timings.some((t) => t.stage === "keywordRerank"), "the stage does not even run");
+});
