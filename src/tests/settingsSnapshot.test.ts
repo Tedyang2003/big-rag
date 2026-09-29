@@ -66,3 +66,32 @@ test("the eval settings snapshot reports legacy when there is no manifest", asyn
     await fs.rm(dir, { recursive: true, force: true });
   }
 });
+
+test("the snapshot records the weights a depth actually applies, not those configured", async () => {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), "big-rag-snapshot-"));
+  try {
+    const configured = { vector: 1, hyde: 1, keyword: 1, date: 1 };
+    const of = async (retrievalDepth: "low" | "medium" | "high") => {
+      const base = args(dir);
+      return buildSettingsSnapshot({
+        ...base,
+        settings: { ...base.settings, retrievalDepth, laneWeights: configured, neighbourChunks: 1 },
+      });
+    };
+
+    // Low fuses nothing, so every signal below the vector search is inert, expansion included.
+    const low = await of("low");
+    assert.deepEqual(low.laneWeights, { vector: 1, hyde: 0, keyword: 0, date: 0 });
+    assert.equal(low.neighbourChunks, 0);
+
+    // Medium never drafts, whatever the hyde weight says.
+    const medium = await of("medium");
+    assert.deepEqual(medium.laneWeights, { vector: 1, hyde: 0, keyword: 1, date: 1 });
+    assert.equal(medium.neighbourChunks, 1);
+
+    const high = await of("high");
+    assert.deepEqual(high.laneWeights, configured);
+  } finally {
+    await fs.rm(dir, { recursive: true, force: true });
+  }
+});
