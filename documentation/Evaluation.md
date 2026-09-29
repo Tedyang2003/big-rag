@@ -402,15 +402,26 @@ right-file-wrong-passage can.
 
 | Metric | Legacy | Structured | + Hybrid | + HyDE |
 |---|---|---|---|---|
-| Questions scored | 892 | | | |
-| Final hit rate | 13.1% (117) | | | |
-| Pool hit rate (top 50) | 28.0% (250) | | | |
-| Answers at rank 1 | 115 | | | |
-| Median answer rank in pool | 7 | | | |
-| Mean reciprocal rank | 0.086 | | | |
-| Right file, wrong passage | 21.2% | | | |
-| Mean passages returned | 5.0 | | | |
-| Vector search, median | 4ms | | | |
+| Questions scored | 892 | 892 | | |
+| Final hit rate | 13.1% (117) | **15.9% (142)** | | |
+| Pool hit rate (top 50) | 28.0% (250) | **37.2% (332)** | | |
+| Answers at rank 1 | **115** | 51 | | |
+| Median answer rank in pool | 7 | 7 | | |
+| Mean reciprocal rank | 0.086 | **0.107** | | |
+| Right file, wrong passage | 21.2% | **20.4%** | | |
+| Mean passages returned | 5.0 | 5.0 | | |
+| Chunks indexed | 3,676 | 4,699 | | |
+| Vector search, median | 4ms | 6ms | | |
+
+**Structured chunking generalises.** It is the first FinanceBench conclusion confirmed on a
+corpus that shares none of that one's properties: 25 more answers returned, 82 more reachable,
+MRR up a quarter. Section-aware chunks help where sections are real, and a paper's headings are
+as real as a filing's.
+
+The rank-1 count moves the other way, 115 down to 51, while every other measure improves. Legacy
+chunking overlaps its chunks, so a short evidence paragraph often sits complete inside the
+single best-matching chunk; structured chunks do not overlap, so the same evidence more often
+needs two of them, and the depth measure counts where the second lands.
 
 **A run takes about a minute.** 3,676 chunks against FinanceBench's 91,541 means a 4ms search
 rather than 5 seconds, so sweeping a parameter here costs what reading the result costs. It also
