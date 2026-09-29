@@ -416,11 +416,11 @@ right-file-wrong-passage can.
 rather than 5 seconds, so sweeping a parameter here costs what reading the result costs. It also
 reopens options rejected on cost alone: ten times the vectors would still be a 40ms search.
 
-**Legacy chunking already finds more here than any FinanceBench configuration does**, 13.1%
-against its best of 21.6%... on a different question set, so the rates are not comparable
-either. What is comparable is the shape of the failure: right-document-wrong-passage is 21.2%
-where FinanceBench's legacy run is 46.6%. Documents that differ from one another are simply
-easier to tell apart.
+Hit rates across the two datasets are not comparable either — different questions, a different
+share of them answerable by lookup. What is comparable is the **shape of the failure**:
+right-document-wrong-passage is 21.2% here against 46.6% for FinanceBench's legacy run. Picking
+the right document out of 281 unlike papers is far easier than picking one of ten near-identical
+filings, and that was FinanceBench's dominant failure.
 
 What these runs are for, in order of how much they would change:
 
