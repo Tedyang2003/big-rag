@@ -23,7 +23,7 @@ test("FIXED_DEFAULTS holds the spec's fixed values", () => {
     bm25B: 0,
     laneWeightVector: 1,
     laneWeightHyde: 1,
-    laneWeightKeyword: 0,
+    laneWeightKeyword: 1,
     laneWeightDate: 1,
     catalogVersion: 4,
     hypotheticalTimeoutMs: 10_000,

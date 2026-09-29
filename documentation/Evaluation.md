@@ -405,20 +405,35 @@ at +3, a leaking control run at +4, and this at +6.
 measure, so they cannot be compared with the FinanceBench table above; hit rate, pool rate and
 right-file-wrong-passage can.
 
-| Metric | Legacy | Structured | + dates | + neighbours | + HyDE |
-|---|---|---|---|---|---|
-| Questions scored | 892 | 892 | 892 | 892 | 892 |
-| Final hit rate | 13.1% (117) | 15.9% (142) | 15.9% (142) | **22.2% (198)** | 20.2% (180) |
-| Found the right document | 306 | 324 | 324 | **324** | 281 |
-| Passage accuracy | 38.2% | 43.8% | 43.8% | 61.1% | **64.1%** |
-| Pool hit rate (top 50) | 28.0% (250) | **37.2% (332)** | **37.2% (332)** | **37.2% (332)** | 35.1% (313) |
-| Answers at rank 1 | **115** | 51 | 51 | 51 | 47 |
-| Median answer rank in pool | 7 | 7 | 7 | **7** | 8 |
-| Mean reciprocal rank | 0.086 | **0.107** | **0.107** | **0.107** | 0.096 |
-| Right file, wrong passage | 21.2% | 20.4% | 20.4% | 14.1% | **11.3%** |
-| Mean passages returned | 5.0 | 5.0 | 5.0 | 7.8 | 8.3 |
-| Chunks indexed | 3,676 | 4,699 | 4,699 | 4,699 | 4,699 |
-| Vector search, median | 4ms | 6ms | 5ms | 5ms | 10ms |
+| Metric | Legacy | Structured | + dates | + neighbours | **+ keywords** | + HyDE |
+|---|---|---|---|---|---|---|
+| Questions scored | 892 | 892 | 892 | 892 | 892 | 892 |
+| Final hit rate | 13.1% (117) | 15.9% (142) | 15.9% (142) | 22.2% (198) | **24.6% (219)** | 20.2% (180) |
+| Found the right document | 306 | 324 | 324 | 324 | **356** | 281 |
+| Passage accuracy | 38.2% | 43.8% | 43.8% | 61.1% | 61.5% | **64.1%** |
+| Pool hit rate (top 50) | 28.0% (250) | **37.2% (332)** | **37.2% (332)** | **37.2% (332)** | **37.2% (332)** | 35.1% (313) |
+| Median answer rank in pool | 7 | 7 | 7 | 7 | **5** | 8 |
+| Mean reciprocal rank | 0.086 | 0.107 | 0.107 | 0.107 | **0.130** | 0.096 |
+| Right file, wrong passage | 21.2% | 20.4% | 20.4% | **14.1%** | 15.4% | **11.3%** |
+| Mean passages returned | 5.0 | 5.0 | 5.0 | 7.8 | 7.4 | 8.3 |
+| Chunks indexed | 3,676 | 4,699 | 4,699 | 4,699 | 4,699 | 4,699 |
+| Vector search, median | 4ms | 6ms | 5ms | 5ms | 5ms | 10ms |
+
+**Keyword reranking was wrongly deleted, and the reason it looked useless is the reason it
+works here.** On QASPER it adds 21 questions, takes the median rank from 7 to 5 and MRR from
+0.107 to 0.130, gaining 52 and losing 31 — while the pool is untouched at 332, since it reranks
+and never nominates.
+
+The gain is entirely in finding the *document*: the right paper is returned 32 times more often,
+356 against 324, while passage accuracy barely moves, 61.1% to 61.5%. **BM25 says which document,
+not which passage in it.** On FinanceBench that was worthless, because the candidates were ten
+near-identical filings of one company and the document was never in doubt — a company's
+distinctive words sit on every page of it. On a corpus of unlike papers, choosing the document
+*is* the hard part.
+
+Re-measured on FinanceBench with the current build, it is neutral there rather than harmful:
+16 hits either way, MRR 0.112 against 0.109, passage accuracy 24.6% against 22.5%. Neutral on
+one corpus and clearly positive on the other, so `laneWeightKeyword` now defaults to 1.
 
 **The date boost does nothing here.** Not "little" — nothing. Every figure in the `+ dates`
 column is identical to `Structured`, and **not one returned passage carries the date lane**: no
@@ -509,6 +524,12 @@ Newest first.
 **28 Sep — returning ten passages instead of five gives 23 hits.** Filter loss falls from 18.2% to 10.2%, so seven answers were sitting at ranks 6 to 10. It is a measurement, not a setting: ten 512-token passages is most of an 8,192-token window. Returning the neighbours of the five already chosen reaches the same 23 for one or two extra chunks, since 4 of the 7 are incomplete spans and 3 are chunks whose neighbour was returned instead. Both stop at 23: 65 of the 72 misses have nothing from the evidence's neighbourhood returned at all.
 
 **28 Sep — the threshold is settled, and filter loss means less than it looks.** Dropping `BIG_RAG_RETRIEVAL_THRESHOLD` from 0.5 to 0.35 at High changed nothing: 16 hits, pool 32, MRR 0.155, every metric identical. The four found-but-unreturned answers ranked inside the top five turned out not to be threshold casualties at all — in each one the evidence chunk was never returned and its neighbour was, and their pool rank came from the 50-deep pool holding enough adjacent chunks to reconstruct the evidence. See the analysis above.
+
+**29 Sep — keyword reranking restored and on by default.** Deleted on FinanceBench evidence alone, with an explanation never tested: that it failed because a filing's distinctive words sit on every page of it. QASPER tested it. It adds 21 questions there, median rank 7 to 5, MRR 0.107 to 0.130 - and the gain is all in finding the document, 356 against 324, with passage accuracy flat. BM25 says which document, not which passage, which is worthless when the document was never in doubt and valuable when it is the hard part. Re-measured on FinanceBench with the current build it is neutral, 16 hits either way. `laneWeightKeyword` defaults to 1.
+
+**29 Sep — QASPER measured across four configurations.** Structured chunking generalises, 117 hits to 142. The date boost does nothing at all, not one passage tagged. Neighbour expansion is worth 56 here against 3 on FinanceBench, because structured chunks do not overlap and 333 of 892 questions have evidence spanning two. HyDE inverts: it loses 43 document identifications while improving passage accuracy, because a draft can only be specific if the question was.
+
+**29 Sep — two measurement defects fixed.** Pool rank was the best-placed chunk of the run holding the evidence, so a chunk could inherit its neighbour's rank; it is now how deep the reader must go. And the hypothetical cache was keyed by a map from question text to id, so question sets reusing a text - QASPER has 87 - collapsed into one entry.
 
 **28 Sep — High measured: 16 hits, and the statement group finally moves.** Drafting an answer
 and searching it beside the question gives 16 hits against Medium's 14, pool 32 against 26, MRR
@@ -615,7 +636,7 @@ one chunk and counted unfindable evidence as a miss.
 ## Open Questions
 
 - **Can a boost rescue without displacing?** Fusion is flat enough that any boost large enough to lift a passage from rank 28 can push another off rank 1 — which is why every keyword configuration traded hits rather than adding them. Weighting by the vector lane's own similarity score, rather than by its rank, would let a confident rank 1 defend itself, and is the one change that might make reranking pay.
-- **Would BM25 help on a corpus it suits?** It failed here because a filing's distinctive words are on every page of it. Where documents are heterogeneous — a manual, a paper, a report — a rare word plausibly names a passage. The code has been removed rather than left switched off; the design above records what to rebuild if a general question set says it is worth it.
+- **Answered: BM25 helps where documents are unlike each other.** Restored and on by default. See the QASPER table.
 - **How much is recoverable by returning more?** The 0.5 threshold is settled — dropping it to 0.35 changed nothing — so the five-passage limit is the only filter left to test. A run at 10 passages measures the ceiling available from returning more rather than ranking better, though ten 512-token passages is most of an 8,192-token window and not a setting to ship.
 - **Why is the evidence chunk outranked by its own neighbour?** In every found-but-unreturned answer inside the top five, the chunk beside the evidence was returned and the evidence was not. Chunk boundaries are not the problem — the evidence fits one chunk in 56 of 88 — so this is the narrative-outranks-the-grid failure again, one chunk over.
 - **Should a compound question be decomposed?** Untested. "Compare X and Y across FY21 and FY22" is four lookups wearing one question, and retrieval can only serve it by luck. It would belong in an Extra High depth, above HyDE.

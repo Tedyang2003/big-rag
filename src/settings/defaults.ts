@@ -21,10 +21,12 @@ export const FIXED_DEFAULTS = {
   neighbourChunks: 1,
   laneWeightVector: 1,
   laneWeightHyde: 1,
-  // Off by default: measured four ways on FinanceBench and never better than the date boost.
-  // Restored to test the one explanation never checked - that it failed there because a
-  // filing's distinctive words sit on every page of it. See documentation/Evaluation.md.
-  laneWeightKeyword: 0,
+  // BM25 is a document-identification signal: it says which document, not which passage in it.
+  // Worthless on FinanceBench, where the candidates are ten near-identical filings of one
+  // company and the document was never in doubt; worth 21 questions and a fifth of the mean
+  // reciprocal rank on QASPER, where choosing the paper is the hard part. Neutral on the
+  // former and clearly positive on the latter, so on. See documentation/Evaluation.md.
+  laneWeightKeyword: 1,
   rerankDepth: 10,
   bm25K1: 1.2,
   bm25B: 0,

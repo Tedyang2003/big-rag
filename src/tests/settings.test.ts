@@ -39,7 +39,7 @@ test("readRetrievalSettings reads overrides from env vars", () => {
       BIG_RAG_CHUNK_SIZE: "1024",
       BIG_RAG_ENABLE_COMPACTION: "TRUE",
     }),
-    { retrievalLimit: 8, retrievalThreshold: 0.35, chunkSize: 1024, enableContextCompaction: true, retrievalDepth: "medium", laneWeights: { vector: FIXED_DEFAULTS.laneWeightVector, hyde: FIXED_DEFAULTS.laneWeightHyde, keyword: 0, date: FIXED_DEFAULTS.laneWeightDate }, laneCandidates: FIXED_DEFAULTS.laneCandidates, neighbourChunks: FIXED_DEFAULTS.neighbourChunks, rerankDepth: FIXED_DEFAULTS.rerankDepth, bm25K1: FIXED_DEFAULTS.bm25K1, bm25B: FIXED_DEFAULTS.bm25B },
+    { retrievalLimit: 8, retrievalThreshold: 0.35, chunkSize: 1024, enableContextCompaction: true, retrievalDepth: "medium", laneWeights: { vector: FIXED_DEFAULTS.laneWeightVector, hyde: FIXED_DEFAULTS.laneWeightHyde, keyword: FIXED_DEFAULTS.laneWeightKeyword, date: FIXED_DEFAULTS.laneWeightDate }, laneCandidates: FIXED_DEFAULTS.laneCandidates, neighbourChunks: FIXED_DEFAULTS.neighbourChunks, rerankDepth: FIXED_DEFAULTS.rerankDepth, bm25K1: FIXED_DEFAULTS.bm25K1, bm25B: FIXED_DEFAULTS.bm25B },
   );
 });
 
@@ -93,7 +93,7 @@ test("lane weights and candidate counts can be tuned from the environment", () =
     BIG_RAG_LANE_CANDIDATES: "40",
   });
 
-  assert.deepEqual(settings.laneWeights, { vector: 1, hyde: 1, keyword: 0, date: 0.5 });
+  assert.deepEqual(settings.laneWeights, { vector: 1, hyde: 1, keyword: 1, date: 0.5 });
   assert.equal(settings.laneCandidates, 40);
 });
 
