@@ -114,6 +114,8 @@ test("formatMetricsTable includes the headline metrics", () => {
     medianPoolRank: 2.5,
     meanReciprocalRank: 0.3125,
     meanPassagesReturned: 2,
+    passageAccuracy: null,
+    rightFileReturned: 0,
     latency: { vectorSearch: { median: 25, p95: 40 } },
   });
   assert.match(table, /Final hit rate\s+25\.0%/);
@@ -136,6 +138,8 @@ test("formatMetricsTable labels the pool with a custom diagnostic pool size", ()
       medianPoolRank: 2.5,
       meanReciprocalRank: 0.3125,
       meanPassagesReturned: 2,
+      passageAccuracy: null,
+      rightFileReturned: 0,
       latency: { vectorSearch: { median: 25, p95: 40 } },
     },
     75,

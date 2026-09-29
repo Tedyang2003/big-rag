@@ -40,6 +40,18 @@ export interface EvalMetrics {
   poolHitRate: number;
   filterLoss: number;
   rightFileWrongPassage: number;
+  /**
+   * Of the questions whose source document was returned at all, the share that were hits.
+   *
+   * Separates finding the document from finding the passage in it. On a question set where the
+   * wording does not say which document is meant - QASPER asks "what were the baselines?" of 281
+   * papers - the overall hit rate is capped by an ambiguity no retrieval can resolve, and this
+   * is the part that measures the pipeline rather than the dataset. Null when no question
+   * returned its document.
+   */
+  passageAccuracy: number | null;
+  /** How many questions that is a share of, since it is a different denominator from the rest. */
+  rightFileReturned: number;
   /** How deep the pool must be read before the evidence is all there; see `evidenceDepth`. */
   medianPoolRank: number | null;
   meanReciprocalRank: number;
@@ -152,6 +164,8 @@ export function aggregateMetrics(results: QuestionResult[]): EvalMetrics {
   const rate = (count: number) => (n === 0 ? 0 : count / n);
 
   const ranks = scored.map((r) => r.poolRank).filter((r): r is number => r !== null).sort((a, b) => a - b);
+  const hits = scored.filter((r) => r.finalHit).length;
+  const rightFileReturned = hits + scored.filter((r) => r.rightFileWrongPassage).length;
 
   const msByStage = new Map<string, number[]>();
   for (const result of scored) {
@@ -176,6 +190,10 @@ export function aggregateMetrics(results: QuestionResult[]): EvalMetrics {
     poolHitRate: rate(ranks.length),
     filterLoss: rate(scored.filter((r) => r.poolRank !== null && !r.finalHit).length),
     rightFileWrongPassage: rate(scored.filter((r) => r.rightFileWrongPassage).length),
+    // A hit means the evidence was returned, which means its document was; so the questions
+    // that found the document are the hits plus those that found it and missed the passage.
+    passageAccuracy: rightFileReturned === 0 ? null : hits / rightFileReturned,
+    rightFileReturned,
     medianPoolRank: ranks.length === 0 ? null : median(ranks),
     meanReciprocalRank: rate(ranks.reduce((sum, rank) => sum + 1 / rank, 0)),
     meanPassagesReturned: rate(scored.reduce((sum, result) => sum + result.returned.length, 0)),

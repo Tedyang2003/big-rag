@@ -185,3 +185,31 @@ test("a hit still counts when evidence spans two returned chunks", () => {
   const result = scoreQuestion(QUESTION, retrieval(passages, passages), DOCS, INDEXED);
   assert.equal(result.finalHit, true, "joining is still right for deciding what the model received");
 });
+
+test("passage accuracy counts only the questions that found their document", () => {
+  const hit = scoreQuestion(
+    QUESTION,
+    retrieval([passage("a.md", "Update: total members: 15.8M this quarter.")], []),
+    DOCS,
+    INDEXED,
+  );
+  const rightFileWrongPassage = scoreQuestion(
+    QUESTION,
+    retrieval([passage("a.md", "Something else entirely.")], []),
+    DOCS,
+    INDEXED,
+  );
+  const wrongFile = scoreQuestion(QUESTION, retrieval([passage("b.md", "Unrelated.")], []), DOCS, INDEXED);
+
+  const metrics = aggregateMetrics([hit, rightFileWrongPassage, wrongFile]);
+  // Three questions, one hit - but only two returned the right document, so the pipeline found
+  // the passage in 1 of 2, not 1 of 3. The third was never winnable from the document it got.
+  assert.equal(metrics.rightFileReturned, 2);
+  assert.equal(metrics.passageAccuracy, 0.5);
+  assert.ok(Math.abs(metrics.finalHitRate - 1 / 3) < 1e-9);
+});
+
+test("passage accuracy is null when no question found its document", () => {
+  const wrongFile = scoreQuestion(QUESTION, retrieval([passage("b.md", "Unrelated.")], []), DOCS, INDEXED);
+  assert.equal(aggregateMetrics([wrongFile]).passageAccuracy, null);
+});

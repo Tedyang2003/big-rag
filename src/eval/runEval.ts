@@ -76,6 +76,10 @@ export function formatMetricsTable(metrics: EvalMetrics, diagnosticPoolSize = 50
     ["Median answer rank in pool", metrics.medianPoolRank === null ? "n/a" : String(metrics.medianPoolRank)],
     ["Mean reciprocal rank", metrics.meanReciprocalRank.toFixed(3)],
     ["Mean passages returned", metrics.meanPassagesReturned.toFixed(1)],
+    [
+      `Passage accuracy (of ${metrics.rightFileReturned} that found the document)`,
+      metrics.passageAccuracy === null ? "—" : `${(metrics.passageAccuracy * 100).toFixed(1)}%`,
+    ],
   ];
   const width = Math.max(...rows.map(([label]) => label.length)) + 2;
   const lines = rows.map(([label, value]) => `${label.padEnd(width)}${value}`);
