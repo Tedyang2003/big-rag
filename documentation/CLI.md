@@ -124,7 +124,8 @@ Only compare runs that used the same question set, and for generated sets, the s
 |---|---|---|
 | `BIG_RAG_DOCS_DIR` / `BIG_RAG_DB_DIR` | none | Must match the documents and index being evaluated |
 | `BIG_RAG_RETRIEVAL_DEPTH` | `medium` | `low`, `medium` or `high`; recorded in each report |
-| `BIG_RAG_REGENERATE_HYPOTHETICALS` | `false` | At High depth, redraft every hypothetical instead of reusing `eval/hypotheticals.json` |
+| `BIG_RAG_REGENERATE_HYPOTHETICALS` | `false` | At High depth, redraft every hypothetical instead of reusing the cache |
+| `BIG_RAG_HYPOTHETICALS_FILE` | beside the question set | Where High's drafts are cached; `questions-qasper.json` gives `hypotheticals-qasper.json` |
 | `BIG_RAG_EVAL_FILE` | `eval/questions.json` | Question set to run |
 | `BIG_RAG_EVAL_COUNT` | `30` | Questions to generate |
 | `BIG_RAG_EVAL_SEED` | `42` | Seed for choosing which chunks to generate questions from |

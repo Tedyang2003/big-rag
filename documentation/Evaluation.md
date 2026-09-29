@@ -77,11 +77,11 @@ $env:BIG_RAG_RETRIEVAL_DEPTH = "high";   npm run eval:run   # + HyDE
 $env:BIG_RAG_DOCS_DIR  = "D:\...\eval\documents\qasper"
 $env:BIG_RAG_EVAL_FILE = "D:\...\eval\questions-qasper.json"
 
-$env:BIG_RAG_DB_DIR = "D:\...\qasper_vdbs\legacy"
+$env:BIG_RAG_DB_DIR = "D:\...\eval\qasper_vdbs\legacy"
 $env:BIG_RAG_RETRIEVAL_DEPTH = "low"
 npm run eval:run                                    # Legacy
 
-$env:BIG_RAG_DB_DIR = "D:\...\qasper_vdbs\structured"
+$env:BIG_RAG_DB_DIR = "D:\...\eval\qasper_vdbs\structured"
 npm run eval:run                                    # Structured
 $env:BIG_RAG_RETRIEVAL_DEPTH = "medium"; npm run eval:run   # + Hybrid
 $env:BIG_RAG_RETRIEVAL_DEPTH = "high";   npm run eval:run   # + HyDE
@@ -114,16 +114,22 @@ Any of these can be set per run, so a configuration differs from its neighbour b
 | `BIG_RAG_LANE_WEIGHT_VECTOR` / `_HYDE` / `_DATE` | 1 / 1 / 1 | **Set a signal to 0 to run without it**, which is how its contribution is attributed |
 | `BIG_RAG_LANE_CANDIDATES` | 50 | Passages the vector lane puts up, and so the pool the others reorder |
 | `BIG_RAG_NEIGHBOUR_CHUNKS` | 1 | Chunks either side of a returned passage to return with it; 0 disables |
-| `BIG_RAG_REGENERATE_HYPOTHETICALS` | `false` | Redraft rather than reuse `eval\hypotheticals.json` |
+| `BIG_RAG_REGENERATE_HYPOTHETICALS` | `false` | Redraft rather than reuse the cached drafts |
+| `BIG_RAG_HYPOTHETICALS_FILE` | beside the question set | Where the drafts are cached; derived from `BIG_RAG_EVAL_FILE` unless set |
 
 Attributing a signal takes two runs against one index: at Medium, `_DATE=0` should reproduce Low
 exactly and proves the harness; at High, `_HYDE=0` must reproduce Medium exactly. Both checks
 have caught real defects.
 
-**High runs reuse their drafts.** The first writes `eval\hypotheticals.json`, one passage per
-question id, tagged with the model that wrote it; later runs with that model reuse it. Drafting
-is not deterministic, so without this two runs of one configuration differ by the generator's
-variance rather than by the change being measured.
+**High runs reuse their drafts.** The first writes one passage per question id, tagged with the
+model that wrote it; later runs with that model reuse it. Drafting is not deterministic, so
+without this two runs of one configuration differ by the generator's variance rather than by the
+change being measured.
+
+The cache is named after its question set and sits beside it — `eval\questions.json` gives
+`eval\hypotheticals.json`, `eval\questions-qasper.json` gives `eval\hypotheticals-qasper.json` —
+so two datasets can never share one, and a draft written for one question set can never be
+served to another.
 
 Held constant: `nomic-embed-text-v1.5` embeddings, 512-token chunks (100 overlap, legacy only),
 5 passages returned, 0.5 threshold, compaction off, a 50-passage diagnostic pool, RRF constant

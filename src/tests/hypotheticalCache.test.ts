@@ -5,6 +5,7 @@ import * as os from "os";
 import * as path from "path";
 import {
   hypotheticalStore,
+  hypotheticalsPathFor,
   loadHypotheticals,
   saveHypotheticals,
 } from "../eval/hypotheticalCache";
@@ -83,4 +84,17 @@ test("a question the generator cannot draft is not cached, so a later run retrie
   assert.equal(await store.forQuestion("q3", "a question"), null);
   assert.equal(calls, 2);
   assert.deepEqual(store.byQuestion, {});
+});
+
+test("each question set gets its own cache, beside it and named after it", () => {
+  const sep = path.sep;
+  assert.equal(hypotheticalsPathFor(`eval${sep}questions.json`), `eval${sep}hypotheticals.json`);
+  assert.equal(hypotheticalsPathFor(`eval${sep}questions-qasper.json`), `eval${sep}hypotheticals-qasper.json`);
+  assert.equal(hypotheticalsPathFor(`eval${sep}anything.json`), `eval${sep}hypotheticals-anything.json`);
+
+  // Two question sets must never resolve to one file, whatever they are called.
+  const paths = ["questions.json", "questions-qasper.json", "questions-cuad.json", "mine.json"].map((name) =>
+    hypotheticalsPathFor(`eval${sep}${name}`),
+  );
+  assert.equal(new Set(paths).size, paths.length);
 });

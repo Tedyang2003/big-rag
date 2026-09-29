@@ -16,8 +16,8 @@ import { FIXED_DEFAULTS } from "./settings/defaults";
 import { getCatalog } from "./retrieval/catalogManager";
 import { hypotheticalFor } from "./retrieval/hypothetical";
 import {
-  HYPOTHETICALS_FILENAME,
   hypotheticalStore,
+  hypotheticalsPathFor,
   loadHypotheticals,
   saveHypotheticals,
 } from "./eval/hypotheticalCache";
@@ -99,7 +99,10 @@ async function runRun(client: LMStudioClient, vectorStore: VectorStore, document
   // High drafts a passage per question before searching. Drafting is not deterministic, so the
   // drafts are cached: otherwise two runs of one configuration differ by the generator's
   // variance rather than by the change under test, and each pays for generations already made.
-  const hypotheticalsPath = path.join(EVAL_DIR, HYPOTHETICALS_FILENAME);
+  // Named after the question set, so FinanceBench and QASPER cannot share one cache.
+  const hypotheticalsPath = process.env.BIG_RAG_HYPOTHETICALS_FILE
+    ? path.resolve(process.env.BIG_RAG_HYPOTHETICALS_FILE)
+    : hypotheticalsPathFor(questionsPath);
   let hypotheticals: ReturnType<typeof hypotheticalStore> | null = null;
   let generatorModel = "";
   if (settings.retrievalDepth === "high") {

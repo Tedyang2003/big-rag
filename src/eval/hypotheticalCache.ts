@@ -1,4 +1,5 @@
 import * as fs from "fs/promises";
+import * as path from "path";
 
 /**
  * The drafted answers a High-depth evaluation run searches with, kept on disk between runs.
@@ -14,7 +15,24 @@ export interface HypotheticalCacheFile {
   byQuestion: Record<string, string>;
 }
 
-export const HYPOTHETICALS_FILENAME = "hypotheticals.json";
+/**
+ * Where a question set's drafts live: beside it, named after it. Two datasets must not share a
+ * cache - their question ids are unrelated, so one file holding both is at best confusing and
+ * at worst serves a draft written for a different question.
+ *
+ *   eval/questions.json         -> eval/hypotheticals.json
+ *   eval/questions-qasper.json  -> eval/hypotheticals-qasper.json
+ *   eval/anything.json          -> eval/hypotheticals-anything.json
+ */
+export function hypotheticalsPathFor(questionsPath: string): string {
+  const base = path.basename(questionsPath, path.extname(questionsPath));
+  const suffix = base === "questions"
+    ? ""
+    : base.startsWith("questions-")
+      ? base.slice("questions".length)
+      : `-${base}`;
+  return path.join(path.dirname(questionsPath), `hypotheticals${suffix}.json`);
+}
 
 function isCacheFile(value: unknown): value is HypotheticalCacheFile {
   const file = value as HypotheticalCacheFile | null;
