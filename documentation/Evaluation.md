@@ -407,16 +407,18 @@ right-file-wrong-passage can.
 
 | Metric | Legacy | Structured | + dates | + neighbours | + HyDE |
 |---|---|---|---|---|---|
-| Questions scored | 892 | 892 | 892 | 892 | |
-| Final hit rate | 13.1% (117) | 15.9% (142) | 15.9% (142) | **22.2% (198)** | |
-| Pool hit rate (top 50) | 28.0% (250) | **37.2% (332)** | **37.2% (332)** | **37.2% (332)** | |
-| Answers at rank 1 | **115** | 51 | 51 | 51 | |
-| Median answer rank in pool | 7 | 7 | 7 | 7 | |
-| Mean reciprocal rank | 0.086 | **0.107** | **0.107** | **0.107** | |
-| Right file, wrong passage | 21.2% | 20.4% | 20.4% | **14.1%** | |
-| Mean passages returned | 5.0 | 5.0 | 5.0 | 7.8 | |
-| Chunks indexed | 3,676 | 4,699 | 4,699 | 4,699 | |
-| Vector search, median | 4ms | 6ms | 5ms | 5ms | |
+| Questions scored | 892 | 892 | 892 | 892 | 892 |
+| Final hit rate | 13.1% (117) | 15.9% (142) | 15.9% (142) | **22.2% (198)** | 20.2% (180) |
+| Found the right document | — | — | — | **324** | 281 |
+| Passage accuracy | — | — | — | 61.1% | **64.1%** |
+| Pool hit rate (top 50) | 28.0% (250) | **37.2% (332)** | **37.2% (332)** | **37.2% (332)** | 35.1% (313) |
+| Answers at rank 1 | **115** | 51 | 51 | 51 | 47 |
+| Median answer rank in pool | 7 | 7 | 7 | **7** | 8 |
+| Mean reciprocal rank | 0.086 | **0.107** | **0.107** | **0.107** | 0.096 |
+| Right file, wrong passage | 21.2% | 20.4% | 20.4% | 14.1% | **11.3%** |
+| Mean passages returned | 5.0 | 5.0 | 5.0 | 7.8 | 8.3 |
+| Chunks indexed | 3,676 | 4,699 | 4,699 | 4,699 | 4,699 |
+| Vector search, median | 4ms | 6ms | 5ms | 5ms | 10ms |
 
 **The date boost does nothing here.** Not "little" — nothing. Every figure in the `+ dates`
 column is identical to `Structured`, and **not one returned passage carries the date lane**: no
@@ -431,6 +433,24 @@ right-document-wrong-passage from 20.4% to 14.1%. The reason is in the chunking:
 chunks do not overlap, 333 of the 892 questions have evidence spanning two or more of them, and
 expansion is what completes them. It is the one change so far that matters more on the
 representative corpus than on the awkward one.
+
+**HyDE costs more than it returns here, and the two directions say why.** It finds the right
+document 43 times *less* often — 281 against 324, pool 313 against 332 — while locating the
+passage slightly *better* when it does, 64.1% against 61.1%. Its lane nominates, and a drafted
+answer to a question that names no paper is generic prose that nominates generic paragraphs
+from the wrong papers, displacing good vector candidates out of the pool. The vocabulary-gap
+mechanism works; it just costs more in document identification than it earns in passage
+location. It gained 28 questions and lost 46.
+
+That is the opposite of FinanceBench, where the draft's nominations *added* 6 to the pool. The
+difference is what a draft can know: a FinanceBench question names its company and year, so the
+draft inherits them, while "what were the baselines?" gives it nothing to be specific about.
+
+**Read passage accuracy, not hit rate, on this dataset.** A hit needs the right document and the
+right passage; where the question does not say which document is meant, the first is not a
+retrieval failure. 87 QASPER questions have text appearing verbatim for two or more papers, and
+88% of the questions that never reach the pool fail to retrieve the right paper at all. The
+overall rate is capped by that; passage accuracy is not.
 
 Two cautions on reading this table. Expansion runs only on the fused path, so `Structured` at
 Low cannot have it and `+ neighbours` differs from `+ dates` by that one setting — the
