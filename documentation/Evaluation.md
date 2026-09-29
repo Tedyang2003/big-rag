@@ -400,28 +400,44 @@ at +3, a leaking control run at +4, and this at +6.
 measure, so they cannot be compared with the FinanceBench table above; hit rate, pool rate and
 right-file-wrong-passage can.
 
-| Metric | Legacy | Structured | + Hybrid | + HyDE |
-|---|---|---|---|---|
-| Questions scored | 892 | 892 | | |
-| Final hit rate | 13.1% (117) | **15.9% (142)** | | |
-| Pool hit rate (top 50) | 28.0% (250) | **37.2% (332)** | | |
-| Answers at rank 1 | **115** | 51 | | |
-| Median answer rank in pool | 7 | 7 | | |
-| Mean reciprocal rank | 0.086 | **0.107** | | |
-| Right file, wrong passage | 21.2% | **20.4%** | | |
-| Mean passages returned | 5.0 | 5.0 | | |
-| Chunks indexed | 3,676 | 4,699 | | |
-| Vector search, median | 4ms | 6ms | | |
+| Metric | Legacy | Structured | + dates | + neighbours | + HyDE |
+|---|---|---|---|---|---|
+| Questions scored | 892 | 892 | 892 | 892 | |
+| Final hit rate | 13.1% (117) | 15.9% (142) | 15.9% (142) | **22.2% (198)** | |
+| Pool hit rate (top 50) | 28.0% (250) | **37.2% (332)** | **37.2% (332)** | **37.2% (332)** | |
+| Answers at rank 1 | **115** | 51 | 51 | 51 | |
+| Median answer rank in pool | 7 | 7 | 7 | 7 | |
+| Mean reciprocal rank | 0.086 | **0.107** | **0.107** | **0.107** | |
+| Right file, wrong passage | 21.2% | 20.4% | 20.4% | **14.1%** | |
+| Mean passages returned | 5.0 | 5.0 | 5.0 | 7.8 | |
+| Chunks indexed | 3,676 | 4,699 | 4,699 | 4,699 | |
+| Vector search, median | 4ms | 6ms | 5ms | 5ms | |
+
+**The date boost does nothing here.** Not "little" — nothing. Every figure in the `+ dates`
+column is identical to `Structured`, and **not one returned passage carries the date lane**: no
+QASPER question names a date the parser recognises. On FinanceBench the same signal was worth
+two hits and halved wrong-document failures, because it told ten near-identical filings of one
+company apart. Papers have no such ambiguity, so Medium is a FinanceBench feature rather than a
+general one.
+
+**Neighbour expansion is worth far more here than there: 56 hits against 3.** It contributed
+2,530 of the 6,990 passages returned, cut filter loss from 21.3% to 15.0% and
+right-document-wrong-passage from 20.4% to 14.1%. The reason is in the chunking: structured
+chunks do not overlap, 333 of the 892 questions have evidence spanning two or more of them, and
+expansion is what completes them. It is the one change so far that matters more on the
+representative corpus than on the awkward one.
+
+Two cautions on reading this table. Expansion runs only on the fused path, so `Structured` at
+Low cannot have it and `+ neighbours` differs from `+ dates` by that one setting — the
+`+ dates` column exists to separate them, and was measured with `BIG_RAG_NEIGHBOUR_CHUNKS=0` at
+Medium. And rank-1 answers drop from legacy's 115 to 51 while everything else improves: legacy
+chunks overlap, so short evidence often sits complete in the single best-matching chunk, while
+structured chunks more often need two and the depth measure counts where the second lands.
 
 **Structured chunking generalises.** It is the first FinanceBench conclusion confirmed on a
-corpus that shares none of that one's properties: 25 more answers returned, 82 more reachable,
-MRR up a quarter. Section-aware chunks help where sections are real, and a paper's headings are
-as real as a filing's.
-
-The rank-1 count moves the other way, 115 down to 51, while every other measure improves. Legacy
-chunking overlaps its chunks, so a short evidence paragraph often sits complete inside the
-single best-matching chunk; structured chunks do not overlap, so the same evidence more often
-needs two of them, and the depth measure counts where the second lands.
+corpus sharing none of that one's properties: 25 more answers returned, 82 more reachable, MRR
+up a quarter. Section-aware chunks help where sections are real, and a paper's headings are as
+real as a filing's.
 
 **A run takes about a minute.** 3,676 chunks against FinanceBench's 91,541 means a 4ms search
 rather than 5 seconds, so sweeping a parameter here costs what reading the result costs. It also
