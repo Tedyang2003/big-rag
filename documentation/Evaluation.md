@@ -3,12 +3,10 @@
 How we measure retrieval objectively when the pipeline changes: same questions, same documents,
 one variable at a time.
 
-## Datasets
+Two datasets, deliberately unalike. FinanceBench is the harder and the less representative;
+QASPER is the check that nothing here is an artefact of it.
 
-Two, deliberately unalike. FinanceBench is the harder and the less representative; QASPER is the
-check that nothing here is an artefact of it.
-
-### FinanceBench
+## First Dataset: FinanceBench
 
 [368 PDFs of public company filings](https://github.com/patronus-ai/financebench/tree/main/pdfs),
 363 unique. Download the PDFs into `eval\documents\financebench`; the question set is already in
@@ -19,7 +17,7 @@ company, and half the questions needing arithmetic rather than lookup. **62 of t
 unscorable** because the dataset's evidence strings come from a different PDF extractor than
 ours, leaving 88. Read every FinanceBench number with that in mind.
 
-### QASPER
+## Second Dataset: QASPER
 
 1,585 NLP papers with questions written by researchers who had read only the abstract, answered
 by others who marked the paragraphs holding the answer. Papers are one of the document types this
@@ -53,10 +51,10 @@ configuration in the same PowerShell window. Variables persist, so set every one
 # --- indexes, once per dataset and chunking strategy ---
 $env:BIG_RAG_STRUCTURED_INDEXING = "false"
 npm run index:cli -- ".\eval\documents\financebench" ".\eval\vdbs\legacy"
-npm run index:cli -- ".\eval\documents\qasper"       ".\eval\vdbs\qasper-legacy"
+npm run index:cli -- ".\eval\documents\qasper"       ".\qasper_vdbs\legacy"
 $env:BIG_RAG_STRUCTURED_INDEXING = "true"
 npm run index:cli -- ".\eval\documents\financebench" ".\eval\vdbs\structured"
-npm run index:cli -- ".\eval\documents\qasper"       ".\eval\vdbs\qasper"
+npm run index:cli -- ".\eval\documents\qasper"       ".\qasper_vdbs\structured"
 ```
 
 ```powershell
@@ -79,11 +77,11 @@ $env:BIG_RAG_RETRIEVAL_DEPTH = "high";   npm run eval:run   # + HyDE
 $env:BIG_RAG_DOCS_DIR  = "D:\...\eval\documents\qasper"
 $env:BIG_RAG_EVAL_FILE = "D:\...\eval\questions-qasper.json"
 
-$env:BIG_RAG_DB_DIR = "D:\...\eval\vdbs\qasper-legacy"
+$env:BIG_RAG_DB_DIR = "D:\...\qasper_vdbs\legacy"
 $env:BIG_RAG_RETRIEVAL_DEPTH = "low"
 npm run eval:run                                    # Legacy
 
-$env:BIG_RAG_DB_DIR = "D:\...\eval\vdbs\qasper"
+$env:BIG_RAG_DB_DIR = "D:\...\qasper_vdbs\structured"
 npm run eval:run                                    # Structured
 $env:BIG_RAG_RETRIEVAL_DEPTH = "medium"; npm run eval:run   # + Hybrid
 $env:BIG_RAG_RETRIEVAL_DEPTH = "high";   npm run eval:run   # + HyDE
