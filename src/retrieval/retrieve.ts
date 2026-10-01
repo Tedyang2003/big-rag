@@ -156,7 +156,8 @@ function withNeighbours(
         const neighbour = byPosition.get(key);
         if (!neighbour || taken.has(key)) continue;
         taken.add(key);
-        out.push({ ...neighbour, score: result.score });
+        // A neighbour is kept for its adjacency, not its own relevance, so it inherits both.
+        out.push({ ...neighbour, score: result.score, similarity: result.similarity ?? result.score });
       }
     }
   }
@@ -333,9 +334,11 @@ export async function retrieve(
     winnerLanesByKey = new Map(winners.map((winner) => [winner.key, winner.lanes]));
 
     const chosen = winners
-      .map((winner) => {
+      .map((winner): SearchResult | null => {
         const source = resolvedByKey.get(winner.key);
-        return source ? { ...source, score: winner.score } : null;
+        // Fusion replaces the score with a reciprocal-rank sum; keep the similarity so later
+        // stages can still tell an on-topic passage from a filler one.
+        return source ? { ...source, score: winner.score, similarity: source.score } : null;
       })
       .filter((result): result is SearchResult => result !== null);
 

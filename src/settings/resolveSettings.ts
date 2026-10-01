@@ -31,6 +31,7 @@ export interface ResolvedSettings {
   catalogVersion: number;
   hypotheticalTimeoutMs: number;
   ragContextShare: number;
+  passageRelevanceCut: number;
   retrievalLimit: number;
   retrievalThreshold: number;
   chunkSize: number;

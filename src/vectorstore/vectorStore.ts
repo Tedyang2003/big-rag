@@ -20,7 +20,10 @@ export interface DocumentChunk {
 export interface SearchResult {
   id: string;
   text: string;
+  /** Rank order within the result set. At fused depths this is a reciprocal-rank sum, not a similarity. */
   score: number;
+  /** Cosine similarity to the query, kept through fusion so relevance can still be judged. */
+  similarity?: number;
   filePath: string;
   fileName: string;
   chunkIndex: number;

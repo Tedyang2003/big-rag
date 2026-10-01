@@ -28,6 +28,7 @@ import { retrieve } from "./retrieval/retrieve";
 import { renderPassageForPrompt } from "./retrieval/renderPassage";
 import { getCatalog, resetCatalogCache } from "./retrieval/catalogManager";
 import { fitToContext } from "./utils/fitToContext";
+import { dropWeakPassages, passagesForPrompt } from "./utils/relevanceCut";
 import { hypotheticalFor } from "./retrieval/hypothetical";
 
 /**
@@ -597,6 +598,11 @@ export async function preprocess(
     // the model is looking at three sets, the oldest of them the longest. Without this it
     // answers from whichever set is largest, which is how "what does shao yang like" came back
     // as a summary of a company discussed two questions earlier.
+    // Retrieval fills its quota whether or not that many passages are relevant. On a small
+    // collection that means one good answer followed by page footers and OCR noise, and a model
+    // reasonably concludes the answer is not there.
+    const relevant = dropWeakPassages(results, settings.passageRelevanceCut);
+
     const prefix =
       `The passages below were retrieved for this question, and only this one: "${userPrompt}"\n\n`;
     const promptTemplate = normalizePromptTemplate(settings.promptTemplate);
@@ -604,10 +610,12 @@ export async function preprocess(
     /** The prompt carrying the highest-ranked `count` passages, in full or abbreviated form. */
     const buildPrompt = (count: number, abbreviated = false): string => {
       let ragContext = prefix;
-      results.slice(0, count).forEach((result, index) => {
+      // Weakest first, so the best passage lands immediately above the question.
+      passagesForPrompt(relevant, count).forEach((result) => {
+        const rank = relevant.indexOf(result);
         const fileName = path.basename(result.filePath);
-        const matchLabel = describeMatch(index + 1, passageLanes[index], result.score);
-        const citationLabel = `Citation ${index + 1} (from ${fileName}, ${matchLabel}): `;
+        const matchLabel = describeMatch(rank + 1, passageLanes[results.indexOf(result)], result.score);
+        const citationLabel = `Citation ${rank + 1} (from ${fileName}, ${matchLabel}): `;
         const passage = renderPassageForPrompt(result);
         ragContext += `\n${citationLabel}"${abbreviated ? summarizeText(passage) : passage}"\n\n`;
       });
@@ -619,11 +627,17 @@ export async function preprocess(
 
     // An oversized prompt is truncated from the front, which is where the passages are, so the
     // model would be told to use citations it never received. Send what fits instead.
-    const fit = await fitPassagesToContext(ctl, results.length, buildPrompt, settings.ragContextShare);
-    const sent = fit ? results.slice(0, fit.used) : results;
-    if (fit && fit.used < results.length) {
+    const fit = await fitPassagesToContext(ctl, relevant.length, buildPrompt, settings.ragContextShare);
+    const sent = fit ? relevant.slice(0, fit.used) : relevant;
+    if (results.length > relevant.length) {
+      console.info(
+        `[BigRAG] Dropped ${results.length - relevant.length} of ${results.length} passages as far less ` +
+          `relevant than the best match.`,
+      );
+    }
+    if (fit && fit.used < relevant.length) {
       const summary =
-        `Sent ${fit.used} of ${results.length} passages — the rest would exceed the ` +
+        `Sent ${fit.used} of ${relevant.length} passages — the rest would exceed the ` +
         `${fit.budget.toLocaleString()} tokens retrieval may use of this model's ` +
         `${fit.contextLength.toLocaleString()}. Raise the context length to send more.`;
       console.warn(`[BigRAG] ${summary}`);
@@ -644,9 +658,10 @@ export async function preprocess(
     const passagesLog = passagesLogEntries.join("\n\n");
 
     console.info(`[BigRAG] RAG passages sent (${sent.length} of ${results.length}) preview:\n${passagesLog}`);
+    const tokensNote = fit ? `${fit.tokens.toLocaleString()} of ${fit.budget.toLocaleString()} tokens` : "size unknown";
     console.info(
-      `[BigRAG] Prompt sent to model: ${finalPrompt.length.toLocaleString()} characters, ` +
-        `${sent.length} passages from ${new Set(sent.map((r) => path.basename(r.filePath))).size} files. ` +
+      `[BigRAG] Prompt sent to model: ${tokensNote}, ${sent.length} passages from ` +
+        `${new Set(sent.map((r) => path.basename(r.filePath))).size} files. ` +
         `Enable plugin debug logging to see it in full.`,
     );
     console.info(`[BigRAG] Prompt preview (passages abbreviated, NOT what was sent):

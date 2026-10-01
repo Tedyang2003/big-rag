@@ -83,6 +83,7 @@ test("resolveSettings exposes the hybrid retrieval defaults", () => {
   assert.equal(settings.catalogVersion, 4);
   assert.equal(settings.hypotheticalTimeoutMs, 10_000);
   assert.equal(settings.ragContextShare, 0.6);
+  assert.equal(settings.passageRelevanceCut, 0.9);
 });
 
 test("notConfiguredMessage names exactly the missing settings", () => {

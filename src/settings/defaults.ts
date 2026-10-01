@@ -38,4 +38,7 @@ export const FIXED_DEFAULTS = {
   // the conversation and the reply, which the host trims to fit. Budgeting against what the
   // conversation leaves instead would starve retrieval as a chat grows.
   ragContextShare: 0.6,
+  // Passages scoring below this share of the best match are dropped rather than padding the
+  // result out to the quota. One strong match returns one passage; several return several.
+  passageRelevanceCut: 0.9,
 } as const;

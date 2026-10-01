@@ -28,6 +28,7 @@ test("FIXED_DEFAULTS holds the spec's fixed values", () => {
     catalogVersion: 4,
     hypotheticalTimeoutMs: 10_000,
     ragContextShare: 0.6,
+    passageRelevanceCut: 0.9,
   });
 });
 

@@ -66,6 +66,8 @@ While it works, the plugin shows short status lines above the answer: *Using Big
 
 #### Citations
 
+Only passages comparably relevant to the best match are sent. A question with one good answer in your documents returns one passage, not five padded out with whatever else scored least badly — on a small collection that padding is usually page footers, advertisements or scanning noise, and a small model handed one answer among seven distractions often reports finding nothing. The strongest passage is placed last, immediately above your question, because that is the position a model reads most reliably.
+
 Retrieval is given a share of the model's context window — about three fifths — and sends as many passages as fit it, highest ranked first. The rest of the window is left for the conversation and the reply, which LM Studio trims as needed. That share does not shrink as a chat grows: a long conversation loses its oldest turns rather than its retrieved passages, so the tenth question is answered with as much evidence as the first.
 
 If more passages were found than fit, the status says so — *Sent 6 of 9 passages — the rest would exceed the 4,915 tokens retrieval may use of this model's 8,192* — and raising the model's context length raises the share with it. At least one passage is always sent, so retrieval never quietly does nothing.
