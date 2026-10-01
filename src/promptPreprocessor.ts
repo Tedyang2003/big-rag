@@ -27,6 +27,7 @@ import { runIndexingJob } from "./ingestion/runIndexing";
 import { retrieve } from "./retrieval/retrieve";
 import { renderPassageForPrompt } from "./retrieval/renderPassage";
 import { getCatalog, resetCatalogCache } from "./retrieval/catalogManager";
+import { fitToContext } from "./utils/fitToContext";
 import { hypotheticalFor } from "./retrieval/hypothetical";
 
 /**
@@ -135,10 +136,17 @@ function fillPromptTemplate(template: string, replacements: Record<string, strin
   );
 }
 
-async function warnIfContextOverflow(
+/**
+ * How many of the retrieved passages can be sent, measured with the model's own template and
+ * tokenizer. Null when the token source cannot tell us, in which case the caller sends
+ * everything and warns, as this did before it could do anything about an overflow.
+ */
+async function fitPassagesToContext(
   ctl: PromptPreprocessorController,
-  finalPrompt: string,
-): Promise<void> {
+  passageCount: number,
+  buildPrompt: (passageCount: number) => string,
+  reserveTokens: number,
+): Promise<{ used: number; tokens: number; contextLength: number; budget: number } | null> {
   try {
     const tokenSource = await ctl.tokenSource();
     if (
@@ -151,40 +159,27 @@ async function warnIfContextOverflow(
       typeof tokenSource.getContextLength !== "function"
     ) {
       console.warn("[BigRAG] Token source does not expose prompt utilities; skipping context check.");
-      return;
+      return null;
     }
 
     const [contextLength, history] = await Promise.all([
       tokenSource.getContextLength(),
       ctl.pullHistory(),
     ]);
-    const historyWithLatestMessage = history.withAppended({
-      role: "user",
-      content: finalPrompt,
-    });
-    const formattedPrompt = await tokenSource.applyPromptTemplate(historyWithLatestMessage);
-    const promptTokens = await tokenSource.countTokens(formattedPrompt);
+    const measure = async (passageCount: number) => {
+      const formatted = await tokenSource.applyPromptTemplate(
+        history.withAppended({ role: "user", content: buildPrompt(passageCount) }),
+      );
+      return tokenSource.countTokens(formatted);
+    };
 
-    if (promptTokens > contextLength) {
-      const warningSummary =
-        `⚠️ Prompt needs ${promptTokens.toLocaleString()} tokens but model max is ${contextLength.toLocaleString()}.`;
-      console.warn("[BigRAG]", warningSummary);
-      ctl.createStatus({
-        status: "error",
-        text: `${warningSummary} Reduce retrieved passages or increase the model's context length.`,
-      });
-      try {
-        await ctl.client.system.notify({
-          title: "Context window exceeded",
-          description: `${warningSummary} Prompt may be truncated or rejected.`,
-          noAutoDismiss: true,
-        });
-      } catch (notifyError) {
-        console.warn("[BigRAG] Unable to send context overflow notification:", notifyError);
-      }
-    }
+    // Leave the model room to answer: a prompt that merely fits the window has none.
+    const budget = Math.max(0, contextLength - reserveTokens);
+    const fit = await fitToContext(passageCount, budget, measure);
+    return { ...fit, contextLength, budget };
   } catch (error) {
     console.warn("[BigRAG] Failed to evaluate context usage:", error);
+    return null;
   }
 }
 
@@ -591,42 +586,61 @@ export async function preprocess(
 
     ctl.debug("Retrieval results:", results);
 
-    let ragContextFull = "";
-    let ragContextPreview = "";
     const prefix = "The following passages were found in your indexed documents:\n\n";
-    ragContextFull += prefix;
-    ragContextPreview += prefix;
+    const promptTemplate = normalizePromptTemplate(settings.promptTemplate);
 
-    let citationNumber = 1;
-    for (const result of results) {
-      const fileName = path.basename(result.filePath);
-      const matchLabel = describeMatch(citationNumber, passageLanes[citationNumber - 1], result.score);
-      const citationLabel = `Citation ${citationNumber} (from ${fileName}, ${matchLabel}): `;
-      const passage = renderPassageForPrompt(result);
-      ragContextFull += `\n${citationLabel}"${passage}"\n\n`;
-      ragContextPreview += `\n${citationLabel}"${summarizeText(passage)}"\n\n`;
-      citationNumber++;
+    /** The prompt carrying the highest-ranked `count` passages, in full or abbreviated form. */
+    const buildPrompt = (count: number, abbreviated = false): string => {
+      let ragContext = prefix;
+      results.slice(0, count).forEach((result, index) => {
+        const fileName = path.basename(result.filePath);
+        const matchLabel = describeMatch(index + 1, passageLanes[index], result.score);
+        const citationLabel = `Citation ${index + 1} (from ${fileName}, ${matchLabel}): `;
+        const passage = renderPassageForPrompt(result);
+        ragContext += `\n${citationLabel}"${abbreviated ? summarizeText(passage) : passage}"\n\n`;
+      });
+      return fillPromptTemplate(promptTemplate, {
+        [RAG_CONTEXT_MACRO]: ragContext.trimEnd(),
+        [USER_QUERY_MACRO]: userPrompt,
+      });
+    };
+
+    // An oversized prompt is truncated from the front, which is where the passages are, so the
+    // model would be told to use citations it never received. Send what fits instead.
+    const fit = await fitPassagesToContext(ctl, results.length, buildPrompt, settings.answerReserveTokens);
+    const sent = fit ? results.slice(0, fit.used) : results;
+    if (fit && fit.used < results.length) {
+      const summary =
+        `Sent ${fit.used} of ${results.length} passages — all ${results.length} would not fit the ` +
+        `${fit.budget.toLocaleString()} tokens this model leaves for a prompt ` +
+        `(context ${fit.contextLength.toLocaleString()}).`;
+      console.warn(`[BigRAG] ${summary}`);
+      ctl.createStatus({ status: "done", text: `${summary} Raise the model's context length to send more.` });
+      if (fit.used === 0) {
+        try {
+          await ctl.client.system.notify({
+            title: "No room for retrieved passages",
+            description: summary,
+            noAutoDismiss: true,
+          });
+        } catch (notifyError) {
+          console.warn("[BigRAG] Unable to send context notification:", notifyError);
+        }
+      }
     }
 
-    const promptTemplate = normalizePromptTemplate(settings.promptTemplate);
-    const finalPrompt = fillPromptTemplate(promptTemplate, {
-      [RAG_CONTEXT_MACRO]: ragContextFull.trimEnd(),
-      [USER_QUERY_MACRO]: userPrompt,
-    });
-    const finalPromptPreview = fillPromptTemplate(promptTemplate, {
-      [RAG_CONTEXT_MACRO]: ragContextPreview.trimEnd(),
-      [USER_QUERY_MACRO]: userPrompt,
-    });
+    const finalPrompt = buildPrompt(sent.length);
+    const finalPromptPreview = buildPrompt(sent.length, true);
 
     ctl.debug("Processed content (preview):", finalPromptPreview);
 
-    const passagesLogEntries = results.map((result, idx) => {
+    const passagesLogEntries = sent.map((result, idx) => {
       const fileName = path.basename(result.filePath);
       return `#${idx + 1} file=${fileName} shard=${result.shardName} score=${result.score.toFixed(3)}\n${summarizeText(result.text)}`;
     });
     const passagesLog = passagesLogEntries.join("\n\n");
 
-    console.info(`[BigRAG] RAG passages (${results.length}) preview:\n${passagesLog}`);
+    console.info(`[BigRAG] RAG passages sent (${sent.length} of ${results.length}) preview:\n${passagesLog}`);
     console.info(`[BigRAG] Final prompt sent to model (preview):\n${finalPromptPreview}`);
 
     // Native citation UI: ctl.createCitationBlock() has no effect from a
@@ -639,8 +653,10 @@ export async function preprocess(
     // same frequently-cited file doesn't get re-registered on every message.
     // Guard each call individually so one missing/moved file doesn't drop
     // citations for the rest of the results.
+    // Only what the model received: a citation for a passage dropped to fit the context would
+    // show a user the answer while the model never saw it.
     const citationEntries: RetrievalResultEntry[] = [];
-    for (const result of results) {
+    for (const result of sent) {
       try {
         const fileHash = typeof result.metadata.fileHash === "string" ? result.metadata.fileHash : "";
         const fileHandle = await getCitationFileHandle(ctl.client, result.filePath, fileHash);
@@ -653,8 +669,6 @@ export async function preprocess(
     if (citationEntries.length > 0) {
       await ctl.addCitations({ entries: citationEntries });
     }
-
-    await warnIfContextOverflow(ctl, finalPrompt);
 
     return finalPrompt;
   } catch (error) {

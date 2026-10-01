@@ -34,4 +34,7 @@ export const FIXED_DEFAULTS = {
   catalogVersion: 4,
   // Bounds a pathological generator at High depth; drafting measured a median 542ms.
   hypotheticalTimeoutMs: 10_000,
+  // Tokens held back from the context window for the model's reply. A prompt that merely fits
+  // the window leaves nothing to answer with.
+  answerReserveTokens: 512,
 } as const;

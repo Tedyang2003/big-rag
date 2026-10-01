@@ -27,6 +27,7 @@ test("FIXED_DEFAULTS holds the spec's fixed values", () => {
     laneWeightDate: 1,
     catalogVersion: 4,
     hypotheticalTimeoutMs: 10_000,
+    answerReserveTokens: 512,
   });
 });
 

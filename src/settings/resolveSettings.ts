@@ -30,6 +30,7 @@ export interface ResolvedSettings {
   laneWeightDate: number;
   catalogVersion: number;
   hypotheticalTimeoutMs: number;
+  answerReserveTokens: number;
   retrievalLimit: number;
   retrievalThreshold: number;
   chunkSize: number;
