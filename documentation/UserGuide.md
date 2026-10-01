@@ -70,6 +70,8 @@ Retrieval is given a share of the model's context window — about three fifths 
 
 If more passages were found than fit, the status says so — *Sent 6 of 9 passages — the rest would exceed the 4,915 tokens retrieval may use of this model's 8,192* — and raising the model's context length raises the share with it. At least one passage is always sent, so retrieval never quietly does nothing.
 
+Passages stay in the conversation after the turn they were retrieved for, because they are part of the message Big RAG sends. By the third question the model can see three sets of them, so each set names the question it belongs to and the prompt tells the model that earlier ones do not apply. If you customised the Prompt Template before version 1.5.0, yours will not say that — reset it to the default to pick up the wording.
+
 Each retrieved passage appears in LM Studio's citation panel. At Medium and High depth it is labelled with its rank and how it matched, such as `match #1 via meaning, dates` or `match #2 via likely wording`. At Low depth it shows the similarity score instead.
 
 ## How Documents Are Indexed

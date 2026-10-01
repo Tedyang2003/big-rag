@@ -592,7 +592,13 @@ export async function preprocess(
 
     ctl.debug("Retrieval results:", results);
 
-    const prefix = "The following passages were found in your indexed documents:\n\n";
+    // Says which question these belong to. Every turn's passages stay in the conversation
+    // forever - what a preprocessor returns becomes the user message - so by the third question
+    // the model is looking at three sets, the oldest of them the longest. Without this it
+    // answers from whichever set is largest, which is how "what does shao yang like" came back
+    // as a summary of a company discussed two questions earlier.
+    const prefix =
+      `The passages below were retrieved for this question, and only this one: "${userPrompt}"\n\n`;
     const promptTemplate = normalizePromptTemplate(settings.promptTemplate);
 
     /** The prompt carrying the highest-ranked `count` passages, in full or abbreviated form. */

@@ -10,7 +10,7 @@ export function resolveEmbeddingModelId(raw: string | undefined | null): string 
 
 export const DEFAULT_PROMPT_TEMPLATE = `{{rag_context}}
 
-Use the citations above to respond to the user query, only if they are relevant. Otherwise, respond to the best of your ability without them.
+Answer the question below using the passages above, which were retrieved for it. Any passages earlier in this conversation belong to earlier questions and do not apply here. If the passages above are not relevant, answer as best you can without them.
 
 User Query:
 
