@@ -34,7 +34,8 @@ export const FIXED_DEFAULTS = {
   catalogVersion: 4,
   // Bounds a pathological generator at High depth; drafting measured a median 542ms.
   hypotheticalTimeoutMs: 10_000,
-  // Tokens held back from the context window for the model's reply. A prompt that merely fits
-  // the window leaves nothing to answer with.
-  answerReserveTokens: 512,
+  // The share of the model's context window retrieved passages may use. The rest is left for
+  // the conversation and the reply, which the host trims to fit. Budgeting against what the
+  // conversation leaves instead would starve retrieval as a chat grows.
+  ragContextShare: 0.6,
 } as const;

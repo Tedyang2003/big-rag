@@ -137,22 +137,26 @@ function fillPromptTemplate(template: string, replacements: Record<string, strin
 }
 
 /**
- * How many of the retrieved passages can be sent, measured with the model's own template and
- * tokenizer. Null when the token source cannot tell us, in which case the caller sends
- * everything and warns, as this did before it could do anything about an overflow.
+ * How many of the retrieved passages can be sent, measured with the model's own tokenizer.
+ *
+ * The budget is a share of the context window, and deliberately ignores the conversation so
+ * far. The host trims whole earlier turns to make room and never truncates the message we
+ * return, so history is its cost to manage, not ours - and charging passages for space it will
+ * reclaim means a long chat starves retrieval until only one passage fits. A share keeps the
+ * number of passages steady however long the conversation runs, and spends old turns to do it.
+ *
+ * Null when the token source cannot tell us, in which case the caller sends everything.
  */
 async function fitPassagesToContext(
   ctl: PromptPreprocessorController,
   passageCount: number,
   buildPrompt: (passageCount: number) => string,
-  reserveTokens: number,
+  contextShare: number,
 ): Promise<{
   used: number;
   tokens: number;
   contextLength: number;
   budget: number;
-  /** Tokens the turn costs with no passages at all, measured only when some were dropped. */
-  withoutPassages: number | null;
 } | null> {
   try {
     const tokenSource = await ctl.tokenSource();
@@ -169,26 +173,16 @@ async function fitPassagesToContext(
       return null;
     }
 
-    const [contextLength, history] = await Promise.all([
-      tokenSource.getContextLength(),
-      ctl.pullHistory(),
-    ]);
-    const measure = async (passageCount: number) => {
-      const formatted = await tokenSource.applyPromptTemplate(
-        history.withAppended({ role: "user", content: buildPrompt(passageCount) }),
-      );
-      return tokenSource.countTokens(formatted);
-    };
+    const contextLength = await tokenSource.getContextLength();
+    // The message alone, not the conversation around it. A few tokens of chat template are
+    // uncounted, which the share's headroom covers many times over.
+    const measure = (passageCount: number) => tokenSource.countTokens(buildPrompt(passageCount));
 
-    // Leave the model room to answer: a prompt that merely fits the window has none.
-    const budget = Math.max(0, contextLength - reserveTokens);
-    // At least one passage always goes. A long conversation can fill the window on its own, and
-    // retrieval that quietly switches itself off lets the model answer from whatever earlier
-    // turns happen to hold - which reads like success and is not.
+    const budget = Math.max(0, Math.floor(contextLength * contextShare));
+    // At least one passage always goes: retrieval that quietly sends nothing lets the model
+    // answer from whatever earlier turns happen to hold, which reads like success and is not.
     const fit = await fitToContext(passageCount, budget, measure, passageCount > 0 ? 1 : 0);
-    // What the turn costs before any passage, so a full conversation is not blamed on them.
-    const withoutPassages = fit.used < passageCount ? await measure(0) : null;
-    return { ...fit, contextLength, budget, withoutPassages };
+    return { ...fit, contextLength, budget };
   } catch (error) {
     console.warn("[BigRAG] Failed to evaluate context usage:", error);
     return null;
@@ -619,17 +613,13 @@ export async function preprocess(
 
     // An oversized prompt is truncated from the front, which is where the passages are, so the
     // model would be told to use citations it never received. Send what fits instead.
-    const fit = await fitPassagesToContext(ctl, results.length, buildPrompt, settings.answerReserveTokens);
+    const fit = await fitPassagesToContext(ctl, results.length, buildPrompt, settings.ragContextShare);
     const sent = fit ? results.slice(0, fit.used) : results;
     if (fit && fit.used < results.length) {
-      const conversationIsFull = fit.withoutPassages !== null && fit.withoutPassages > fit.budget;
-      const summary = conversationIsFull
-        ? `Sent ${fit.used} of ${results.length} passages — this conversation already uses ` +
-          `${fit.withoutPassages!.toLocaleString()} of the model's ` +
-          `${fit.contextLength.toLocaleString()} tokens. Start a new chat or raise the context length.`
-        : `Sent ${fit.used} of ${results.length} passages — all ${results.length} would not fit the ` +
-          `${fit.budget.toLocaleString()} tokens this model leaves for a prompt ` +
-          `(context ${fit.contextLength.toLocaleString()}). Raise the context length to send more.`;
+      const summary =
+        `Sent ${fit.used} of ${results.length} passages — the rest would exceed the ` +
+        `${fit.budget.toLocaleString()} tokens retrieval may use of this model's ` +
+        `${fit.contextLength.toLocaleString()}. Raise the context length to send more.`;
       console.warn(`[BigRAG] ${summary}`);
       ctl.createStatus({ status: "done", text: summary });
     }
