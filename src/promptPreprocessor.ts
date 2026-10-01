@@ -24,7 +24,7 @@ import {
 import { documentText, queryText } from "./utils/embeddingPrefix";
 import * as path from "path";
 import { runIndexingJob } from "./ingestion/runIndexing";
-import { retrieve } from "./retrieval/retrieve";
+import { retrieve, type LaneCounts } from "./retrieval/retrieve";
 import { renderPassageForPrompt } from "./retrieval/renderPassage";
 import { getCatalog, resetCatalogCache } from "./retrieval/catalogManager";
 import { fitToContext } from "./utils/fitToContext";
@@ -577,18 +577,40 @@ export async function preprocess(
       return noteAboutNoResults + `\n\nUser Query:\n\n${userPrompt}`;
     }
 
+    // Retrieval fills its quota whether or not that many passages are relevant. On a small
+    // collection that means one good answer followed by page footers and OCR noise, and a model
+    // reasonably concludes the answer is not there.
+    const relevant = dropWeakPassages(results, settings.passageRelevanceCut);
+    const relevantLanes = relevant.map((passage) => passageLanes[results.indexOf(passage)] ?? []);
+    // Counted over the passages that survived the cut, so the status describes what was kept
+    // rather than what was nominated.
+    const keptCounts: LaneCounts = { vector: 0, hyde: 0, keyword: 0, date: 0 };
+    for (const lanes of relevantLanes) {
+      if (lanes.includes("vector")) keptCounts.vector++;
+      if (lanes.includes("hyde")) keptCounts.hyde++;
+      if (lanes.includes("keyword")) keptCounts.keyword++;
+      if (lanes.includes("date")) keptCounts.date++;
+    }
+
     // Format results
     const dateSuffix = dayRanges.length > 0
       ? `, dates: ${dayRanges.map((range) => (range.start === range.end ? String(range.start) : `${range.start}-${range.end}`)).join(", ")}`
       : "";
+    // Says the cut happened and why, so a question that returns one passage out of eight reads
+    // as a decision rather than a failure to find anything else.
+    const dropped = results.length - relevant.length;
+    const kept =
+      dropped > 0
+        ? `Kept ${relevant.length} of ${results.length} passages, the rest well below the best match`
+        : `Retrieved ${relevant.length} relevant passages`;
     retrievalStatus.setState({
       status: "done",
       text:
         retrievalDepth === "high"
-          ? `Retrieved ${results.length} relevant passages (meaning ${laneCounts.vector}, likely wording ${laneCounts.hyde}, dates ${laneCounts.date}${dateSuffix})`
+          ? `${kept} (meaning ${keptCounts.vector}, likely wording ${keptCounts.hyde}, dates ${keptCounts.date}${dateSuffix})`
           : retrievalDepth === "medium"
-            ? `Retrieved ${results.length} relevant passages (meaning ${laneCounts.vector}, dates ${laneCounts.date}${dateSuffix})`
-            : `Retrieved ${results.length} relevant passages`,
+            ? `${kept} (meaning ${keptCounts.vector}, dates ${keptCounts.date}${dateSuffix})`
+            : kept,
     });
 
     ctl.debug("Retrieval results:", results);
@@ -598,11 +620,6 @@ export async function preprocess(
     // the model is looking at three sets, the oldest of them the longest. Without this it
     // answers from whichever set is largest, which is how "what does shao yang like" came back
     // as a summary of a company discussed two questions earlier.
-    // Retrieval fills its quota whether or not that many passages are relevant. On a small
-    // collection that means one good answer followed by page footers and OCR noise, and a model
-    // reasonably concludes the answer is not there.
-    const relevant = dropWeakPassages(results, settings.passageRelevanceCut);
-
     const prefix =
       `The passages below were retrieved for this question, and only this one: "${userPrompt}"\n\n`;
     const promptTemplate = normalizePromptTemplate(settings.promptTemplate);
@@ -614,7 +631,7 @@ export async function preprocess(
       passagesForPrompt(relevant, count).forEach((result) => {
         const rank = relevant.indexOf(result);
         const fileName = path.basename(result.filePath);
-        const matchLabel = describeMatch(rank + 1, passageLanes[results.indexOf(result)], result.score);
+        const matchLabel = describeMatch(rank + 1, relevantLanes[rank], result.score);
         const citationLabel = `Citation ${rank + 1} (from ${fileName}, ${matchLabel}): `;
         const passage = renderPassageForPrompt(result);
         ragContext += `\n${citationLabel}"${abbreviated ? summarizeText(passage) : passage}"\n\n`;
@@ -629,10 +646,10 @@ export async function preprocess(
     // model would be told to use citations it never received. Send what fits instead.
     const fit = await fitPassagesToContext(ctl, relevant.length, buildPrompt, settings.ragContextShare);
     const sent = fit ? relevant.slice(0, fit.used) : relevant;
-    if (results.length > relevant.length) {
+    if (dropped > 0) {
       console.info(
-        `[BigRAG] Dropped ${results.length - relevant.length} of ${results.length} passages as far less ` +
-          `relevant than the best match.`,
+        `[BigRAG] Dropped ${dropped} of ${results.length} passages as far less relevant than the ` +
+          `best match.`,
       );
     }
     if (fit && fit.used < relevant.length) {
@@ -684,7 +701,7 @@ ${finalPromptPreview}`);
       try {
         const fileHash = typeof result.metadata.fileHash === "string" ? result.metadata.fileHash : "";
         const fileHandle = await getCitationFileHandle(ctl.client, result.filePath, fileHash);
-        const matchLabel = describeMatch(citationEntries.length + 1, passageLanes[citationEntries.length], result.score);
+        const matchLabel = describeMatch(citationEntries.length + 1, relevantLanes[citationEntries.length], result.score);
         citationEntries.push({ content: `${result.text} \n\n [${matchLabel}]`, score: result.score, source: fileHandle });
       } catch (error) {
         console.warn(`[BigRAG] Could not prepare citation for ${result.filePath}:`, error);

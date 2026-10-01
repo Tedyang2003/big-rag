@@ -63,6 +63,7 @@ Neither level makes extra model calls. The first Medium search builds a small se
 #### Status Lines
 
 While it works, the plugin shows short status lines above the answer: *Using Big RAG* on first use, indexing progress with file counts, *Preparing search index…* the first time Medium runs, then the search result, for example *Retrieved 5 relevant passages (meaning 5, dates 2, dates: 20260908)*. A passage counts once for each way it matched. At High the line also reports *likely wording*, and a *Drafting a likely answer…* status appears first.
+When a search finds one or two strong matches and nothing else close, the weaker passages are dropped rather than padding the answer out, and the line says so instead: *Kept 2 of 8 passages, the rest well below the best match (meaning 2, dates 0)*.
 
 #### Citations
 
