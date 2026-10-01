@@ -633,7 +633,9 @@ export async function preprocess(
     const finalPrompt = buildPrompt(sent.length);
     const finalPromptPreview = buildPrompt(sent.length, true);
 
-    ctl.debug("Processed content (preview):", finalPromptPreview);
+    // The real thing, not the preview: this is the only way to see what the model was given,
+    // and a preview that abbreviates every passage to 400 characters looks exactly like a bug.
+    ctl.debug("Prompt sent to model (full):", finalPrompt);
 
     const passagesLogEntries = sent.map((result, idx) => {
       const fileName = path.basename(result.filePath);
@@ -642,7 +644,13 @@ export async function preprocess(
     const passagesLog = passagesLogEntries.join("\n\n");
 
     console.info(`[BigRAG] RAG passages sent (${sent.length} of ${results.length}) preview:\n${passagesLog}`);
-    console.info(`[BigRAG] Final prompt sent to model (preview):\n${finalPromptPreview}`);
+    console.info(
+      `[BigRAG] Prompt sent to model: ${finalPrompt.length.toLocaleString()} characters, ` +
+        `${sent.length} passages from ${new Set(sent.map((r) => path.basename(r.filePath))).size} files. ` +
+        `Enable plugin debug logging to see it in full.`,
+    );
+    console.info(`[BigRAG] Prompt preview (passages abbreviated, NOT what was sent):
+${finalPromptPreview}`);
 
     // Native citation UI: ctl.createCitationBlock() has no effect from a
     // promptPreprocessor (it needs a content block to attach to, which only a
