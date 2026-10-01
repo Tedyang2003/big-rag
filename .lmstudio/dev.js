@@ -42,7 +42,7 @@ var init_config = __esm({
     DEFAULT_EMBEDDING_MODEL_ID = "nomic-ai/nomic-embed-text-v1.5-GGUF";
     DEFAULT_PROMPT_TEMPLATE = `{{rag_context}}
 
-Use the citations above to respond to the user query, only if they are relevant. Otherwise, respond to the best of your ability without them.
+Answer the question below using the passages above, which were retrieved for it. Any passages earlier in this conversation belong to earlier questions and do not apply here. If the passages above are not relevant, answer as best you can without them.
 
 User Query:
 
@@ -193,7 +193,14 @@ var init_defaults = __esm({
       laneWeightDate: 1,
       catalogVersion: 4,
       // Bounds a pathological generator at High depth; drafting measured a median 542ms.
-      hypotheticalTimeoutMs: 1e4
+      hypotheticalTimeoutMs: 1e4,
+      // The share of the model's context window retrieved passages may use. The rest is left for
+      // the conversation and the reply, which the host trims to fit. Budgeting against what the
+      // conversation leaves instead would starve retrieval as a chat grows.
+      ragContextShare: 0.6,
+      // Passages scoring below this share of the best match are dropped rather than padding the
+      // result out to the quota. One strong match returns one passage; several return several.
+      passageRelevanceCut: 0.9
     };
   }
 });
@@ -4260,7 +4267,7 @@ function withNeighbours(chosen, candidates, neighbourChunks) {
         const neighbour = byPosition.get(key);
         if (!neighbour || taken.has(key)) continue;
         taken.add(key);
-        out.push({ ...neighbour, score: result.score });
+        out.push({ ...neighbour, score: result.score, similarity: result.similarity ?? result.score });
       }
     }
   }
@@ -4373,7 +4380,7 @@ async function retrieve(query, deps, options) {
     winnerLanesByKey = new Map(winners.map((winner) => [winner.key, winner.lanes]));
     const chosen = winners.map((winner) => {
       const source = resolvedByKey.get(winner.key);
-      return source ? { ...source, score: winner.score } : null;
+      return source ? { ...source, score: winner.score, similarity: source.score } : null;
     }).filter((result) => result !== null);
     ranked = withNeighbours(chosen, resolvedByKey, options.neighbourChunks);
     options.abortSignal?.throwIfAborted();
@@ -4626,6 +4633,39 @@ var init_catalogManager = __esm({
   }
 });
 
+// src/utils/fitToContext.ts
+async function fitToContext(total, budget, measure, atLeast = 0) {
+  for (let used2 = total; used2 > atLeast; used2--) {
+    const tokens = await measure(used2);
+    if (tokens <= budget) return { used: used2, tokens };
+  }
+  const used = Math.min(atLeast, total);
+  return { used, tokens: await measure(used) };
+}
+var init_fitToContext = __esm({
+  "src/utils/fitToContext.ts"() {
+    "use strict";
+  }
+});
+
+// src/utils/relevanceCut.ts
+function dropWeakPassages(passages, keepWithin) {
+  if (passages.length === 0 || keepWithin <= 0) return passages;
+  const relevanceOf = (passage) => passage.similarity ?? passage.score;
+  const best = Math.max(...passages.map(relevanceOf));
+  if (!(best > 0)) return passages;
+  const floor = best * keepWithin;
+  return passages.filter((passage, index) => index === 0 || relevanceOf(passage) >= floor);
+}
+function passagesForPrompt(ranked, count) {
+  return ranked.slice(0, count).reverse();
+}
+var init_relevanceCut = __esm({
+  "src/utils/relevanceCut.ts"() {
+    "use strict";
+  }
+});
+
 // src/retrieval/hypothetical.ts
 function buildHypotheticalPrompt(question) {
   return "Write a short passage, two or three sentences, that would plausibly appear in a document containing the answer to the question below. Write it as the document itself would be written, using the terms, labels and figures such a passage would contain. Do not address the reader, do not explain, and do not say whether you know the answer. Invented specifics are fine.\n\nQuestion: " + question + "\n\nPassage:";
@@ -4726,42 +4766,21 @@ function fillPromptTemplate(template, replacements) {
     template
   );
 }
-async function warnIfContextOverflow(ctl, finalPrompt) {
+async function fitPassagesToContext(ctl, passageCount, buildPrompt, contextShare) {
   try {
     const tokenSource = await ctl.tokenSource();
-    if (!tokenSource || !("applyPromptTemplate" in tokenSource) || typeof tokenSource.applyPromptTemplate !== "function" || !("countTokens" in tokenSource) || typeof tokenSource.countTokens !== "function" || !("getContextLength" in tokenSource) || typeof tokenSource.getContextLength !== "function") {
+    if (!tokenSource || !("countTokens" in tokenSource) || typeof tokenSource.countTokens !== "function" || !("getContextLength" in tokenSource) || typeof tokenSource.getContextLength !== "function") {
       console.warn("[BigRAG] Token source does not expose prompt utilities; skipping context check.");
-      return;
+      return null;
     }
-    const [contextLength, history] = await Promise.all([
-      tokenSource.getContextLength(),
-      ctl.pullHistory()
-    ]);
-    const historyWithLatestMessage = history.withAppended({
-      role: "user",
-      content: finalPrompt
-    });
-    const formattedPrompt = await tokenSource.applyPromptTemplate(historyWithLatestMessage);
-    const promptTokens = await tokenSource.countTokens(formattedPrompt);
-    if (promptTokens > contextLength) {
-      const warningSummary = `\u26A0\uFE0F Prompt needs ${promptTokens.toLocaleString()} tokens but model max is ${contextLength.toLocaleString()}.`;
-      console.warn("[BigRAG]", warningSummary);
-      ctl.createStatus({
-        status: "error",
-        text: `${warningSummary} Reduce retrieved passages or increase the model's context length.`
-      });
-      try {
-        await ctl.client.system.notify({
-          title: "Context window exceeded",
-          description: `${warningSummary} Prompt may be truncated or rejected.`,
-          noAutoDismiss: true
-        });
-      } catch (notifyError) {
-        console.warn("[BigRAG] Unable to send context overflow notification:", notifyError);
-      }
-    }
+    const contextLength = await tokenSource.getContextLength();
+    const measure = (passageCount2) => tokenSource.countTokens(buildPrompt(passageCount2));
+    const budget = Math.max(0, Math.floor(contextLength * contextShare));
+    const fit = await fitToContext(passageCount, budget, measure, passageCount > 0 ? 1 : 0);
+    return { ...fit, contextLength, budget };
   } catch (error) {
     console.warn("[BigRAG] Failed to evaluate context usage:", error);
+    return null;
   }
 }
 async function preprocess(ctl, userMessage) {
@@ -5078,59 +5097,80 @@ User Query:
 
 ${userPrompt}`;
     }
+    const relevant = dropWeakPassages(results, settings.passageRelevanceCut);
+    const relevantLanes = relevant.map((passage) => passageLanes[results.indexOf(passage)] ?? []);
+    const keptCounts = { vector: 0, hyde: 0, keyword: 0, date: 0 };
+    for (const lanes of relevantLanes) {
+      if (lanes.includes("vector")) keptCounts.vector++;
+      if (lanes.includes("hyde")) keptCounts.hyde++;
+      if (lanes.includes("keyword")) keptCounts.keyword++;
+      if (lanes.includes("date")) keptCounts.date++;
+    }
     const dateSuffix = dayRanges.length > 0 ? `, dates: ${dayRanges.map((range) => range.start === range.end ? String(range.start) : `${range.start}-${range.end}`).join(", ")}` : "";
+    const dropped = results.length - relevant.length;
+    const kept = dropped > 0 ? `Kept ${relevant.length} of ${results.length} passages, the rest well below the best match` : `Retrieved ${relevant.length} relevant passages`;
     retrievalStatus.setState({
       status: "done",
-      text: retrievalDepth === "high" ? `Retrieved ${results.length} relevant passages (meaning ${laneCounts.vector}, likely wording ${laneCounts.hyde}, dates ${laneCounts.date}${dateSuffix})` : retrievalDepth === "medium" ? `Retrieved ${results.length} relevant passages (meaning ${laneCounts.vector}, dates ${laneCounts.date}${dateSuffix})` : `Retrieved ${results.length} relevant passages`
+      text: retrievalDepth === "high" ? `${kept} (meaning ${keptCounts.vector}, likely wording ${keptCounts.hyde}, dates ${keptCounts.date}${dateSuffix})` : retrievalDepth === "medium" ? `${kept} (meaning ${keptCounts.vector}, dates ${keptCounts.date}${dateSuffix})` : kept
     });
     ctl.debug("Retrieval results:", results);
-    let ragContextFull = "";
-    let ragContextPreview = "";
-    const prefix = "The following passages were found in your indexed documents:\n\n";
-    ragContextFull += prefix;
-    ragContextPreview += prefix;
-    let citationNumber = 1;
-    for (const result of results) {
-      const fileName = path10.basename(result.filePath);
-      const matchLabel = describeMatch(citationNumber, passageLanes[citationNumber - 1], result.score);
-      const citationLabel = `Citation ${citationNumber} (from ${fileName}, ${matchLabel}): `;
-      const passage = renderPassageForPrompt(result);
-      ragContextFull += `
-${citationLabel}"${passage}"
+    const prefix = `The passages below were retrieved for this question, and only this one: "${userPrompt}"
 
 `;
-      ragContextPreview += `
-${citationLabel}"${summarizeText(passage)}"
-
-`;
-      citationNumber++;
-    }
     const promptTemplate = normalizePromptTemplate(settings.promptTemplate);
-    const finalPrompt = fillPromptTemplate(promptTemplate, {
-      [RAG_CONTEXT_MACRO]: ragContextFull.trimEnd(),
-      [USER_QUERY_MACRO]: userPrompt
-    });
-    const finalPromptPreview = fillPromptTemplate(promptTemplate, {
-      [RAG_CONTEXT_MACRO]: ragContextPreview.trimEnd(),
-      [USER_QUERY_MACRO]: userPrompt
-    });
-    ctl.debug("Processed content (preview):", finalPromptPreview);
-    const passagesLogEntries = results.map((result, idx) => {
+    const buildPrompt = (count, abbreviated = false) => {
+      let ragContext = prefix;
+      passagesForPrompt(relevant, count).forEach((result) => {
+        const rank = relevant.indexOf(result);
+        const fileName = path10.basename(result.filePath);
+        const matchLabel = describeMatch(rank + 1, relevantLanes[rank], result.score);
+        const citationLabel = `Citation ${rank + 1} (from ${fileName}, ${matchLabel}): `;
+        const passage = renderPassageForPrompt(result);
+        ragContext += `
+${citationLabel}"${abbreviated ? summarizeText(passage) : passage}"
+
+`;
+      });
+      return fillPromptTemplate(promptTemplate, {
+        [RAG_CONTEXT_MACRO]: ragContext.trimEnd(),
+        [USER_QUERY_MACRO]: userPrompt
+      });
+    };
+    const fit = await fitPassagesToContext(ctl, relevant.length, buildPrompt, settings.ragContextShare);
+    const sent = fit ? relevant.slice(0, fit.used) : relevant;
+    if (dropped > 0) {
+      console.info(
+        `[BigRAG] Dropped ${dropped} of ${results.length} passages as far less relevant than the best match.`
+      );
+    }
+    if (fit && fit.used < relevant.length) {
+      const summary = `Sent ${fit.used} of ${relevant.length} passages \u2014 the rest would exceed the ${fit.budget.toLocaleString()} tokens retrieval may use of this model's ${fit.contextLength.toLocaleString()}. Raise the context length to send more.`;
+      console.warn(`[BigRAG] ${summary}`);
+      ctl.createStatus({ status: "done", text: summary });
+    }
+    const finalPrompt = buildPrompt(sent.length);
+    const finalPromptPreview = buildPrompt(sent.length, true);
+    ctl.debug("Prompt sent to model (full):", finalPrompt);
+    const passagesLogEntries = sent.map((result, idx) => {
       const fileName = path10.basename(result.filePath);
       return `#${idx + 1} file=${fileName} shard=${result.shardName} score=${result.score.toFixed(3)}
 ${summarizeText(result.text)}`;
     });
     const passagesLog = passagesLogEntries.join("\n\n");
-    console.info(`[BigRAG] RAG passages (${results.length}) preview:
+    console.info(`[BigRAG] RAG passages sent (${sent.length} of ${results.length}) preview:
 ${passagesLog}`);
-    console.info(`[BigRAG] Final prompt sent to model (preview):
+    const tokensNote = fit ? `${fit.tokens.toLocaleString()} of ${fit.budget.toLocaleString()} tokens` : "size unknown";
+    console.info(
+      `[BigRAG] Prompt sent to model: ${tokensNote}, ${sent.length} passages from ${new Set(sent.map((r) => path10.basename(r.filePath))).size} files. Enable plugin debug logging to see it in full.`
+    );
+    console.info(`[BigRAG] Prompt preview (passages abbreviated, NOT what was sent):
 ${finalPromptPreview}`);
     const citationEntries = [];
-    for (const result of results) {
+    for (const result of sent) {
       try {
         const fileHash = typeof result.metadata.fileHash === "string" ? result.metadata.fileHash : "";
         const fileHandle = await getCitationFileHandle(ctl.client, result.filePath, fileHash);
-        const matchLabel = describeMatch(citationEntries.length + 1, passageLanes[citationEntries.length], result.score);
+        const matchLabel = describeMatch(citationEntries.length + 1, relevantLanes[citationEntries.length], result.score);
         citationEntries.push({ content: `${result.text} 
 
  [${matchLabel}]`, score: result.score, source: fileHandle });
@@ -5141,7 +5181,6 @@ ${finalPromptPreview}`);
     if (citationEntries.length > 0) {
       await ctl.addCitations({ entries: citationEntries });
     }
-    await warnIfContextOverflow(ctl, finalPrompt);
     return finalPrompt;
   } catch (error) {
     if (isAbortError(error)) {
@@ -5284,6 +5323,8 @@ var init_promptPreprocessor = __esm({
     init_retrieve();
     init_renderPassage();
     init_catalogManager();
+    init_fitToContext();
+    init_relevanceCut();
     init_hypothetical();
     vectorStore = null;
     lastIndexedDir = "";

@@ -163,8 +163,6 @@ async function fitPassagesToContext(
     const tokenSource = await ctl.tokenSource();
     if (
       !tokenSource ||
-      !("applyPromptTemplate" in tokenSource) ||
-      typeof tokenSource.applyPromptTemplate !== "function" ||
       !("countTokens" in tokenSource) ||
       typeof tokenSource.countTokens !== "function" ||
       !("getContextLength" in tokenSource) ||
