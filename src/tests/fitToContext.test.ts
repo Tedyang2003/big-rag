@@ -42,6 +42,20 @@ test("when not even one passage fits, none are sent and the cost is still report
   assert.equal(fit.tokens, 5_000, "the caller needs the real figure to report");
 });
 
+test("a floor sends the best passages even when nothing fits", async () => {
+  // A long conversation fills the window on its own. Sending no retrieval at all would answer
+  // from whatever the history happens to hold, which looks like success and is not.
+  const { measure } = cost(100, 5_000);
+  const fit = await fitToContext(8, 1_000, measure, 1);
+  assert.equal(fit.used, 1, "the top passage goes regardless");
+  assert.equal(fit.tokens, 5_100);
+});
+
+test("the floor never invents passages that were not retrieved", async () => {
+  const { measure } = cost(100, 5_000);
+  assert.equal((await fitToContext(0, 1_000, measure, 1)).used, 0);
+});
+
 test("no passages to begin with is measured once and reported as zero", async () => {
   const { asked, measure } = cost(100, 300);
   assert.deepEqual(await fitToContext(0, 1_000, measure), { used: 0, tokens: 300 });

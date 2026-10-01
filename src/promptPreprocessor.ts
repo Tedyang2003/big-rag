@@ -146,7 +146,14 @@ async function fitPassagesToContext(
   passageCount: number,
   buildPrompt: (passageCount: number) => string,
   reserveTokens: number,
-): Promise<{ used: number; tokens: number; contextLength: number; budget: number } | null> {
+): Promise<{
+  used: number;
+  tokens: number;
+  contextLength: number;
+  budget: number;
+  /** Tokens the turn costs with no passages at all, measured only when some were dropped. */
+  withoutPassages: number | null;
+} | null> {
   try {
     const tokenSource = await ctl.tokenSource();
     if (
@@ -175,8 +182,13 @@ async function fitPassagesToContext(
 
     // Leave the model room to answer: a prompt that merely fits the window has none.
     const budget = Math.max(0, contextLength - reserveTokens);
-    const fit = await fitToContext(passageCount, budget, measure);
-    return { ...fit, contextLength, budget };
+    // At least one passage always goes. A long conversation can fill the window on its own, and
+    // retrieval that quietly switches itself off lets the model answer from whatever earlier
+    // turns happen to hold - which reads like success and is not.
+    const fit = await fitToContext(passageCount, budget, measure, passageCount > 0 ? 1 : 0);
+    // What the turn costs before any passage, so a full conversation is not blamed on them.
+    const withoutPassages = fit.used < passageCount ? await measure(0) : null;
+    return { ...fit, contextLength, budget, withoutPassages };
   } catch (error) {
     console.warn("[BigRAG] Failed to evaluate context usage:", error);
     return null;
@@ -610,23 +622,16 @@ export async function preprocess(
     const fit = await fitPassagesToContext(ctl, results.length, buildPrompt, settings.answerReserveTokens);
     const sent = fit ? results.slice(0, fit.used) : results;
     if (fit && fit.used < results.length) {
-      const summary =
-        `Sent ${fit.used} of ${results.length} passages — all ${results.length} would not fit the ` +
-        `${fit.budget.toLocaleString()} tokens this model leaves for a prompt ` +
-        `(context ${fit.contextLength.toLocaleString()}).`;
+      const conversationIsFull = fit.withoutPassages !== null && fit.withoutPassages > fit.budget;
+      const summary = conversationIsFull
+        ? `Sent ${fit.used} of ${results.length} passages — this conversation already uses ` +
+          `${fit.withoutPassages!.toLocaleString()} of the model's ` +
+          `${fit.contextLength.toLocaleString()} tokens. Start a new chat or raise the context length.`
+        : `Sent ${fit.used} of ${results.length} passages — all ${results.length} would not fit the ` +
+          `${fit.budget.toLocaleString()} tokens this model leaves for a prompt ` +
+          `(context ${fit.contextLength.toLocaleString()}). Raise the context length to send more.`;
       console.warn(`[BigRAG] ${summary}`);
-      ctl.createStatus({ status: "done", text: `${summary} Raise the model's context length to send more.` });
-      if (fit.used === 0) {
-        try {
-          await ctl.client.system.notify({
-            title: "No room for retrieved passages",
-            description: summary,
-            noAutoDismiss: true,
-          });
-        } catch (notifyError) {
-          console.warn("[BigRAG] Unable to send context notification:", notifyError);
-        }
-      }
+      ctl.createStatus({ status: "done", text: summary });
     }
 
     const finalPrompt = buildPrompt(sent.length);

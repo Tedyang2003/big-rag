@@ -24,15 +24,21 @@ export interface ContextFit {
  * an expanded span, which is the truncation problem again in miniature.
  *
  * Walks down from the full set, so the common case where everything fits costs one measurement.
+ * `atLeast` is a floor: below it, passages are sent regardless of the budget.
  */
 export async function fitToContext(
   total: number,
   budget: number,
   measure: (passageCount: number) => Promise<number>,
+  atLeast = 0,
 ): Promise<ContextFit> {
-  for (let used = total; used > 0; used--) {
+  for (let used = total; used > atLeast; used--) {
     const tokens = await measure(used);
     if (tokens <= budget) return { used, tokens };
   }
-  return { used: 0, tokens: await measure(0) };
+  // Nothing fit. `atLeast` sends the best passages anyway rather than none: a long conversation
+  // can fill the window on its own, and silently answering with no retrieval at all is a worse
+  // failure than a prompt the host has to trim - it trims whole earlier turns, not this message.
+  const used = Math.min(atLeast, total);
+  return { used, tokens: await measure(used) };
 }

@@ -66,7 +66,9 @@ While it works, the plugin shows short status lines above the answer: *Using Big
 
 #### Citations
 
-If the passages will not fit the model's context window, Big RAG sends as many as fit, highest ranked first, and says so: *Sent 4 of 9 passages — all 9 would not fit the 7,751 tokens this model leaves for a prompt*. Sending them all would be worse than useless: the model cuts a prompt from the front, which is where the passages are, so it would be told to use citations it never received. Raise the model's context length to send more.
+If the passages will not fit the model's context window, Big RAG sends as many as fit, highest ranked first, and says so: *Sent 4 of 9 passages — all 9 would not fit the 7,680 tokens this model leaves for a prompt*. Sending them all would be worse than useless: the model cuts a prompt from the front, which is where the passages are, so it would be told to use citations it never received. Raise the model's context length to send more.
+
+A long conversation competes for the same window. When the chat itself is what fills it, the line says so — *this conversation already uses 7,900 of the model's 8,192 tokens* — and the top passage is still sent rather than none, so an answer is never quietly drawn from earlier turns alone. Starting a new chat frees the room.
 
 Each retrieved passage appears in LM Studio's citation panel. At Medium and High depth it is labelled with its rank and how it matched, such as `match #1 via meaning, dates` or `match #2 via likely wording`. At Low depth it shows the similarity score instead.
 
