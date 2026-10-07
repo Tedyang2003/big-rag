@@ -74,7 +74,10 @@ export function resolveSettings(globalConfig: ConfigReader, chatConfig: ConfigRe
     excludePatterns: parseExcludePatternsBlock(readString(globalConfig, "excludeFilenamePatterns")),
     promptTemplate: promptTemplate.trim() ? promptTemplate : DEFAULT_PROMPT_TEMPLATE,
     reindexMode: reindexMode === "changed" || reindexMode === "rebuild" ? reindexMode : "off",
-    retrievalDepth: retrievalDepth === "low" ? "low" : "medium",
+    // Every depth the settings UI offers must survive this, or a user can select one and get
+    // another: High was silently resolving to Medium, so no chat ever drafted a hypothetical.
+    retrievalDepth:
+      retrievalDepth === "low" || retrievalDepth === "high" ? retrievalDepth : "medium",
     ...FIXED_DEFAULTS,
     missingRequired,
   };

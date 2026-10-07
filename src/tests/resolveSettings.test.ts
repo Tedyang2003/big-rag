@@ -65,6 +65,8 @@ test("resolveSettings reads the retrieval depth from the chat config", () => {
   const base = { documentsDirectory: "/d", vectorStoreDirectory: "/v" };
   assert.equal(resolveSettings(reader(base), reader({ retrievalDepth: "low" })).retrievalDepth, "low");
   assert.equal(resolveSettings(reader(base), reader({ retrievalDepth: "medium" })).retrievalDepth, "medium");
+  // High is offered in the settings UI and is the only depth that drafts a hypothetical answer.
+  assert.equal(resolveSettings(reader(base), reader({ retrievalDepth: "high" })).retrievalDepth, "high");
   assert.equal(resolveSettings(reader(base), reader({})).retrievalDepth, "medium");
   assert.equal(resolveSettings(reader(base), reader({ retrievalDepth: "deep" })).retrievalDepth, "medium");
 });
