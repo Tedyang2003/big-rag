@@ -2068,7 +2068,7 @@ var init_pdfParser = __esm({
 
 // src/parsers/epubParser.ts
 async function parseEPUB(filePath) {
-  return new Promise((resolve4, reject) => {
+  return new Promise((resolve4) => {
     try {
       const epub = new import_epub2.EPub(filePath);
       epub.on("error", (error) => {
@@ -3504,7 +3504,7 @@ var init_indexManager = __esm({
        * Index a single file
        */
       async indexFile(file, fileInventory = /* @__PURE__ */ new Map()) {
-        const { vectorStore: vectorStore2, embeddingModel, client: client2, chunkSize, chunkOverlap, enableOCR, autoReindex } = this.options;
+        const { vectorStore: vectorStore2, embeddingModel, client: client2, enableOCR, autoReindex } = this.options;
         let fileHash;
         try {
           fileHash = await calculateFileHash(file.path);
