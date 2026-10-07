@@ -4260,15 +4260,16 @@ function withNeighbours(chosen, candidates, neighbourChunks) {
   const out = [];
   const taken = new Set(chosen.map((result) => `${result.filePath}::${result.chunkIndex}`));
   for (const result of chosen) {
-    out.push(result);
-    for (let step = 1; step <= neighbourChunks; step++) {
-      for (const index of [result.chunkIndex - step, result.chunkIndex + step]) {
-        const key = `${result.filePath}::${index}`;
-        const neighbour = byPosition.get(key);
-        if (!neighbour || taken.has(key)) continue;
-        taken.add(key);
-        out.push({ ...neighbour, score: result.score, similarity: result.similarity ?? result.score });
+    for (let offset = -neighbourChunks; offset <= neighbourChunks; offset++) {
+      if (offset === 0) {
+        out.push(result);
+        continue;
       }
+      const key = `${result.filePath}::${result.chunkIndex + offset}`;
+      const neighbour = byPosition.get(key);
+      if (!neighbour || taken.has(key)) continue;
+      taken.add(key);
+      out.push({ ...neighbour, score: result.score, similarity: result.similarity ?? result.score });
     }
   }
   return out;
