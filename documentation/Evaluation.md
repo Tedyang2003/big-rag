@@ -50,7 +50,7 @@ npm run eval:run                                    # Legacy
 
 $env:BIG_RAG_DB_DIR = "eval\financebench_vdbs\structured"
 npm run eval:run                                    # Structured
-$env:BIG_RAG_RETRIEVAL_DEPTH = "medium"; npm run eval:run   # + Dates and keywords
+$env:BIG_RAG_RETRIEVAL_DEPTH = "medium"; npm run eval:run   # + dates and keywords
 $env:BIG_RAG_RETRIEVAL_DEPTH = "high";   npm run eval:run   # + HyDE
 ```
 
@@ -65,7 +65,7 @@ npm run eval:run                                    # Legacy
 
 $env:BIG_RAG_DB_DIR = "eval\qasper_vdbs\structured"
 npm run eval:run                                    # Structured
-$env:BIG_RAG_RETRIEVAL_DEPTH = "medium"; npm run eval:run   # + Dates and keywords
+$env:BIG_RAG_RETRIEVAL_DEPTH = "medium"; npm run eval:run   # + dates and keywords
 $env:BIG_RAG_RETRIEVAL_DEPTH = "high";   npm run eval:run   # + HyDE
 ```
 
@@ -79,7 +79,7 @@ Each run prints a summary and writes a full report to `eval\reports\run-<timesta
 |---|---|---|---|
 | Legacy | `false` | `low` | Fixed-size chunks, vector search only |
 | Structured | `true` | `low` | Section-aware chunks with file, date and section headers |
-| + Dates | `true` | `medium` | A date the question names lifting passages already found. Keyword reranking also rides on `medium` now, so reproducing the FinanceBench column below needs `BIG_RAG_LANE_WEIGHT_KEYWORD=0` |
+| + dates | `true` | `medium` | A date the question names lifting passages already found. Keyword reranking also rides on `medium` now, so reproducing the FinanceBench column below needs `BIG_RAG_LANE_WEIGHT_KEYWORD=0` |
 | + HyDE | `true` | `high` | A drafted answer searched alongside the question |
 
 ### Tuning a Run
@@ -110,7 +110,7 @@ Held constant: `nomic-embed-text-v1.5` embeddings, 512-token chunks (100 overlap
 A question is a **hit** when the evidence string appears in the passages returned for it, ignoring case, punctuation and whitespace. Two rules keep that fair:
 
 - **Consecutive chunks count as one passage.** If evidence spans a boundary and both chunks are returned, the model received all of it.
-- **Rank is how deep you must read**, not where the best-placed neighbour sits. The median rank and mean reciprocal rank record the smallest number of passages that between them hold the whole evidence. Before 29 September 2026 they recorded the rank of the best chunk in the run holding the evidence, which let a passage at rank 40 be reported as rank 3 because something beside it ranked well. **FinanceBench's medians and MRRs above were measured that way and are optimistic**; its hit rates and pool rates are unaffected, since those only ask whether the evidence was there at all.
+- **Rank is how deep you must read**, not where the best-placed neighbour sits. The median rank and mean reciprocal rank record the smallest number of passages that between them hold the whole evidence. Before 29 September 2026 they recorded the rank of the best chunk in the run holding the evidence, which let a passage at rank 40 be reported as rank 3 because something beside it ranked well. **Four of the six FinanceBench columns were measured that way and are optimistic**, as marked in that table; hit rates and pool rates are unaffected, since those only ask whether the evidence was there at all. Every QASPER figure uses the corrected measure.
 - **Passage accuracy is reported separately from hit rate.** A hit requires finding the right document *and* the right passage in it. Where a question set does not say which document is meant, the first of those is not a retrieval failure, so the summary also reports hits as a share of the questions that returned their source document at all. On FinanceBench the two are close; on QASPER they are not.
 - **Questions whose evidence is not in the index are unscorable, not misses.** Each file is rebuilt from its chunks and searched for the evidence. If it isn't there, no retrieval could find it.
 
@@ -122,22 +122,32 @@ Two measurement caveats: a split table repeats its header row in each piece, so 
 
 ## Results: FinanceBench
 
-Indexes rebuilt 24 September 2026 with PDF table rows and the Nomic prefixes: legacy 91,541 chunks, structured 119,403. Keyword reranking had been deleted when these ran and was restored on 29 September on QASPER evidence, so no column here carries it; the last column is otherwise what ships, and the restoration measures neutral on this corpus.
+Indexes rebuilt 24 September 2026 with PDF table rows and the Nomic prefixes: legacy 91,541 chunks, structured 119,403.
 
-| Metric | Legacy | Structured | + Dates | + HyDE | **+ neighbours** |
-|---|---|---|---|---|---|
-| Questions scored | 88 | 88 | 88 | 88 | 88 |
-| Final hit rate | 9.1% (8) | 13.6% (12) | 15.9% (14) | 18.2% (16) | **21.6% (19)** |
-| Pool hit rate (top 50) | 19.3% (17) | 29.5% (26) | 29.5% (26) | **36.4% (32)** | **36.4% (32)** |
-| Answers at rank 1 | 4 | 6 | **9** | 8 | 8 |
-| Median answer rank in pool | 6 | 5 | **3** | 3.5 | 3.5 |
-| Mean reciprocal rank | 0.048 | 0.107 | 0.140 | **0.155** | **0.155** |
-| Right file, wrong passage | 46.6% | 46.6% | 64.8% | 61.4% | **58.0%** |
-| Mean passages returned | 5.0 | 5.0 | 5.0 | 5.0 | 6.9 |
-| Vector search, median | 4.0s | 5.0s | 5.0s | 5.2s | 5.1s |
-| Drafting, median | — | — | — | 1.1s | 1.1s |
+Each column adds one signal to the column on its left, in the same order as the QASPER table below so the two can be read side by side.
 
-Every column draws its pool from the same place, an unthresholded top-50 search, so the pool row is comparable across them. Medium reorders those 50 and cannot add to them, which is why its pool figure matches Structured's; High searches a second vector, which is why its pool is the only one that moves. Neighbour expansion changes what is returned, not what is found, so it shares High's pool and rank figures and differs only on hits and passages.
+| Metric | Legacy | Structured | + dates | + neighbours | + keywords | **+ HyDE**§ |
+|---|---|---|---|---|---|---|
+| Questions scored | 88 | 88 | 88 | 88 | 88 | 88 |
+| Final hit rate | 9.1% (8) | 13.6% (12) | 15.9% (14) | 18.2% (16) | 18.2% (16) | **21.6% (19)** |
+| Found the right document | — | — | — | **71** | 65 | — |
+| Passage accuracy | — | — | — | 22.5% | **24.6%** | — |
+| Pool hit rate (top 50) | 19.3% (17) | 29.5% (26) | 29.5% (26) | 29.5% (26) | 29.5% (26) | **36.4% (32)** |
+| Filter loss | — | — | — | 11.4% | 11.4% | — |
+| Right file, wrong passage | 46.6% | 46.6% | 64.8% | 62.5% | 55.7% | 58.0% |
+| Answers at rank 1‡ | 4 | 6 | 9 | 6 | 6 | 8 |
+| Median answer rank in pool‡ | 6 | 5 | 3 | 5 | 5 | 3.5 |
+| Mean reciprocal rank‡ | 0.048 | 0.107 | 0.140 | 0.109 | 0.112 | **0.155** |
+| Mean passages returned | 5.0 | 5.0 | 5.0 | 6.6 | 6.6 | 6.9 |
+| Chunks indexed | 91,541 | 119,403 | 119,403 | 119,403 | 119,403 | 119,403 |
+| Vector search, median | 4.0s | 5.0s | 5.0s | 5.1s | 5.1s | 5.1s |
+| Drafting, median | — | — | — | — | — | 1.1s |
+
+‡ **The rank rows are not comparable across this table.** `+ neighbours` and `+ keywords` were re-run on 29 September with the corrected rank measure; the other four columns predate it and are optimistic, because a passage at rank 40 could be reported as rank 3 when something beside it ranked well. The apparent regression from `+ dates`' median 3 to `+ neighbours`' 5 is that measurement change, not the neighbours.
+
+§ **This column has keyword reranking off** — it was run before the restoration, and no FinanceBench run has had keywords and HyDE on together. On QASPER that combination turned out to be the best configuration measured, so this column is not what High does today. Three runs of about 35 minutes each would close the gap; the first four columns' missing rows are unrecoverable, as those reports are no longer on disk.
+
+Every column draws its pool from the same place, an unthresholded top-50 search, so the pool row is comparable across them. Three of the changes cannot move it: dates and keywords only reorder the same 50, and neighbour expansion only adds chunks beside one already returned. HyDE is the one that searches a second vector, which is why the pool moves in the last column alone — the same pattern as QASPER, where it moves the pool downwards.
 
 ### Which Signal Does the Work
 
@@ -170,7 +180,7 @@ The pattern across all four: on this corpus a question's distinctive words ident
 
 **Where retrieval lands:**
 
-| Outcome | Legacy | Structured | + Dates | + HyDE |
+| Outcome | Legacy | Structured | + dates | + HyDE, 5 passages |
 |---|---|---|---|---|
 | Hit | 8 | 12 | 14 | **16** |
 | Same company, wrong document — usually another year | 32 | 31 | 14 | **11** |
@@ -275,7 +285,8 @@ Read the median carefully: it worsens, 3 to 3.5 overall and 2.5 to 5 on statemen
 
 281 papers, 3,676 chunks, 892 questions, **all scorable**. Ranks here use the corrected measure, so they cannot be compared with the FinanceBench table above; hit rate, pool rate and right-file-wrong-passage can.
 
-Each column adds one signal to the column on its left, with two exceptions marked below: `HyDE alone` is a branch from `+ neighbours` with keyword reranking off, kept because it is what first measured HyDE here and what the conclusions below argue against. **`+ HyDE` is the last column and what High does today.**
+Each column adds one signal to the column on its left, in the same order as the FinanceBench table above. `HyDE alone` is the one exception: a branch from `+ neighbours` rather than a step, kept because it is what first measured HyDE here and what the conclusions below argue against. **`+ HyDE` is the last column and what High does today.** Every cell is recomputed from the run reports in `eval
+eports`.
 
 | Metric | Legacy | Structured | + dates | + neighbours | + keywords | HyDE alone† | **+ HyDE** |
 |---|---|---|---|---|---|---|---|
@@ -283,16 +294,18 @@ Each column adds one signal to the column on its left, with two exceptions marke
 | Final hit rate | 13.1% (117) | 15.9% (142) | 15.9% (142) | 22.2% (198) | 24.6% (219) | 20.2% (180) | **25.6% (228)** |
 | Found the right document | 306 | 324 | 324 | 324 | 356 | 281 | **357** |
 | Passage accuracy | 38.2% | 43.8% | 43.8% | 61.1% | 61.5% | **64.1%** | 63.9% |
-| Pool hit rate (top 50) | 28.0% (250) | **37.2% (332)** | **37.2% (332)** | **37.2% (332)** | **37.2% (332)** | 35.1% (313) | 36.1% (322) |
+| Pool hit rate (top 50) | 28.0% (250) | 37.2% (332) | 37.2% (332) | 37.2% (332) | 37.2% (332) | 35.1% (313) | 36.1% (322) |
+| Filter loss | 15.7% | 21.3% | 21.3% | 15.0% | 12.7% | 15.1% | **10.8%** |
+| Right file, wrong passage | 21.2% | 20.4% | 20.4% | 14.1% | 15.4% | **11.3%** | 14.5% |
+| Answers at rank 1 | 42 | 51 | 51 | 51 | **67** | 46 | 56 |
 | Median answer rank in pool | 7 | 7 | 7 | 7 | **5** | 8 | **5** |
 | Mean reciprocal rank | 0.086 | 0.107 | 0.107 | 0.107 | **0.130** | 0.096 | 0.126 |
-| Filter loss | — | — | — | — | — | — | **10.8%** |
-| Right file, wrong passage | 21.2% | 20.4% | 20.4% | 14.1% | 15.4% | **11.3%** | 14.5% |
 | Mean passages returned | 5.0 | 5.0 | 5.0 | 7.8 | 7.4 | 8.3 | 8.0 |
 | Chunks indexed | 3,676 | 4,699 | 4,699 | 4,699 | 4,699 | 4,699 | 4,699 |
-| Vector search, median | 4ms | 6ms | 5ms | 5ms | 5ms | 10ms | 12ms |
+| Vector search, median | 4ms | 6ms | 10ms | 5ms | 5ms | 12ms | 12ms |
+| Drafting, median | — | — | — | — | — | 582ms | 17ms |
 
-† Branch, not a step: neighbours + HyDE with `laneWeightKeyword` at 0. Measured 29 September, before keyword reranking was restored.
+† Branch, not a step: neighbours + HyDE with `laneWeightKeyword` at 0. Measured 29 September, before keyword reranking was restored. Its drafting figure is the median cost of writing a draft; every other High run reuses the cache, which is what the 17ms beside it measures.
 
 **BM25 says which document, not which passage in it** — which is why it was deleted and why it came back. It adds 21 questions here, median rank 7 to 5, MRR 0.107 to 0.130, gaining 52 and losing 31, with the pool untouched since it reranks and never nominates. The gain is *all* document-finding: the right paper returns 32 times more often while passage accuracy barely moves, 61.1% to 61.5%. On FinanceBench the document was never in doubt — ten near-identical filings of one company, its distinctive words on every page — so the same signal did nothing. Re-measured there on the current build it is neutral — 16 hits either way, MRR 0.112 against 0.109, passage accuracy 24.6% against 22.5%. Neutral on one corpus and clearly positive on the other, so `laneWeightKeyword` defaults to 1.
 
