@@ -6,7 +6,8 @@ import { htmlToMarkdown } from "./markdown/htmlToMarkdown";
  * Parse EPUB files and extract text content
  */
 export async function parseEPUB(filePath: string): Promise<string> {
-  return new Promise((resolve, reject) => {
+  // Never rejects: a book that cannot be read is empty text, not a failed index run.
+  return new Promise((resolve) => {
     try {
       const epub = new EPub(filePath);
       

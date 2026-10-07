@@ -2,7 +2,6 @@ import { test } from "node:test";
 import * as assert from "node:assert/strict";
 import { retrieve, type RetrieveDeps } from "../retrieval/retrieve";
 import { type SearchResult } from "../vectorstore/vectorStore";
-import { type DayRange } from "../retrieval/queryDates";
 import { type CatalogLanes } from "../retrieval/retrieve";
 
 function makeResult(overrides: Partial<SearchResult> & { text: string }): SearchResult {

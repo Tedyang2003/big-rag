@@ -332,8 +332,7 @@ export class IndexManager {
     file: ScannedFile,
     fileInventory: Map<string, Set<string>> = new Map(),
   ): Promise<FileIndexOutcome> {
-    const { vectorStore, embeddingModel, client, chunkSize, chunkOverlap, enableOCR, autoReindex } =
-      this.options;
+    const { vectorStore, embeddingModel, client, enableOCR, autoReindex } = this.options;
 
     let fileHash: string | undefined;
     try {

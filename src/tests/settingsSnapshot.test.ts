@@ -4,7 +4,6 @@ import * as fs from "fs/promises";
 import * as os from "os";
 import * as path from "path";
 import { buildSettingsSnapshot } from "../eval/settingsSnapshot";
-import { FIXED_DEFAULTS } from "../settings/defaults";
 import { writeEmbeddingIndexManifest } from "../utils/embeddingIndexManifest";
 
 const questionSet = {

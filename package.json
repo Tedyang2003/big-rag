@@ -18,13 +18,11 @@
     "index:cli": "node dist/cliIndex.js",
     "eval:generate": "npm run build && node dist/evalCli.js generate",
     "eval:run": "npm run build && node dist/evalCli.js run",
-    "structure:report": "npm run build && node dist/structureReport.js",
-    "index": "npm run build && node dist/cliIndex.js /Users/user/dev/new_cursor_projects/lmstudio_big_rag/data/original_data/gunsmithing_all /Users/user/dev/new_cursor_projects/lmstudio_big_rag/data/vectorstore"
+    "structure:report": "npm run build && node dist/structureReport.js"
   },
   "author": "",
   "license": "ISC",
   "dependencies": {
-    "@lancedb/lancedb": "^0.24.1",
     "@lmstudio/sdk": "^1.5.0",
     "cheerio": "^1.0.0-rc.12",
     "epub2": "^3.0.2",
@@ -39,9 +37,6 @@
     "tesseract.js": "^5.0.4",
     "vectra": "^0.12.3",
     "zod": "3.24.1"
-  },
-  "optionalDependencies": {
-    "@lancedb/lancedb-darwin-arm64": "^0.24.1"
   },
   "devDependencies": {
     "@types/mime-types": "^2.1.4",

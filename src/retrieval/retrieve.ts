@@ -2,7 +2,7 @@ import { chunkKey, type SearchResult, type VectorStore } from "../vectorstore/ve
 import { trimOverlappingChunks } from "../utils/trimOverlappingChunks";
 import { compactPassageText, type EmbedSentences } from "../utils/compactPassages";
 import { type CountTokens } from "../utils/textChunker";
-import { rankTexts, tokenize, type Bm25Candidate } from "./bm25";
+import { rankTexts, tokenize } from "./bm25";
 import { fuseLanes, type RankedLane } from "./fuse";
 import { queryDayRanges, type DayRange } from "./queryDates";
 
