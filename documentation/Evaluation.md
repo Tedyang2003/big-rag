@@ -110,8 +110,9 @@ Held constant: `nomic-embed-text-v1.5` embeddings, 512-token chunks (100 overlap
 A question is a **hit** when the evidence string appears in the passages returned for it, ignoring case, punctuation and whitespace. Two rules keep that fair:
 
 - **Consecutive chunks count as one passage.** If evidence spans a boundary and both chunks are returned, the model received all of it.
-- **Rank is how deep you must read**, not where the best-placed neighbour sits. The median rank and mean reciprocal rank record the smallest number of passages that between them hold the whole evidence. Before 29 September 2026 they recorded the rank of the best chunk in the run holding the evidence, which let a passage at rank 40 be reported as rank 3 because something beside it ranked well. **Four of the six FinanceBench columns were measured that way and are optimistic**, as marked in that table; hit rates and pool rates are unaffected, since those only ask whether the evidence was there at all. Every QASPER figure uses the corrected measure.
+- **Rank is how deep you must read**, not where the best-placed neighbour sits. The median rank and mean reciprocal rank record the smallest number of passages that between them hold the whole evidence. Before 29 September 2026 they recorded the rank of the best chunk in the run holding the evidence, which let a passage at rank 40 be reported as rank 3 because something beside it ranked well. **Every FinanceBench column except `+ neighbours` and `+ keywords` was measured that way and is optimistic**, so that table's two rank rows cannot be read across it; hit rates, pool rates and passage accuracy are unaffected, since those only ask whether the evidence was there. Every QASPER figure uses the corrected measure.
 - **Passage accuracy is reported separately from hit rate.** A hit requires finding the right document *and* the right passage in it. Where a question set does not say which document is meant, the first of those is not a retrieval failure, so the summary also reports hits as a share of the questions that returned their source document at all. On FinanceBench the two are close; on QASPER they are not.
+- **Filter loss is the gap between the two hit rates**: the share of questions whose evidence was in the top 50 but did not reach the model. It is arithmetic from the pool and final rows rather than a measurement of its own, which is why it is quoted in the text below but not tabulated. Mean reciprocal rank and right-file-wrong-passage are likewise quoted where they carry an argument; every run report in `eval\reports` holds all three for every run.
 - **Questions whose evidence is not in the index are unscorable, not misses.** Each file is rebuilt from its chunks and searched for the evidence. If it isn't there, no retrieval could find it.
 
 How many survive that rule is the clearest difference between the two datasets. On FinanceBench, **62 of 150 are unscorable**, leaving **88 scored in every run**: 28 of the evidence strings begin with page furniture (`Table of Contents`, a page number) our parser strips, and the rest differ in spacing or table layout. The information is usually in the index; the verbatim string is not. The split is even across question types, so the 88 keep the same mix as the 150. On QASPER the documents are written from the evidence's own paragraphs, so **892 of 892 are scorable**.
@@ -144,7 +145,7 @@ Each column adds one signal to the one on its left, and both tables run the same
 
 **The last column has never been run here**, so FinanceBench has no measurement of keywords and HyDE together — the combination QASPER shows to be its best. Filling it is one run of about 35 minutes. The blank rows in the first three columns and the sixth are unrecoverable: those reports are no longer on disk, and the metrics were added to the harness after they were made.
 
-**The two rank rows are not comparable across this table.** `+ neighbours` and `+ keywords` were run on 29 September with the corrected rank measure; the other columns predate it and are optimistic, because a passage at rank 40 could be reported as rank 3 when something beside it ranked well. The apparent regression from `+ dates`' median 3 to `+ neighbours`' 5 is that measurement change, not the neighbours. Mean reciprocal rank, filter loss and right-file-wrong-passage are no longer tabulated; they are quoted below where they carry an argument, and every run report in `eval\reports` holds all of them.
+**The two rank rows — answers at rank 1, and median rank — are not comparable across this table.** `+ neighbours` and `+ keywords` were run on 29 September with the corrected rank measure; every other column predates it and is optimistic, because a passage at rank 40 could be reported as rank 3 when something beside it ranked well. The apparent regression from `+ dates`' median 3 to `+ neighbours`' 5 is that measurement change, not the neighbours.
 
 Every column draws its pool from the same place, an unthresholded top-50 search, so the pool row is comparable across them. Three of the changes cannot move it: dates and keywords only reorder the same 50, and neighbour expansion only adds chunks beside one already returned. HyDE is the one that searches a second vector, which is why the pool moves only in the two HyDE columns — the same pattern as QASPER, where it moves the pool downwards.
 
@@ -179,7 +180,7 @@ The pattern across all four: on this corpus a question's distinctive words ident
 
 **Where retrieval lands:**
 
-| Outcome | Legacy | Structured | + dates | + HyDE, 5 passages |
+| Outcome | Legacy | Structured | + dates | + HyDE, 5 passages, keywords off |
 |---|---|---|---|---|
 | Hit | 8 | 12 | 14 | **16** |
 | Same company, wrong document — usually another year | 32 | 31 | 14 | **11** |
@@ -243,7 +244,7 @@ Returning the neighbours of what is already returned was measured and is kept:
 | **High, 5 passages plus neighbours** | **19** | **6.9** | **1.58** |
 | High, 10 passages | 23 | 10.0 | 1.40 |
 
-Three questions gained, none lost, at a better rate per token than simply returning more — and the model receives contiguous text rather than fragments. Filter loss falls from 18.2% to 14.8%, right-document-wrong-passage from 61.4% to 58.0%. Result sizes run from 5 to 13 passages.
+Three questions gained, none lost, at a better rate per token than simply returning more — and the model receives contiguous text rather than fragments. Against High at five passages — a configuration this section measures and the results table does not carry — filter loss falls from 18.2% to 14.8% and right-document-wrong-passage from 61.4% to 58.0%. Result sizes run from 5 to 13 passages.
 
 Its ceiling was 4, not the 7 first estimated: three of those seven had evidence that was never a candidate at all, so no expansion could reach it — the estimate had counted adjacency without checking pool membership. Of the 4 genuinely reachable, 3 converted; the fourth needs three chunks back from the passage that matched, beyond `neighbourChunks: 1`.
 
@@ -322,16 +323,16 @@ Two cautions. Expansion runs only on the fused path, so Low cannot have it; the 
 
 Hit rates across the two datasets are not comparable either — different questions, a different share of them answerable by lookup. What is comparable is the **shape of the failure**: right-document-wrong-passage is 21.2% here against 46.6% for FinanceBench's legacy run. Picking the right document out of 281 unlike papers is far easier than picking one of ten near-identical filings, and that was FinanceBench's dominant failure.
 
-What these runs are for, in order of how much they would change:
+What these runs were for, and what they returned. All four questions were written before the dataset existed, and three of the four answers were not the expected one:
 
-- **Does the date boost survive?** It earned its place by choosing between ten near-identical filings of one company. Papers have no such ambiguity, so Hybrid may collapse back to Structured — which would mean Medium is a FinanceBench artefact rather than a feature.
-- **Does HyDE survive?** Its gain landed on financial statements, and part of it came from a 2B model answering in markdown tables that matched chunks holding table rows. Papers are prose, so the mechanism may not carry.
-- **Was keyword scoring wrongly removed?** It failed because a filing's distinctive words sit on every page of it. Papers use genuinely distinct vocabulary, so a rare term may name a passage here. `git show` restores the reranker and the design is recorded above.
-- **Does structured chunking still beat legacy?** The one result expected to hold, since section structure is real in a paper and its headings are genuine.
+- **Does the date boost survive?** **No, completely.** Not one returned passage carries the date lane, because no QASPER question names a date the parser recognises. It is a FinanceBench feature.
+- **Does HyDE survive?** **Yes, but only alongside BM25.** Measured alone it loses 43 document identifications; measured with keyword reranking on it gives this corpus its best result.
+- **Was keyword scoring wrongly removed?** **Yes.** The prediction attached to the removal — that it failed because a filing's distinctive words sit on every page of it — held: on papers with genuinely distinct vocabulary it adds 21 questions, and it is back on by default.
+- **Does structured chunking still beat legacy?** **Yes**, the one answer that was expected: 117 hits to 142, and the only FinanceBench conclusion to transfer unchanged.
 
 ## Run Log
 
-Newest first. Each entry gives the finding and the numbers that appear nowhere else; the results sections above carry the full tables.
+Newest first. Each entry gives the finding and the numbers that appear nowhere else; the results sections above carry the full tables. Entries before 29 September call the fused Medium path **hybrid**, the name it had while the keyword lane nominated its own candidates.
 
 **7 Oct — keywords and HyDE measured together, and HyDE's QASPER verdict reversed.** The `+ HyDE` column predated the keyword restoration, so the two had never been on at once. Together: 228 hits against 219 for keywords alone and 180 for HyDE with keywords off, because document-finding is HyDE's only loss and BM25's only gain. **Every signal in this document had been attributed by zeroing one weight at a time, which measures contributions and not interactions.** This is the first pair measured together and it changed a conclusion. The run reused 843 drafts and generated 49, so it is not draft-for-draft; that cannot account for a swing of this size or direction.
 
