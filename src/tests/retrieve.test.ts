@@ -564,6 +564,19 @@ test("a winner is returned with the neighbours that are already candidates", asy
   assert.deepEqual(result.passages.map((passage) => passage.chunkIndex).sort((a, b) => a - b), [2, 3, 4]);
 });
 
+test("a winner and its neighbours are returned in document order", async () => {
+  const { deps } = makeDeps(consecutiveResults());
+  const result = await retrieve(
+    "a question",
+    { ...deps, catalog: fakeCatalog() },
+    { ...LOW_OPTIONS, depth: "medium", retrievalLimit: 1 },
+  );
+
+  // Chunk three wins and drags two and four. A model reading them in the order given should see
+  // the passage and its continuation the way the document has them, not winner-first.
+  assert.deepEqual(result.passages.map((passage) => passage.chunkIndex), [2, 3, 4]);
+});
+
 test("expansion never reaches outside the candidates or into another file", async () => {
   const { deps } = makeDeps([
     makeResult({ text: "winner", id: "w", chunkIndex: 7, filePath: "/docs/f.pdf" }),
