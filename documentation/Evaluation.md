@@ -132,24 +132,19 @@ Each column adds one signal to the one on its left, and both tables run the same
 
 | Metric | Legacy | Structured | + dates | + neighbours | + keywords | + HyDE, keywords off | + HyDE, all on |
 |---|---|---|---|---|---|---|---|
-| Questions scored | 88 | 88 | 88 | 88 | 88 | 88 | not run |
 | Final hit rate | 9.1% (8) | 13.6% (12) | 15.9% (14) | 18.2% (16) | 18.2% (16) | **21.6% (19)** | not run |
 | Found the right document | — | — | — | 71 | 65 | — | not run |
 | Passage accuracy | — | — | — | 22.5% | 24.6% | — | not run |
 | Pool hit rate (top 50) | 19.3% (17) | 29.5% (26) | 29.5% (26) | 29.5% (26) | 29.5% (26) | **36.4% (32)** | not run |
-| Filter loss | — | — | — | 11.4% | 11.4% | — | not run |
-| Right file, wrong passage | 46.6% | 46.6% | 64.8% | 62.5% | 55.7% | 58.0% | not run |
-| Answers at rank 1‡ | 4 | 6 | 9 | 6 | 6 | 8 | not run |
-| Median answer rank in pool‡ | 6 | 5 | 3 | 5 | 5 | 3.5 | not run |
-| Mean reciprocal rank‡ | 0.048 | 0.107 | 0.140 | 0.109 | 0.112 | **0.155** | not run |
+| Answers at rank 1 | 4 | 6 | 9 | 6 | 6 | 8 | not run |
+| Median answer rank in pool | 6 | 5 | 3 | 5 | 5 | 3.5 | not run |
 | Mean passages returned | 5.0 | 5.0 | 5.0 | 6.6 | 6.6 | 6.9 | not run |
-| Chunks indexed | 91,541 | 119,403 | 119,403 | 119,403 | 119,403 | 119,403 | not run |
-| Vector search, median | 4.0s | 5.0s | 5.0s | 5.1s | 5.1s | 5.1s | not run |
-| Drafting, median | — | — | — | — | — | 1.1s | not run |
+
+88 questions and 119,403 structured chunks in every column but Legacy, which has 91,541. A search takes 4.0s on the legacy index and 5.0–5.1s on the structured one, and drafting adds 1.1s per question at High.
 
 **The last column has never been run here**, so FinanceBench has no measurement of keywords and HyDE together — the combination QASPER shows to be its best. Filling it is one run of about 35 minutes. The blank rows in the first three columns and the sixth are unrecoverable: those reports are no longer on disk, and the metrics were added to the harness after they were made.
 
-‡ **The rank rows are not comparable across this table.** `+ neighbours` and `+ keywords` were run on 29 September with the corrected rank measure; the other four columns predate it and are optimistic, because a passage at rank 40 could be reported as rank 3 when something beside it ranked well. The apparent regression from `+ dates`' median 3 to `+ neighbours`' 5 is that measurement change, not the neighbours.
+**The two rank rows are not comparable across this table.** `+ neighbours` and `+ keywords` were run on 29 September with the corrected rank measure; the other columns predate it and are optimistic, because a passage at rank 40 could be reported as rank 3 when something beside it ranked well. The apparent regression from `+ dates`' median 3 to `+ neighbours`' 5 is that measurement change, not the neighbours. Mean reciprocal rank, filter loss and right-file-wrong-passage are no longer tabulated; they are quoted below where they carry an argument, and every run report in `eval\reports` holds all of them.
 
 Every column draws its pool from the same place, an unthresholded top-50 search, so the pool row is comparable across them. Three of the changes cannot move it: dates and keywords only reorder the same 50, and neighbour expansion only adds chunks beside one already returned. HyDE is the one that searches a second vector, which is why the pool moves only in the two HyDE columns — the same pattern as QASPER, where it moves the pool downwards.
 
@@ -287,28 +282,21 @@ Read the median carefully: it worsens, 3 to 3.5 overall and 2.5 to 5 on statemen
 
 ## Results: QASPER
 
-281 papers, 3,676 chunks, 892 questions, **all scorable**. Ranks here use the corrected measure, so they cannot be compared with the FinanceBench table above; hit rate, pool rate and right-file-wrong-passage can.
+281 papers, 892 questions, **all scorable**. Ranks here use the corrected measure, so they cannot be compared with the FinanceBench table above; hit rate, pool rate and passage accuracy can.
 
 Columns as above, in the same order. Every cell is recomputed from the run reports in `eval\reports`.
 
 | Metric | Legacy | Structured | + dates | + neighbours | + keywords | + HyDE, keywords off | + HyDE, all on |
 |---|---|---|---|---|---|---|---|
-| Questions scored | 892 | 892 | 892 | 892 | 892 | 892 | 892 |
 | Final hit rate | 13.1% (117) | 15.9% (142) | 15.9% (142) | 22.2% (198) | 24.6% (219) | 20.2% (180) | **25.6% (228)** |
 | Found the right document | 306 | 324 | 324 | 324 | 356 | 281 | **357** |
 | Passage accuracy | 38.2% | 43.8% | 43.8% | 61.1% | 61.5% | **64.1%** | 63.9% |
 | Pool hit rate (top 50) | 28.0% (250) | 37.2% (332) | 37.2% (332) | 37.2% (332) | 37.2% (332) | 35.1% (313) | 36.1% (322) |
-| Filter loss | 15.7% | 21.3% | 21.3% | 15.0% | 12.7% | 15.1% | **10.8%** |
-| Right file, wrong passage | 21.2% | 20.4% | 20.4% | 14.1% | 15.4% | **11.3%** | 14.5% |
 | Answers at rank 1 | 42 | 51 | 51 | 51 | **67** | 46 | 56 |
 | Median answer rank in pool | 7 | 7 | 7 | 7 | **5** | 8 | **5** |
-| Mean reciprocal rank | 0.086 | 0.107 | 0.107 | 0.107 | **0.130** | 0.096 | 0.126 |
 | Mean passages returned | 5.0 | 5.0 | 5.0 | 7.8 | 7.4 | 8.3 | 8.0 |
-| Chunks indexed | 3,676 | 4,699 | 4,699 | 4,699 | 4,699 | 4,699 | 4,699 |
-| Vector search, median | 4ms | 6ms | 10ms | 5ms | 5ms | 12ms | 12ms |
-| Drafting, median | — | — | — | — | — | 582ms | 17ms |
 
-Drafting costs 582ms where the cache was being written and 17ms where it was reused, which is why the two HyDE columns differ on a figure that measures the same work.
+892 questions and 4,699 structured chunks in every column but Legacy, which has 3,676. A search takes 4–12ms, and drafting costs 582ms where the cache is written against 17ms where it is reused.
 
 **BM25 says which document, not which passage in it** — which is why it was deleted and why it came back. It adds 21 questions here, gaining 52 and losing 31, with the pool untouched since it reranks and never nominates. The gain is *all* document-finding: the right paper returns 32 times more often while passage accuracy barely moves. On FinanceBench the document was never in doubt — ten near-identical filings of one company, its distinctive words on every page — so the same signal is neutral there, 16 hits either way.
 
