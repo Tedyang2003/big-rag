@@ -48,15 +48,25 @@ An empty index is always filled automatically on the first message, whatever Rei
 
 #### Retrieval Depth
 
-Controls how the plugin searches.
+Controls how the plugin searches. Each level does everything the one above it does.
 
-- **Medium** (default): searches by meaning, then lifts passages whose date matches one your question names
-A passage that runs on into the next chunk is returned together with it, so an answer split across a boundary arrives whole rather than cut in half.
+##### Low
 
-- **High**: also asks the model you have loaded to draft a likely answer, and searches for that too — about half a second and one model call per message. It finds passages worded unlike your question, which mostly means tables and figures. The draft is used only to search with: it is never shown to you, never cited, and never given to the model as context, because its specifics are invented
-- **Low**: searches by meaning only, as versions before 1.5 did
+Searches by meaning only, as versions before 1.5 did. One embedding per message and nothing else.
 
-Neither level makes extra model calls. The first Medium search builds a small search index next to your vector store, `.big-rag-catalog.json`, and shows its progress. It is rebuilt automatically when the number of indexed chunks changes and is safe to delete. Keywords and dates reorder the passages the meaning search found rather than adding their own, so they work at any collection size.
+##### Medium (default)
+
+Searches by meaning for fifty candidates, then reorders them three ways: a date your question names lifts passages carrying it, distinctive words lift passages that contain them, and a passage running on into the next chunk is returned together with it so an answer split across a boundary arrives whole.
+
+None of the three can add a passage the meaning search did not find — they only change the order and completeness of what it found, which is why they work at any collection size. Medium makes no extra model calls.
+
+##### High
+
+Also asks the model you have loaded to draft a likely answer, embeds that, and searches for it alongside your question. It costs one model call and about half a second per message, and it is the only level that can reach a passage the meaning search alone would never have returned — which mostly means tables and figures, worded unlike the question that asks about them.
+
+The draft is used only to search with. It is never shown to you, never cited and never given to the model as context, because its specifics are invented.
+
+The first Medium or High search builds a small search index next to your vector store, `.big-rag-catalog.json`, and shows its progress. It is rebuilt automatically when the number of indexed chunks changes, and is safe to delete.
 
 ## What You'll See in a Chat
 
@@ -73,7 +83,7 @@ Retrieval is given a share of the model's context window — about three fifths 
 
 If more passages were found than fit, the status says so — *Sent 6 of 9 passages — the rest would exceed the 4,915 tokens retrieval may use of this model's 8,192* — and raising the model's context length raises the share with it. At least one passage is always sent, so retrieval never quietly does nothing.
 
-Passages stay in the conversation after the turn they were retrieved for, because they are part of the message Big RAG sends. By the third question the model can see three sets of them, so each set names the question it belongs to and the prompt tells the model that earlier ones do not apply. If you customised the Prompt Template before version 1.5.0, yours will not say that — reset it to the default to pick up the wording.
+Passages stay in the conversation after the turn they were retrieved for, because they are part of the message Big RAG sends. By the third question the model can see three sets of them, so each set names the question it belongs to and the prompt tells the model that earlier ones do not apply. If you customised the Prompt Template before version 1.6.0, yours will not say that — reset it to the default to pick up the wording.
 
 Each retrieved passage appears in LM Studio's citation panel. At Medium and High depth it is labelled with its rank and how it matched, such as `match #1 via meaning, dates` or `match #2 via likely wording`. At Low depth it shows the similarity score instead.
 

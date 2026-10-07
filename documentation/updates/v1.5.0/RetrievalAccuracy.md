@@ -90,3 +90,13 @@ Recall is the ceiling. Even at the best setting, 32 of 88 FinanceBench answers a
 - Question decomposition at an Extra High depth, for compound questions that are several lookups in one.
 - Retrieval covering several documents at once, which fusion cannot currently express.
 - Summarisation, still unbuilt, for questions needing every relevant passage rather than the best five.
+
+---
+
+## Corrections
+
+Two claims in this document were found to be wrong after it was published. Both are left in place above, with the record of what replaced them in [v1.6.0's document](../v1.6.0/ContextAndDelivery.md).
+
+**HyDE does not lose on papers.** The outcome table ends with QASPER at 180 for High, and the text concludes that HyDE "gains on filings and loses on papers". That run had keyword reranking switched off, because it predated the restoration. With both on, QASPER reaches 228 — the best figure measured on either corpus. The Next Steps below spotted the adjacent half of this, that FinanceBench's 19 was measured on a different build, without following it through to this column.
+
+**High did not work in this release.** `resolveSettings` mapped every depth that was not `low` to `medium`, so a user who selected High got Medium. Everything this document says about High was true of the evaluation harness, which reads the depth from the environment, and of no chat in LM Studio. Fixed in 1.6.0.
