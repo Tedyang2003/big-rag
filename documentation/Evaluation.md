@@ -124,30 +124,34 @@ Two measurement caveats: a split table repeats its header row in each piece, so 
 
 Indexes rebuilt 24 September 2026 with PDF table rows and the Nomic prefixes: legacy 91,541 chunks, structured 119,403.
 
-Each column adds one signal to the column on its left, in the same order as the QASPER table below so the two can be read side by side.
+Each column adds one signal to the one on its left, and both tables run the same seven columns in the same order so they can be read against each other. Two of them need naming precisely, because the difference is a lane being off:
 
-| Metric | Legacy | Structured | + dates | + neighbours | + keywords | **+ HyDE**§ |
-|---|---|---|---|---|---|---|
-| Questions scored | 88 | 88 | 88 | 88 | 88 | 88 |
-| Final hit rate | 9.1% (8) | 13.6% (12) | 15.9% (14) | 18.2% (16) | 18.2% (16) | **21.6% (19)** |
-| Found the right document | — | — | — | **71** | 65 | — |
-| Passage accuracy | — | — | — | 22.5% | **24.6%** | — |
-| Pool hit rate (top 50) | 19.3% (17) | 29.5% (26) | 29.5% (26) | 29.5% (26) | 29.5% (26) | **36.4% (32)** |
-| Filter loss | — | — | — | 11.4% | 11.4% | — |
-| Right file, wrong passage | 46.6% | 46.6% | 64.8% | 62.5% | 55.7% | 58.0% |
-| Answers at rank 1‡ | 4 | 6 | 9 | 6 | 6 | 8 |
-| Median answer rank in pool‡ | 6 | 5 | 3 | 5 | 5 | 3.5 |
-| Mean reciprocal rank‡ | 0.048 | 0.107 | 0.140 | 0.109 | 0.112 | **0.155** |
-| Mean passages returned | 5.0 | 5.0 | 5.0 | 6.6 | 6.6 | 6.9 |
-| Chunks indexed | 91,541 | 119,403 | 119,403 | 119,403 | 119,403 | 119,403 |
-| Vector search, median | 4.0s | 5.0s | 5.0s | 5.1s | 5.1s | 5.1s |
-| Drafting, median | — | — | — | — | — | 1.1s |
+- **`+ keywords`** is everything to its left plus BM25 reranking. This is what Medium does today.
+- **`+ HyDE, keywords off`** is `+ neighbours` plus HyDE, with `laneWeightKeyword` at 0 — a **branch from `+ neighbours`, not a step from `+ keywords`**. It is where HyDE was first measured on both corpora, at a time when the keyword lane had been deleted from the code entirely, and it is what the conclusions below argue against.
+- **`+ HyDE, all on`** is every lane on, which is what High does today.
 
-‡ **The rank rows are not comparable across this table.** `+ neighbours` and `+ keywords` were re-run on 29 September with the corrected rank measure; the other four columns predate it and are optimistic, because a passage at rank 40 could be reported as rank 3 when something beside it ranked well. The apparent regression from `+ dates`' median 3 to `+ neighbours`' 5 is that measurement change, not the neighbours.
+| Metric | Legacy | Structured | + dates | + neighbours | + keywords | + HyDE, keywords off | + HyDE, all on |
+|---|---|---|---|---|---|---|---|
+| Questions scored | 88 | 88 | 88 | 88 | 88 | 88 | not run |
+| Final hit rate | 9.1% (8) | 13.6% (12) | 15.9% (14) | 18.2% (16) | 18.2% (16) | **21.6% (19)** | not run |
+| Found the right document | — | — | — | 71 | 65 | — | not run |
+| Passage accuracy | — | — | — | 22.5% | 24.6% | — | not run |
+| Pool hit rate (top 50) | 19.3% (17) | 29.5% (26) | 29.5% (26) | 29.5% (26) | 29.5% (26) | **36.4% (32)** | not run |
+| Filter loss | — | — | — | 11.4% | 11.4% | — | not run |
+| Right file, wrong passage | 46.6% | 46.6% | 64.8% | 62.5% | 55.7% | 58.0% | not run |
+| Answers at rank 1‡ | 4 | 6 | 9 | 6 | 6 | 8 | not run |
+| Median answer rank in pool‡ | 6 | 5 | 3 | 5 | 5 | 3.5 | not run |
+| Mean reciprocal rank‡ | 0.048 | 0.107 | 0.140 | 0.109 | 0.112 | **0.155** | not run |
+| Mean passages returned | 5.0 | 5.0 | 5.0 | 6.6 | 6.6 | 6.9 | not run |
+| Chunks indexed | 91,541 | 119,403 | 119,403 | 119,403 | 119,403 | 119,403 | not run |
+| Vector search, median | 4.0s | 5.0s | 5.0s | 5.1s | 5.1s | 5.1s | not run |
+| Drafting, median | — | — | — | — | — | 1.1s | not run |
 
-§ **This column has keyword reranking off** — it was run before the restoration, and no FinanceBench run has had keywords and HyDE on together. On QASPER that combination turned out to be the best configuration measured, so this column is not what High does today. Three runs of about 35 minutes each would close the gap; the first four columns' missing rows are unrecoverable, as those reports are no longer on disk.
+**The last column has never been run here**, so FinanceBench has no measurement of keywords and HyDE together — the combination QASPER shows to be its best. Filling it is one run of about 35 minutes. The blank rows in the first three columns and the sixth are unrecoverable: those reports are no longer on disk, and the metrics were added to the harness after they were made.
 
-Every column draws its pool from the same place, an unthresholded top-50 search, so the pool row is comparable across them. Three of the changes cannot move it: dates and keywords only reorder the same 50, and neighbour expansion only adds chunks beside one already returned. HyDE is the one that searches a second vector, which is why the pool moves in the last column alone — the same pattern as QASPER, where it moves the pool downwards.
+‡ **The rank rows are not comparable across this table.** `+ neighbours` and `+ keywords` were run on 29 September with the corrected rank measure; the other four columns predate it and are optimistic, because a passage at rank 40 could be reported as rank 3 when something beside it ranked well. The apparent regression from `+ dates`' median 3 to `+ neighbours`' 5 is that measurement change, not the neighbours.
+
+Every column draws its pool from the same place, an unthresholded top-50 search, so the pool row is comparable across them. Three of the changes cannot move it: dates and keywords only reorder the same 50, and neighbour expansion only adds chunks beside one already returned. HyDE is the one that searches a second vector, which is why the pool moves only in the two HyDE columns — the same pattern as QASPER, where it moves the pool downwards.
 
 ### Which Signal Does the Work
 
@@ -285,10 +289,9 @@ Read the median carefully: it worsens, 3 to 3.5 overall and 2.5 to 5 on statemen
 
 281 papers, 3,676 chunks, 892 questions, **all scorable**. Ranks here use the corrected measure, so they cannot be compared with the FinanceBench table above; hit rate, pool rate and right-file-wrong-passage can.
 
-Each column adds one signal to the column on its left, in the same order as the FinanceBench table above. `HyDE alone` is the one exception: a branch from `+ neighbours` rather than a step, kept because it is what first measured HyDE here and what the conclusions below argue against. **`+ HyDE` is the last column and what High does today.** Every cell is recomputed from the run reports in `eval
-eports`.
+Columns as above, in the same order. Every cell is recomputed from the run reports in `eval\reports`.
 
-| Metric | Legacy | Structured | + dates | + neighbours | + keywords | HyDE alone† | **+ HyDE** |
+| Metric | Legacy | Structured | + dates | + neighbours | + keywords | + HyDE, keywords off | + HyDE, all on |
 |---|---|---|---|---|---|---|---|
 | Questions scored | 892 | 892 | 892 | 892 | 892 | 892 | 892 |
 | Final hit rate | 13.1% (117) | 15.9% (142) | 15.9% (142) | 22.2% (198) | 24.6% (219) | 20.2% (180) | **25.6% (228)** |
@@ -305,21 +308,19 @@ eports`.
 | Vector search, median | 4ms | 6ms | 10ms | 5ms | 5ms | 12ms | 12ms |
 | Drafting, median | — | — | — | — | — | 582ms | 17ms |
 
-† Branch, not a step: neighbours + HyDE with `laneWeightKeyword` at 0. Measured 29 September, before keyword reranking was restored. Its drafting figure is the median cost of writing a draft; every other High run reuses the cache, which is what the 17ms beside it measures.
+Drafting costs 582ms where the cache was being written and 17ms where it was reused, which is why the two HyDE columns differ on a figure that measures the same work.
 
-**BM25 says which document, not which passage in it** — which is why it was deleted and why it came back. It adds 21 questions here, median rank 7 to 5, MRR 0.107 to 0.130, gaining 52 and losing 31, with the pool untouched since it reranks and never nominates. The gain is *all* document-finding: the right paper returns 32 times more often while passage accuracy barely moves, 61.1% to 61.5%. On FinanceBench the document was never in doubt — ten near-identical filings of one company, its distinctive words on every page — so the same signal did nothing. Re-measured there on the current build it is neutral — 16 hits either way, MRR 0.112 against 0.109, passage accuracy 24.6% against 22.5%. Neutral on one corpus and clearly positive on the other, so `laneWeightKeyword` defaults to 1.
+**BM25 says which document, not which passage in it** — which is why it was deleted and why it came back. It adds 21 questions here, gaining 52 and losing 31, with the pool untouched since it reranks and never nominates. The gain is *all* document-finding: the right paper returns 32 times more often while passage accuracy barely moves. On FinanceBench the document was never in doubt — ten near-identical filings of one company, its distinctive words on every page — so the same signal is neutral there, 16 hits either way. Neutral on one corpus and clearly positive on the other, so `laneWeightKeyword` defaults to 1.
 
-**The date boost does nothing here.** Not "little" — nothing. Every figure in the `+ dates` column is identical to `Structured`, and **not one returned passage carries the date lane**: no QASPER question names a date the parser recognises. On FinanceBench the same signal was worth two hits and halved wrong-document failures, because it told ten near-identical filings of one company apart. Papers have no such ambiguity, so Medium is a FinanceBench feature rather than a general one.
+**The date boost does nothing here.** Not "little" — nothing: every figure in the `+ dates` column is identical to `Structured`, and **not one returned passage carries the date lane**, because no QASPER question names a date the parser recognises. On FinanceBench it was worth two hits and halved wrong-document failures by telling ten near-identical filings apart. Papers have no such ambiguity, so the date boost is a FinanceBench feature rather than a general one.
 
 **Neighbour expansion is worth far more here than there: 56 hits against 3.** It contributed 2,530 of 6,990 returned passages, cut filter loss 21.3% to 15.0% and right-document-wrong-passage 20.4% to 14.1%. Structured chunks do not overlap, 333 of 892 questions have evidence spanning two or more, and expansion completes them — the one change that matters more on the representative corpus than the awkward one.
 
-**Passage accuracy improves at every step, including HyDE**: 38.2%, 43.8%, 43.8%, 61.1%, 61.5%, 63.9%. On the measure that excludes questions naming no document, every change made this month helps, and the ordering matches FinanceBench's. Note also that finding the right document is identical across Structured, dates and neighbours — 324 — because expansion only ever adds chunks from a document already returned. Only the two nominating changes move it: keyword reranking up to 356, HyDE alone down to 281, and the pair to 357.
+**Passage accuracy improves at every step**: 38.2%, 43.8%, 43.8%, 61.1%, 61.5%, 63.9%. On the measure that excludes questions naming no document, every change made this month helps. Document-finding, by contrast, is flat at 324 across Structured, dates and neighbours, because expansion only ever adds chunks from a document already returned — only the nominating changes move it.
 
-**HyDE trades document-finding for passage-finding — and BM25 pays for the trade.** On its own it finds the right document 43 times less often, 281 against 324, pool 313 against 332, while locating the passage better when it does, 64.1% against 61.1%; gained 28, lost 46. Its lane nominates, and a draft answering a question that names no paper is generic prose that nominates generic paragraphs from the wrong papers. The opposite of FinanceBench, where the draft *added* 6 to the pool: there a question names its company and year and the draft inherits them, while "what were the baselines?" gives it nothing.
+**HyDE and BM25 each repair the other's one weakness.** Alone, HyDE finds the right document 43 times less often, 281 against 324, while locating the passage better when it does, 64.1% against 61.1%: its lane nominates, and a draft answering a question that names no paper is generic prose that nominates generic paragraphs from the wrong papers. On FinanceBench the draft *added* 6 to the pool, because there a question names its company and year and the draft inherits them, while "what were the baselines?" gives it nothing. But document-finding is also the only thing BM25 improves, 324 to 356 — so with both on it reaches 357, HyDE's loss more than repaired, passage accuracy nearly intact at 63.9%, and 228 hits, the best figure on this corpus.
 
-**Run together they fit, because each repairs the other's one weakness.** Document-finding is where HyDE loses, 324 to 281, and the only thing BM25 improves, 324 to 356. With both on it reaches 357 — HyDE's loss more than repaired — while HyDE's passage accuracy survives nearly intact, 63.9% against 61.5%. The result is 228 hits, nine more than keyword reranking alone and the best figure measured on this corpus. **The earlier reading that HyDE hurts QASPER was an artefact of measuring it with BM25 switched off**, which is the same mistake in a new place: a signal judged alone, against a baseline that no longer ships.
-
-Both readings were true while the lanes were measured apart. Together HyDE is ahead on both corpora, so High is now the better configuration everywhere it has been measured — it is opt-in because it costs a model call per question, not because it loses hits.
+**The earlier reading that HyDE hurts QASPER was an artefact of measuring it with BM25 switched off** — a signal judged alone against a baseline that no longer ships. High is now ahead on both corpora, and is opt-in because it costs a model call per question, not because it loses hits.
 
 **Read passage accuracy, not hit rate, on this dataset.** A hit needs the right document *and* the right passage; where the question does not say which document is meant, the first is not a retrieval failure. 87 QASPER questions have text appearing verbatim for two or more papers, and 88% of the questions that never reach the pool fail on the paper, not the paragraph.
 
@@ -340,40 +341,37 @@ What these runs are for, in order of how much they would change:
 
 ## Run Log
 
-Newest first.
+Newest first. Each entry gives the finding and the numbers that appear nowhere else; the results sections above carry the full tables.
 
-**28 Sep — returning a passage with its neighbours: 19 hits for 6.9 passages.** Three gained, none lost, against 16 hits for 5.0 passages — a better rate per token than the 23 hits for 10.0 that simply raising the limit gives, and the model gets contiguous text. Its ceiling was 4 rather than the 7 predicted: the estimate counted evidence adjacent to a returned passage without checking that the evidence was a candidate at all, and three of the seven were never in the pool. The fourth needs three chunks of reach rather than one.
+**7 Oct — keywords and HyDE measured together, and HyDE's QASPER verdict reversed.** The `+ HyDE` column predated the keyword restoration, so the two had never been on at once. Together: 228 hits against 219 for keywords alone and 180 for HyDE with keywords off, because document-finding is HyDE's only loss and BM25's only gain. **Every signal in this document had been attributed by zeroing one weight at a time, which measures contributions and not interactions.** This is the first pair measured together and it changed a conclusion. The run reused 843 drafts and generated 49, so it is not draft-for-draft; that cannot account for a swing of this size or direction.
 
-**28 Sep — returning ten passages instead of five gives 23 hits.** Filter loss falls from 18.2% to 10.2%, so seven answers were sitting at ranks 6 to 10. It is a measurement, not a setting: ten 512-token passages is most of an 8,192-token window. Returning the neighbours of the five already chosen reaches the same 23 for one or two extra chunks, since 4 of the 7 are incomplete spans and 3 are chunks whose neighbour was returned instead. Both stop at 23: 65 of the 72 misses have nothing from the evidence's neighbourhood returned at all.
+**29 Sep — keyword reranking restored and on by default.** Deleted on FinanceBench evidence alone, with an explanation never tested: that it failed because a filing's distinctive words sit on every page of it. QASPER tested it and it holds — the gain there is all document-finding, with passage accuracy flat. Neutral on FinanceBench re-measured. `laneWeightKeyword` defaults to 1.
 
-**28 Sep — the threshold is settled, and filter loss means less than it looks.** Dropping `BIG_RAG_RETRIEVAL_THRESHOLD` from 0.5 to 0.35 at High changed nothing: 16 hits, pool 32, MRR 0.155, every metric identical. The four found-but-unreturned answers ranked inside the top five turned out not to be threshold casualties at all — in each one the evidence chunk was never returned and its neighbour was, and their pool rank came from the 50-deep pool holding enough adjacent chunks to reconstruct the evidence. See the analysis above.
+**29 Sep — QASPER measured across four configurations.** Structured chunking generalises, 117 hits to 142. The date boost does nothing at all, not one passage tagged. Neighbour expansion is worth 56 here against 3 on FinanceBench, because structured chunks do not overlap and 333 of 892 questions have evidence spanning two.
 
-**29 Sep — keyword reranking restored and on by default.** Deleted on FinanceBench evidence alone, with an explanation never tested: that it failed because a filing's distinctive words sit on every page of it. QASPER tested it. It adds 21 questions there, median rank 7 to 5, MRR 0.107 to 0.130 - and the gain is all in finding the document, 356 against 324, with passage accuracy flat. BM25 says which document, not which passage, which is worthless when the document was never in doubt and valuable when it is the hard part. Re-measured on FinanceBench with the current build it is neutral, 16 hits either way. `laneWeightKeyword` defaults to 1.
+**29 Sep — two measurement defects fixed.** Pool rank was the best-placed chunk of the run holding the evidence, so a chunk could inherit its neighbour's rank; it is now how deep the reader must go. And the hypothetical cache was keyed by a map from question text to id, so question sets reusing a text — QASPER has 87 — collapsed into one entry.
 
-**7 Oct — keywords and HyDE measured together, and HyDE's QASPER verdict reversed.** The column labelled `+ HyDE` had been run before keyword reranking was restored, so the two were never on at once: a chain presented as cumulative that branched at the last step. Together they give 228 hits, the best on this corpus, against 219 for keywords alone and 180 for HyDE alone. They fit because each repairs the other's one weakness — document-finding, which HyDE takes 324 to 281 and BM25 takes 324 to 356, reaching 357 with both. Every signal in this document had been attributed by zeroing one weight at a time, which measures contributions and not interactions; this is the first pair measured together, and it changed a conclusion. One caveat: the run reused 843 cached drafts and generated 49 new ones, so those 49 questions were not asked with the same draft as the September run. They cannot account for a swing of this size or direction, and document-finding is attributable to BM25 rather than to drafting, but the comparison is not draft-for-draft.
+**28 Sep — returning a passage with its neighbours: 19 hits for 6.9 passages.** Three gained, none lost, at a better rate per token than the 23 hits for 10.0 passages that raising the limit gives, and the model gets contiguous text. Its ceiling was 4 rather than the 7 predicted: the estimate counted evidence adjacent to a returned passage without checking the evidence was a candidate at all, and three of the seven were never in the pool.
 
-**29 Sep — QASPER measured across four configurations.** Structured chunking generalises, 117 hits to 142. The date boost does nothing at all, not one passage tagged. Neighbour expansion is worth 56 here against 3 on FinanceBench, because structured chunks do not overlap and 333 of 892 questions have evidence spanning two. HyDE inverts: it loses 43 document identifications while improving passage accuracy, because a draft can only be specific if the question was. **Superseded on 7 October** — that run had keyword reranking off, and with it on HyDE gains rather than loses.
+**28 Sep — ten passages instead of five gives 23 hits**, so seven answers sat at ranks 6 to 10. A measurement, not a setting: ten 512-token passages is most of an 8,192-token window. Neighbour expansion reaches the same 23 for one or two extra chunks. Both stop there, because 65 of the 72 misses have nothing from the evidence's neighbourhood returned at all.
 
-**29 Sep — two measurement defects fixed.** Pool rank was the best-placed chunk of the run holding the evidence, so a chunk could inherit its neighbour's rank; it is now how deep the reader must go. And the hypothetical cache was keyed by a map from question text to id, so question sets reusing a text - QASPER has 87 - collapsed into one entry.
+**28 Sep — the threshold is settled, and filter loss means less than it looks.** Dropping `BIG_RAG_RETRIEVAL_THRESHOLD` from 0.5 to 0.35 at High changed every metric not at all. The four found-but-unreturned answers inside the top five were not threshold casualties: in each the evidence chunk was never returned and its neighbour was, and the pool rank came from the 50-deep pool holding enough adjacent chunks to reconstruct the evidence.
 
-**28 Sep — High measured: 16 hits, and the statement group finally moves.** Drafting an answer and searching it beside the question gives 16 hits against Medium's 14, pool 32 against 26, MRR 0.155 against 0.140 — gaining three questions and losing one. Statement-evidence pool coverage goes 6 to 11. One model call and 1.1s per question; ships opt-in at High.
+**28 Sep — High measured: 16 hits, and the statement group finally moves.** Statement-evidence pool coverage goes 6 to 11. One model call and 1.1s per question; ships opt-in.
 
-**28 Sep — a zero-weight lane was still nominating.** High's control run, with `BIG_RAG_LANE_WEIGHT_HYDE=0`, was meant to reproduce Medium and instead returned 12 passages the hypothetical alone had found: `fuseLanes` scaled each lane's contribution by weight but added its chunks to the ranking regardless, where the date boost lifted them. The same defect the keyword lane had, rebuilt with the hyde lane; now fixed inside `fuseLanes` so the next lane cannot repeat it. After the fix the control matches Medium on every metric. Attribution by zeroing a weight means nothing unless a zeroed lane is genuinely absent.
+**28 Sep — a zero-weight lane was still nominating.** High's control run with `BIG_RAG_LANE_WEIGHT_HYDE=0` was meant to reproduce Medium and returned 12 passages the hypothetical alone had found: `fuseLanes` scaled each lane's contribution by weight but added its chunks regardless, where the date boost lifted them. The same defect the keyword lane had, rebuilt with a new lane; now fixed inside `fuseLanes`. **Attribution by zeroing a weight means nothing unless a zeroed lane is genuinely absent.**
 
-**24 Sep — sentence-level scoring measured and rejected.** Re-ranking the 50 candidates by their best sentence or table row rather than their whole-chunk embedding takes top-5 from 15 to 10 and MRR from 0.119 to 0.075. Blending is neutral at best — "max of both" moves 8 questions, +1 into the top five, MRR 0.113 — and costs 741 unit embeddings and 3 seconds per question against a 5-second search. Worst where it was aimed: statements go from 3 in the top five to 0. The long-standing dilution explanation is wrong.
+**24 Sep — sentence-level scoring measured and rejected.** Re-ranking the 50 candidates by their best sentence or table row rather than their whole-chunk embedding takes top-5 from 15 to 10 and MRR from 0.119 to 0.075. Blending is neutral at best — "max of both" moves 8 questions, +1 into the top five — and costs 741 unit embeddings and 3 seconds per question against a 5-second search. Worst where it was aimed: statements go 3 in the top five to 0. **The long-standing dilution explanation is wrong.**
 
-**24 Sep — HyDE measured offline: fusing helps, replacing hurts, and it lands on statements.** Question plus hypothetical gives 34 of 88 in pool against 31, and 16 in the top five against 15, improving 20 questions and worsening 9. On statement evidence the median rank goes 24 to 8. Generation is 542ms with `gemma-4-e2b-it`.
+**24 Sep — HyDE measured offline: fusing helps, replacing hurts.** On statement evidence the median rank goes 24 to 8. Generation is 542ms with `gemma-4-e2b-it`.
 
-**24 Sep — keyword scoring removed after four measurements.** In order: as a lane nominating its own candidates it gave 9 hits alone and 11 beside dates, against vector + date's 14. Rebuilt as a reranker over the vector lane's own 50 — which dropped the posting lists, the 50,000-chunk ceiling, `BIG_RAG_CATALOG_MAX_CHUNKS` and the per-file cap — it still gave 11, gaining 3 and losing 6 including three answers at rank 1; 355 of 440 returned passages carried its boost, so it was working hard and wrongly. Boosting its whole ranking changed almost nothing, since nearly every candidate holds some query term, so only its top `rerankDepth` were boosted and `laneCandidates` went to 50. Counting document frequency over the candidates rather than the corpus recovered 14 hits and cut right-document-wrong-passage from 57 to 51 — the catalog then needed no word table at all (version 3) — and dropping the length penalty (the classic `b = 0.75`, wrong for chunks the chunker already caps) took MRR 0.117 to 0.134 and rank-1 answers 6 to 8. Every variant traded the same four questions for the same four. The deciding run, vector + date under the current architecture, gave 14 hits with 9 at rank 1 and MRR 0.140 against the reranker's 6 and 0.117, so it shipped at weight 0 and was then deleted rather than left to rot: `bm25.ts`, the rerank, `laneWeightKeyword`, `rerankDepth`, `bm25K1` and `bm25B` are gone.
+**24 Sep — keyword scoring removed after four measurements** (restored 29 September; the four forms and their numbers are in the FinanceBench section). What the rebuild changed beyond scores: reranking the vector lane's own 50 dropped the posting lists, the 50,000-chunk ceiling, `BIG_RAG_CATALOG_MAX_CHUNKS` and the per-file cap; 355 of 440 returned passages carried its boost, so it was working hard and wrongly; and counting document frequency over the candidates rather than the corpus cut right-document-wrong-passage from 57 to 51 and left the catalog needing no word table at all. It shipped at weight 0 and was then deleted rather than left to rot.
 
-**24 Sep — hybrid re-measured on the rebuilt indexes, and the lanes isolated.** Hybrid gave 11 hits against structured's 12, pool 23 against 26, median rank 3 and wrong-document failures down from 29 to 12; three answers came from pool ranks 28, 22 and 16 into the top three while two at rank 1 fell to 3 and 5. Making lane weights settable per run allowed the isolation above. A measurement defect surfaced with it — a weight of 0 silenced a lane's vote but not its nominations, which is why the vector + date row shows a pool of 28 where everything since shows
-26. It cost no hits: the contaminated run gave MRR 0.141 where the clean one gives 0.140.
+**24 Sep — hybrid re-measured on the rebuilt indexes, and the lanes isolated.** Hybrid gave 11 hits against structured's 12 and wrong-document failures down from 29 to 12; three answers came from pool ranks 28, 22 and 16 into the top three while two at rank 1 fell to 3 and 5. Making lane weights settable per run allowed every isolation above.
 
-**24 Sep — PDF tables and embedding prefixes measured.** Both indexes rebuilt (legacy 91,541 chunks, structured 119,403, each about 2.4% larger because a row's separators count as words). Structured went from 9 hits to 12 and its median rank from 9 to 5; legacy from 7 to 8. Statement-evidence hits moved from 1 of 31 to 2. The improvement is in ordering, not recall.
+**24 Sep — PDF tables and embedding prefixes measured.** Both indexes rebuilt, each about 2.4% larger because a row's separators count as words. Structured went 9 hits to 12 and median rank 9 to 5; legacy 7 to 8; statement hits 1 of 31 to 2. The improvement is in ordering, not recall. An evidence-check defect surfaced with it: overlapping legacy chunks were de-duplicated by counting normalised words while the recorded offsets count raw words, so legacy reported 107 unscorable against structured's 62. Fixed; both now report 88.
 
-An evidence-check defect surfaced during the rebuild: overlapping legacy chunks were de-duplicated by counting normalised words while the recorded offsets count raw words, so the reconstruction was corrupted and legacy reported 107 unscorable against structured's 62. Fixed; both now report the same 88.
-
-**22–24 Sep — PDF tables and embedding prefixes shipped.** Tables are recovered from MuPDF geometry as `cell | cell` rows, kept whole in a chunk where possible, split only between rows with the header repeated, and embedded as `Capital expenditures — 2018: 1,577` while citations still show the grid. Documents and queries carry Nomic's `search_document:` / `search_query:` prefixes, recorded in the index manifest. Both force a reindex (`structured-v3`), and they shipped together, so their effects cannot be attributed separately.
+**22–24 Sep — PDF tables and embedding prefixes shipped.** Tables are recovered from MuPDF geometry as `cell | cell` rows, kept whole where possible, split only between rows with the header repeated, and embedded as `Capital expenditures — 2018: 1,577` while citations still show the grid. Documents and queries carry Nomic's prefixes, recorded in the index manifest. Both force a reindex (`structured-v3`) and shipped together, so their effects cannot be separated.
 
 **22 Sep — three fixes to hybrid, measured one at a time.**
 
@@ -386,13 +384,13 @@ An evidence-check defect surfaced during the rebuild: overlapping legacy chunks 
 
 Reading years halved wrong-document failures but doubled wrong-company ones, because "FY2023" matches every company's 2023 filing. Making dates a boost kept the gain and removed the cost.
 
-**22 Sep — hybrid was worse than vector search alone at equal weights**, 6 hits against 9. Both extra lanes rank by *document* while the vector lane ranks by *passage*: every chunk of a filing carries the company name and shares its posted date, so each contributed 30 near-interchangeable candidates that outvoted the one lane distinguishing passages. Four answers the vector lane had at ranks 1, 2, 5 and 5 were pushed to 7, 9, 11 and 11. Attributing it: the date lane never fired at all, because questions say "FY2022" and the parser ignored bare years, while the keyword lane promoted boilerplate — `About Ulta Beauty`, `Forward-Looking Statements` — that matches the company name and contains nothing.
+**22 Sep — hybrid was worse than vector search alone at equal weights**, 6 hits against 9. Both extra lanes rank by *document* while the vector lane ranks by *passage*: every chunk of a filing carries the company name and shares its posted date, so each contributed 30 near-interchangeable candidates that outvoted the one lane distinguishing passages. Four answers at vector ranks 1, 2, 5 and 5 were pushed to 7, 9, 11 and 11. The date lane never fired at all — questions say "FY2022" and the parser ignored bare years — while the keyword lane promoted boilerplate like `About Ulta Beauty` that matches the company name and contains nothing.
 
 **22 Sep — two scoring defects fixed.** The diagnostic pool ignored fusion, so pool metrics at Medium described the vector lane alone. And scoring was stricter than reality, making 56% of questions unwinnable for any system. Adjacent chunks now count as one passage, and absent evidence is reported unscorable.
 
-**21 Sep — indexes rebuilt** after the parser chain changed to MuPDF first. All 368 files indexed, no failures, including filings whose damaged fonts previously defeated every parser. Structured chunks fell from 214,643 to 116,741 (2.4x legacy to 1.31x) after heading detection and the no-overlap chunker. No text lost: the 27.5M against 34.0M word gap is exactly legacy's overlap duplication.
+**21 Sep — indexes rebuilt** after the parser chain changed to MuPDF first. All 368 files indexed, no failures, including filings whose damaged fonts previously defeated every parser. Structured chunks fell from 214,643 to 116,741 after heading detection and the no-overlap chunker, with no text lost: the 27.5M against 34.0M word gap is exactly legacy's overlap duplication.
 
-**21 Sep — first runs.** Legacy 4.0%, Structured 6.0%, Hybrid 3.3%. **Not comparable with anything above** — produced by the older scoring rule, which required the whole snippet inside one chunk and counted unfindable evidence as a miss.
+**21 Sep — first runs.** Legacy 4.0%, Structured 6.0%, Hybrid 3.3%. **Not comparable with anything above**, having been produced by the older scoring rule.
 
 ## Open Questions
 
