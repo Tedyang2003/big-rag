@@ -23,7 +23,7 @@ node scripts/qasper-to-eval.mjs path\to\qasper-dev-v0.3.json --papers 300
 
 The converter writes one plain-text paper per file with section names as headings, and skips questions that are unanswerable, whose evidence is a figure or table, or whose evidence does not appear verbatim in the rendered paper.
 
-Numbers are not comparable between the two datasets — different documents, different questions, a different share answerable by lookup at all. What transfers is the **ordering** of configurations: whether Legacy, Structured, Hybrid and HyDE rank the same way on both.
+Numbers are not comparable between the two datasets — different documents, different questions, a different share answerable by lookup at all. What transfers is the **ordering** of configurations: whether Legacy, Structured, Dates and HyDE rank the same way on both.
 
 ## Running It
 
@@ -50,7 +50,7 @@ npm run eval:run                                    # Legacy
 
 $env:BIG_RAG_DB_DIR = "eval\financebench_vdbs\structured"
 npm run eval:run                                    # Structured
-$env:BIG_RAG_RETRIEVAL_DEPTH = "medium"; npm run eval:run   # + Hybrid
+$env:BIG_RAG_RETRIEVAL_DEPTH = "medium"; npm run eval:run   # + Dates and keywords
 $env:BIG_RAG_RETRIEVAL_DEPTH = "high";   npm run eval:run   # + HyDE
 ```
 
@@ -65,7 +65,7 @@ npm run eval:run                                    # Legacy
 
 $env:BIG_RAG_DB_DIR = "eval\qasper_vdbs\structured"
 npm run eval:run                                    # Structured
-$env:BIG_RAG_RETRIEVAL_DEPTH = "medium"; npm run eval:run   # + Hybrid
+$env:BIG_RAG_RETRIEVAL_DEPTH = "medium"; npm run eval:run   # + Dates and keywords
 $env:BIG_RAG_RETRIEVAL_DEPTH = "high";   npm run eval:run   # + HyDE
 ```
 
@@ -79,7 +79,7 @@ Each run prints a summary and writes a full report to `eval\reports\run-<timesta
 |---|---|---|---|
 | Legacy | `false` | `low` | Fixed-size chunks, vector search only |
 | Structured | `true` | `low` | Section-aware chunks with file, date and section headers |
-| + Hybrid | `true` | `medium` | A date the question names lifting passages already found |
+| + Dates | `true` | `medium` | A date the question names lifting passages already found. Keyword reranking also rides on `medium` now, so reproducing the FinanceBench column below needs `BIG_RAG_LANE_WEIGHT_KEYWORD=0` |
 | + HyDE | `true` | `high` | A drafted answer searched alongside the question |
 
 ### Tuning a Run
@@ -90,7 +90,7 @@ Any of these can be set per run, so a configuration differs from its neighbour b
 |---|---|---|
 | `BIG_RAG_RETRIEVAL_LIMIT` | 5 | Passages returned to the model |
 | `BIG_RAG_RETRIEVAL_THRESHOLD` | 0.5 | Minimum similarity for a passage to be returned |
-| `BIG_RAG_LANE_WEIGHT_VECTOR` / `_HYDE` / `_DATE` | 1 / 1 / 1 | **Set a signal to 0 to run without it**, which is how its contribution is attributed |
+| `BIG_RAG_LANE_WEIGHT_VECTOR` / `_HYDE` / `_KEYWORD` / `_DATE` | 1 / 1 / 1 / 1 | **Set a signal to 0 to run without it**, which is how its contribution is attributed |
 | `BIG_RAG_LANE_CANDIDATES` | 50 | Passages the vector lane puts up, and so the pool the others reorder |
 | `BIG_RAG_NEIGHBOUR_CHUNKS` | 1 | Chunks either side of a returned passage to return with it; 0 disables |
 | `BIG_RAG_REGENERATE_HYPOTHETICALS` | `false` | Redraft rather than reuse the cached drafts |
@@ -122,9 +122,9 @@ Two measurement caveats: a split table repeats its header row in each piece, so 
 
 ## Results: FinanceBench
 
-Indexes rebuilt 24 September 2026 with PDF table rows and the Nomic prefixes: legacy 91,541 chunks, structured 119,403. The last column is what ships.
+Indexes rebuilt 24 September 2026 with PDF table rows and the Nomic prefixes: legacy 91,541 chunks, structured 119,403. Keyword reranking had been deleted when these ran and was restored on 29 September on QASPER evidence, so no column here carries it; the last column is otherwise what ships, and the restoration measures neutral on this corpus.
 
-| Metric | Legacy | Structured | + Hybrid | + HyDE | **+ neighbours** |
+| Metric | Legacy | Structured | + Dates | + HyDE | **+ neighbours** |
 |---|---|---|---|---|---|
 | Questions scored | 88 | 88 | 88 | 88 | 88 |
 | Final hit rate | 9.1% (8) | 13.6% (12) | 15.9% (14) | 18.2% (16) | **21.6% (19)** |
@@ -158,11 +158,11 @@ Isolated with the weights, all against the same structured index and the same 50
 
 **Dates do the work.** The boost took hits 12 to 14 and more than halved wrong-document failures, 31 to 14, because a year says which of a company's ten near-identical filings is wanted. It only lifts a passage another signal already found, so it costs nothing.
 
-**Keywords never did, in four forms.** Nominating its own candidates, BM25 cost three hits by filling the shortlist with the boilerplate carrying a company's name. Reranking with corpus-wide idf reproduced that exactly — 11 hits, gaining 3 and losing 6, three of them answers the vector lane had at rank 1 — because a company name is rare across 119,403 chunks and so heavily weighted, while appearing on every page of the document the shortlist came from. Counting document frequency over the 50 candidates instead recovered 14, since a term every candidate shares collapses to nothing. Dropping the length penalty (`b = 0`) recovered most of the rest, MRR 0.117 to 0.134. But the outcome never moved: **the same four questions gained and four lost in every variant.** Tuning changes ranks, not which answers cross into the five returned.
+**Keywords never did on this corpus, in four forms.** Nominating its own candidates, BM25 cost three hits by filling the shortlist with the boilerplate carrying a company's name. Reranking with corpus-wide idf reproduced that exactly — 11 hits, gaining 3 and losing 6, three of them answers the vector lane had at rank 1 — because a company name is rare across 119,403 chunks and so heavily weighted, while appearing on every page of the document the shortlist came from. Counting document frequency over the 50 candidates instead recovered 14, since a term every candidate shares collapses to nothing. Dropping the length penalty (`b = 0`) recovered most of the rest, MRR 0.117 to 0.134. But the outcome never moved: **the same four questions gained and four lost in every variant.** Tuning changes ranks, not which answers cross into the five returned.
 
 Why a rerank can displace a good answer is fusion's flatness: a boost is worth up to `1/61`, while the whole spread from vector rank 1 to rank 50 is `1/61` to `1/110`. Any boost large enough to rescue rank 28 is large enough to push one off rank 1.
 
-The pattern across all four: on this corpus a question's distinctive words identify *which filing*, not *which page*, and the date boost settles that better and for free. Keyword scoring has been removed rather than left switched off — the design is recorded here and in git if a corpus of heterogeneous documents ever says otherwise.
+The pattern across all four: on this corpus a question's distinctive words identify *which filing*, not *which page*, and the date boost settles that better and for free. Keyword scoring was deleted on this evidence alone, then restored on 29 September when QASPER supplied the heterogeneous corpus this section asked for — 281 unlike papers, where choosing the document is the hard part, and 21 more questions answered with it on. It is on by default and neutral here; the QASPER results and the 29 September entry carry the detail.
 
 **Structured indexing is ahead of legacy on every measure:** half again as many hits and answers surfaced, more than double the MRR. A run takes roughly 35 minutes. The build before tables and prefixes gave Legacy 7 hits and Structured 9 at median rank 9, so **tables and prefixes moved ordering rather than recall** — structured found the same 26-odd answers and ranked them higher, so three more crossed into the five returned. They shipped together and cannot be separated.
 
@@ -170,7 +170,7 @@ The pattern across all four: on this corpus a question's distinctive words ident
 
 **Where retrieval lands:**
 
-| Outcome | Legacy | Structured | + Hybrid | + HyDE |
+| Outcome | Legacy | Structured | + Dates | + HyDE |
 |---|---|---|---|---|
 | Hit | 8 | 12 | 14 | **16** |
 | Same company, wrong document — usually another year | 32 | 31 | 14 | **11** |
