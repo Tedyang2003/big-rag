@@ -2,7 +2,7 @@
 
 Date: 2026-10-07
 Status: Completed Implementation, Measured on Two Datasets
-version: `v1.6.0`
+version: `v1.7.0`
 
 ---
 
@@ -96,7 +96,9 @@ The reason is not that chunks are a uniform length — they are not, the shortes
 | + HyDE, keywords off | **19** | 180 |
 | + HyDE, all on | not run | **228** |
 
-Retrieval itself is unchanged from 1.5.0; the 228 is a configuration that existed then and had not been run. FinanceBench's last column still has not been measured with keyword reranking and HyDE together.
+Retrieval itself is unchanged from 1.5.0; the 228 is a configuration that existed then and had not been run.
+
+**Measured after this release was tagged:** FinanceBench with keyword reranking and HyDE together also gives 19, the same as HyDE alone. The pair is additive on that corpus and interacting only on QASPER, because HyDE breaks document-finding only when the question does not name its document, and a FinanceBench question names its company and its year. `Evaluation.md` carries the full figures.
 
 ---
 

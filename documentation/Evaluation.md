@@ -133,17 +133,21 @@ Each column adds one signal to the one on its left, and both tables run the same
 
 | Metric | Legacy | Structured | + dates | + neighbours | + keywords | + HyDE, keywords off | + HyDE, all on |
 |---|---|---|---|---|---|---|---|
-| Final hit rate | 9.1% (8) | 13.6% (12) | 15.9% (14) | 18.2% (16) | 18.2% (16) | **21.6% (19)** | not run |
-| Found the right document | — | — | — | 71 | 65 | — | not run |
-| Passage accuracy | — | — | — | 22.5% | 24.6% | — | not run |
-| Pool hit rate (top 50) | 19.3% (17) | 29.5% (26) | 29.5% (26) | 29.5% (26) | 29.5% (26) | **36.4% (32)** | not run |
-| Answers at rank 1 | 4 | 6 | 9 | 6 | 6 | 8 | not run |
-| Median answer rank in pool | 6 | 5 | 3 | 5 | 5 | 3.5 | not run |
-| Mean passages returned | 5.0 | 5.0 | 5.0 | 6.6 | 6.6 | 6.9 | not run |
+| Final hit rate | 9.1% (8) | 13.6% (12) | 15.9% (14) | 18.2% (16) | 18.2% (16) | **21.6% (19)** | **21.6% (19)** |
+| Found the right document | — | — | — | **71** | 65 | — | 66 |
+| Passage accuracy | — | — | — | 22.5% | 24.6% | — | **28.8%** |
+| Pool hit rate (top 50) | 19.3% (17) | 29.5% (26) | 29.5% (26) | 29.5% (26) | 29.5% (26) | **36.4% (32)** | **36.4% (32)** |
+| Answers at rank 1 | 4 | 6 | 9 | 6 | 6 | 8 | 4 |
+| Median answer rank in pool | 6 | 5 | 3 | 5 | 5 | 3.5 | 7.5 |
+| Mean passages returned | 5.0 | 5.0 | 5.0 | 6.6 | 6.6 | 6.9 | 6.9 |
 
-88 questions and 119,403 structured chunks in every column but Legacy, which has 91,541. A search takes 4.0s on the legacy index and 5.0–5.1s on the structured one, and drafting adds 1.1s per question at High.
+88 questions and 119,403 structured chunks in every column but Legacy, which has 91,541. A search takes 4.0s on the legacy index, 5.0–5.1s on the structured one and 6.3s at High, and drafting adds 1.1s per question unless its cache is warm.
 
-**The last column has never been run here**, so FinanceBench has no measurement of keywords and HyDE together — the combination QASPER shows to be its best. Filling it is one run of about 35 minutes. The blank rows in the first three columns and the sixth are unrecoverable: those reports are no longer on disk, and the metrics were added to the harness after they were made.
+**The lanes are additive here, and interacting on QASPER.** Keyword reranking is worth nothing on this corpus whether HyDE is on or off — 16 either way at Medium, 19 either way at High — and HyDE is worth the same +3 whether keywords are on or off. On QASPER the same pair changes sign: HyDE alone is −18 and HyDE with keywords is +9.
+
+A repair needs damage, and there is none here. HyDE costs document-finding only when the question does not name its document, leaving the draft nothing specific to inherit so it nominates generic passages from the wrong files. A FinanceBench question names its company and its year, the draft inherits both, and document-finding never breaks — so BM25's +32 documents on QASPER has nothing to fix. **The interaction is a property of the question set rather than of the two lanes.**
+
+The blank rows in the first three columns and the sixth are unrecoverable: those reports are no longer on disk, and the metrics were added to the harness after they were made. In particular no corrected-measure rank figure exists for `+ HyDE, keywords off`, so the last column's median of 7.5 cannot be read against the 3.5 beside it.
 
 **The two rank rows — answers at rank 1, and median rank — are not comparable across this table.** `+ neighbours` and `+ keywords` were run on 29 September with the corrected rank measure; every other column predates it and is optimistic, because a passage at rank 40 could be reported as rank 3 when something beside it ranked well. The apparent regression from `+ dates`' median 3 to `+ neighbours`' 5 is that measurement change, not the neighbours.
 
@@ -175,6 +179,8 @@ Isolated with the weights, all against the same structured index and the same 50
 Why a rerank can displace a good answer is fusion's flatness: a boost is worth up to `1/61`, while the whole spread from vector rank 1 to rank 50 is `1/61` to `1/110`. Any boost large enough to rescue rank 28 is large enough to push one off rank 1.
 
 The pattern across all four: on this corpus a question's distinctive words identify *which filing*, not *which page*, and the date boost settles that better and for free. Keyword scoring was deleted on this evidence alone, then restored on 29 September when QASPER supplied the heterogeneous corpus this section asked for — 281 unlike papers, where choosing the document is the hard part, and 21 more questions answered with it on. It is on by default and neutral here; the QASPER results and the 29 September entry carry the detail.
+
+**HyDE improves passage accuracy on both corpora, and it is the only signal that does.** 24.6% to 28.8% here, 61.5% to 63.9% on QASPER. Dates work on one corpus and not the other, keyword reranking works on one and not the other, and neighbour expansion is worth 3 here against 56 there. Finding the right passage *once the document is right* is the one thing a drafted answer helps with wherever it has been measured, which is consistent with why it was built: a question in English sits far from a grid of figures, and a draft is shaped like the document.
 
 **Structured indexing is ahead of legacy on every measure:** half again as many hits and answers surfaced, more than double the MRR. A run takes roughly 35 minutes. The build before tables and prefixes gave Legacy 7 hits and Structured 9 at median rank 9, so **tables and prefixes moved ordering rather than recall** — structured found the same 26-odd answers and ranked them higher, so three more crossed into the five returned. They shipped together and cannot be separated.
 
@@ -335,6 +341,8 @@ What these runs were for, and what they returned. All four questions were writte
 ## Run Log
 
 Newest first. Each entry gives the finding and the numbers that appear nowhere else; the results sections above carry the full tables. Entries before 29 September call the fused Medium path **hybrid**, the name it had while the keyword lane nominated its own candidates.
+
+**12 Oct — FinanceBench measured with keywords and HyDE together: 19 hits, the same as HyDE alone.** The last unmeasured column, and it says the pair is additive on this corpus and interacting only on QASPER. Keyword reranking is worth nothing here at either depth, HyDE is worth +3 at either keyword setting, and on QASPER the same pair changes sign. A repair needs damage: HyDE breaks document-finding only when the question does not name its document, and these questions name a company and a year. Passage accuracy is the exception that transfers — 24.6% to 28.8% here against 61.5% to 63.9% there, the only signal measured to help on both.
 
 **7 Oct — `b = 0.75` measured on QASPER and rejected.** 224 hits against `b = 0`'s 228, with document-finding, passage accuracy, rank-1 and MRR all slightly worse and the pool identical at 322. Twenty questions move for a net of four — the churn BM25 shows everywhere — so the margin is inside noise while the sign is consistent across six measures. It confirms on the second corpus a parameter that had only ever been tuned on the first. The draft cache is complete as of this run, so later High runs on QASPER compare draft-for-draft.
 
