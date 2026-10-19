@@ -88,6 +88,7 @@ Documents can be indexed without opening a chat, and retrieval quality can be me
 
 ## Documentation
 
+- [Architecture](documentation/Architecture.md): what each file does, the order things happen in, and where to change what
 - [User Guide](documentation/UserGuide.md): settings, retrieval depth, reindexing and troubleshooting inside LM Studio
 - [Command-Line Tools](documentation/CLI.md): indexing without LM Studio's interface, environment variables and maintainer defaults
 - [Evaluation](documentation/Evaluation.md): measuring retrieval quality
