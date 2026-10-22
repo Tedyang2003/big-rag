@@ -260,3 +260,70 @@ test("a failed format rebuild's dropped legacy chunks are not resurrected by a l
     await fs.rm(dbDir, { recursive: true, force: true });
   }
 });
+
+test("cancelling a run does not blacklist the file it interrupted", async () => {
+  // Pausing mid-file threw inside the per-file try, so the file was recorded in the failed-file
+  // registry as "parser.unexpected-error". The registry keys on path plus hash and is consulted
+  // before parsing, so a later incremental run skipped that file without retrying it: one pause
+  // silently dropped a good document from the index until it was edited.
+  const docsDir = await fs.mkdtemp(path.join(os.tmpdir(), "big-rag-abort-docs-"));
+  const dbDir = await fs.mkdtemp(path.join(os.tmpdir(), "big-rag-abort-db-"));
+  try {
+    const manyChunks = Array.from(
+      { length: 40 },
+      (_, i) => `Paragraph ${i}. The shelving team restocks the lower gallery before opening.`,
+    ).join("\n\n");
+    await fs.writeFile(path.join(docsDir, "interrupted.txt"), manyChunks);
+    const store = new VectorStore(dbDir);
+    await store.initialize();
+
+    const controller = new AbortController();
+    const embeddingModel = {
+      // Aborts as the first chunk is embedded, so the abort lands inside the file's try block -
+      // exactly where stopping generation mid-index lands it.
+      embed: async () => {
+        controller.abort();
+        return { embedding: [1, 0, 0] };
+      },
+      countTokens: async (text: string) => text.split(/\s+/).filter(Boolean).length,
+    } as unknown as EmbeddingDynamicHandle;
+
+    const base = {
+      documentsDir: docsDir,
+      vectorStore: store,
+      vectorStoreDir: dbDir,
+      embeddingModel,
+      embeddingModelId: "test-model",
+      client: {} as LMStudioClient,
+      chunkSize: 32,
+      chunkOverlap: 0,
+      maxConcurrent: 1,
+      enableOCR: false,
+      skipUnchangedFiles: true,
+      structuredIndexing: true,
+      rebuildExistingFiles: false,
+      parseDelayMs: 0,
+    };
+
+    await assert.rejects(
+      () => new IndexManager({ ...base, abortSignal: controller.signal }).index(),
+      "an aborted run must surface the abort rather than reporting the file as failed",
+    );
+
+    // The pause is over; this run has every reason to index the file.
+    const resumed = await new IndexManager({
+      ...base,
+      embeddingModel: {
+        embed: async () => ({ embedding: [1, 0, 0] }),
+        countTokens: async (text: string) => text.split(/\s+/).filter(Boolean).length,
+      } as unknown as EmbeddingDynamicHandle,
+    }).index();
+
+    assert.equal(resumed.skippedFiles, 0, "the interrupted file must not be skipped as a known failure");
+    assert.equal(resumed.successfulFiles, 1);
+    assert.ok((await store.listChunks()).length > 0, "the interrupted file must end up in the index");
+  } finally {
+    await fs.rm(docsDir, { recursive: true, force: true });
+    await fs.rm(dbDir, { recursive: true, force: true });
+  }
+});

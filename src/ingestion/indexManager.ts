@@ -18,6 +18,23 @@ import { documentText } from "../utils/embeddingPrefix";
 const EXCLUDE_PROGRESS_THROTTLE = 40;
 
 // Progress for Indexing Procedure
+/**
+ * Whether a thrown error is this run being cancelled rather than a problem with the file.
+ *
+ * The abort checks sit inside the per-file try, so pausing mid-file threw where a parse error
+ * throws, and the file was recorded in the failed-file registry as "parser.unexpected-error".
+ * The skip check consults that registry before parsing and keys it on path plus hash, so one
+ * pause dropped a perfectly good document from every later incremental run until it was edited.
+ *
+ * The signal is consulted as well as the error, because anything failing once cancellation has
+ * begun is collateral: an in-flight embedding request rejects on its own terms, and none of it
+ * says the file is bad.
+ */
+function isCancellation(error: unknown, abortSignal?: AbortSignal): boolean {
+  if (abortSignal?.aborted) return true;
+  return error instanceof Error && error.name === "AbortError";
+}
+
 export interface IndexingProgress {
   totalFiles: number;
   processedFiles: number;
@@ -253,6 +270,7 @@ export class IndexManager {
 
             outcome = await this.indexFile(file, fileInventory);
           } catch (error) {
+            if (isCancellation(error, abortSignal)) throw error;
             console.error(`Error indexing file ${file.path}:`, error);
             this.recordFailure(
               "parser.unexpected-error",
@@ -468,6 +486,7 @@ export class IndexManager {
             },
           });
         } catch (error) {
+          if (isCancellation(error, this.options.abortSignal)) throw error;
           console.error(`Error embedding chunk ${i} of ${file.name}:`, error);
         }
       }
@@ -503,6 +522,7 @@ export class IndexManager {
           changeType: hasSeenBefore ? "updated" : "new",
         };
       } catch (error) {
+        if (isCancellation(error, this.options.abortSignal)) throw error;
         console.error(`Error adding chunks for ${file.name}:`, error);
         this.recordFailure(
           "index.vector-add-error",
@@ -515,6 +535,7 @@ export class IndexManager {
         return { type: "failed" };
       }
     } catch (error) {
+      if (isCancellation(error, this.options.abortSignal)) throw error;
           console.error(`Error indexing file ${file.path}:`, error);
           this.recordFailure(
             "parser.unexpected-error",
