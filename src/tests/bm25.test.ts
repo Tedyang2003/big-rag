@@ -1,19 +1,19 @@
 import { test } from "node:test";
 import * as assert from "node:assert/strict";
-import { rankTexts, tokenize } from "../retrieval/bm25";
+import { rankByBm25, bm25Tokenize } from "../retrieval/bm25";
 
 const OPTIONS = { k1: 1.2, b: 0.75 };
 
-test("tokenize lowercases, drops stop words and short tokens, and trims suffixes", () => {
-  assert.deepEqual(tokenize("The buses COLLIDED on the PIE!"), ["bus", "collid", "pie"]);
-  assert.deepEqual(tokenize("Collision, collisions; collision."), ["collision", "collision", "collision"]);
-  assert.deepEqual(tokenize("report 2026-09-08"), ["report", "2026", "09", "08"]);
-  assert.deepEqual(tokenize("the and of to"), []);
-  assert.deepEqual(tokenize("   "), []);
+test("bm25Tokenize lowercases, drops stop words and short tokens, and trims suffixes", () => {
+  assert.deepEqual(bm25Tokenize("The buses COLLIDED on the PIE!"), ["bus", "collid", "pie"]);
+  assert.deepEqual(bm25Tokenize("Collision, collisions; collision."), ["collision", "collision", "collision"]);
+  assert.deepEqual(bm25Tokenize("report 2026-09-08"), ["report", "2026", "09", "08"]);
+  assert.deepEqual(bm25Tokenize("the and of to"), []);
+  assert.deepEqual(bm25Tokenize("   "), []);
 });
 
-test("rankTexts puts the candidate matching more of the query first", () => {
-  const ranked = rankTexts(
+test("rankByBm25 puts the candidate matching more of the query first", () => {
+  const ranked = rankByBm25(
     ["bus", "collision"],
     [
       { key: "neither", text: "timetable notice for the new term" },
@@ -28,7 +28,7 @@ test("rankTexts puts the candidate matching more of the query first", () => {
 test("a term every candidate shares carries no weight, however rare it is elsewhere", () => {
   // "ulta" is rare across a real corpus but sits on every page of one filing, so among
   // these candidates it separates nothing; "expenditure" appears once and decides the order.
-  const ranked = rankTexts(
+  const ranked = rankByBm25(
     ["ulta", "expenditure"],
     [
       { key: "boilerplate", text: "about ulta ulta ulta beauty stores and locations" },
@@ -40,8 +40,8 @@ test("a term every candidate shares carries no weight, however rare it is elsewh
   assert.equal(ranked[0], "statement");
 });
 
-test("rankTexts prefers the shorter candidate at equal term frequency", () => {
-  const ranked = rankTexts(
+test("rankByBm25 prefers the shorter candidate at equal term frequency", () => {
+  const ranked = rankByBm25(
     ["collision"],
     [
       { key: "long", text: `collision ${"filler ".repeat(49).trim()}` },
@@ -53,8 +53,8 @@ test("rankTexts prefers the shorter candidate at equal term frequency", () => {
   assert.deepEqual(ranked, ["short", "long"]);
 });
 
-test("rankTexts drops candidates no query term reaches", () => {
-  const ranked = rankTexts(
+test("rankByBm25 drops candidates no query term reaches", () => {
+  const ranked = rankByBm25(
     ["collision"],
     [
       { key: "none", text: "timetable changes for the new term" },
@@ -65,9 +65,9 @@ test("rankTexts drops candidates no query term reaches", () => {
   assert.deepEqual(ranked, ["hit"]);
 });
 
-test("rankTexts returns nothing when nothing can be ranked", () => {
+test("rankByBm25 returns nothing when nothing can be ranked", () => {
   const candidates = [{ key: "a", text: "bus collision" }];
-  assert.deepEqual(rankTexts([], candidates, OPTIONS), []);
-  assert.deepEqual(rankTexts(["collision"], [], OPTIONS), []);
-  assert.deepEqual(rankTexts(["zebra"], candidates, OPTIONS), []);
+  assert.deepEqual(rankByBm25([], candidates, OPTIONS), []);
+  assert.deepEqual(rankByBm25(["collision"], [], OPTIONS), []);
+  assert.deepEqual(rankByBm25(["zebra"], candidates, OPTIONS), []);
 });

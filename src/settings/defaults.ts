@@ -12,7 +12,6 @@ export const FIXED_DEFAULTS = {
   parseDelayMs: 500,
   enableOCR: true,
   structuredIndexing: true,
-  enableContextCompaction: false,
   laneCandidates: 50,
   rrfConstant: 60,
   // A passage that continues into the next chunk is returned with it, when that chunk is already

@@ -3,18 +3,20 @@ import { createConfigSchematics } from "@lmstudio/sdk";
 /** Default embedding model id (must match CLI default when env is unset). */
 export const DEFAULT_EMBEDDING_MODEL_ID = "nomic-ai/nomic-embed-text-v1.5-GGUF";
 
+// Check of the identifier is string, trim it, length > 0, else use default embeddings model
 export function resolveEmbeddingModelId(raw: string | undefined | null): string {
   const t = typeof raw === "string" ? raw.trim() : "";
   return t.length > 0 ? t : DEFAULT_EMBEDDING_MODEL_ID;
 }
 
+
+// Default Prompt Template
 export const DEFAULT_PROMPT_TEMPLATE = `{{rag_context}}
-
 Answer the question below using the passages above, which were retrieved for it. Any passages earlier in this conversation belong to earlier questions and do not apply here. If the passages above are not relevant, answer as best you can without them.
-
 User Query:
-
 {{user_query}}`;
+
+
 
 /** Set once for the plugin in LM Studio's plugin settings; not shown per chat. */
 export const globalConfigSchematics = createConfigSchematics()

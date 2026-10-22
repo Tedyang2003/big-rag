@@ -6,7 +6,6 @@ export interface RetrievalSettings {
   retrievalLimit: number;
   retrievalThreshold: number;
   chunkSize: number;
-  enableContextCompaction: boolean;
   retrievalDepth: RetrievalDepth;
   /** Set a signal's weight to 0 to run without it, which is how its contribution is attributed. */
   laneWeights: { vector: number; hyde: number; keyword: number; date: number };
@@ -63,7 +62,6 @@ export function readRetrievalSettings(env: Record<string, string | undefined>): 
     retrievalLimit,
     retrievalThreshold,
     chunkSize,
-    enableContextCompaction: (env.BIG_RAG_ENABLE_COMPACTION ?? String(FIXED_DEFAULTS.enableContextCompaction)).trim().toLowerCase() === "true",
     retrievalDepth: rawDepth,
     laneWeights: {
       vector: readWeight(env, "BIG_RAG_LANE_WEIGHT_VECTOR", FIXED_DEFAULTS.laneWeightVector),

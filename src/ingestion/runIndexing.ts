@@ -15,11 +15,13 @@ export interface RunIndexingParams {
   maxConcurrent: number;
   enableOCR: boolean;
   structuredIndexing: boolean;
-  autoReindex: boolean;
+  skipUnchangedFiles: boolean;
   parseDelayMs: number;
   /** Glob patterns relative to documents dir; matching supported files are not parsed or embedded. */
   excludePatterns?: string[];
   forceReindex?: boolean;
+  /** Where to write the report of files that could not be parsed. The CLI uses this; the plugin does not. */
+  failureReportPath?: string;
   vectorStore?: VectorStore;
   onProgress?: (progress: IndexingProgress) => void;
 }
@@ -48,24 +50,33 @@ export async function runIndexingJob({
   maxConcurrent,
   enableOCR,
   structuredIndexing,
-  autoReindex,
+  skipUnchangedFiles,
   parseDelayMs,
   excludePatterns = [],
   forceReindex = false,
+  failureReportPath,
   vectorStore: existingVectorStore,
   onProgress,
 }: RunIndexingParams): Promise<RunIndexingResult> {
+
+  // Check if there is a need for vector store (CLI vs App Use)
   const vectorStore = existingVectorStore ?? new VectorStore(vectorStoreDir);
   const ownsVectorStore = existingVectorStore === undefined;
 
+  // If it needs a vector store, run init
   if (ownsVectorStore) {
     await vectorStore.initialize();
   }
 
+  // Handle the Embedder ID. Else use the Default one if fail
   const resolvedModelId = resolveEmbeddingModelId(embeddingModelId);
+
+  // Load the model if fail, abort 
   const embeddingModel = await client.embedding.model(resolvedModelId, { signal: abortSignal });
 
+  // Get current vectorStore statistics
   const statsBefore = await vectorStore.getStats();
+  
   const { indexFormat, rebuildExistingFiles } = await planIndexFormat(
     vectorStoreDir,
     statsBefore.totalChunks,
@@ -84,11 +95,12 @@ export async function runIndexingJob({
     chunkOverlap,
     maxConcurrent,
     enableOCR,
-    autoReindex: forceReindex || rebuildExistingFiles ? false : autoReindex,
+    skipUnchangedFiles: forceReindex || rebuildExistingFiles ? false : skipUnchangedFiles,
     structuredIndexing,
     rebuildExistingFiles,
     parseDelayMs,
     excludePatterns,
+    failureReportPath,
     abortSignal,
     onProgress,
   });
@@ -97,10 +109,13 @@ export async function runIndexingJob({
   try {
     indexingResult = await indexManager.index();
   } finally {
+
+    // Release Cache after disk writing
     await vectorStore.releaseShardCache();
   }
   const stats = await vectorStore.getStats();
 
+  // Resync Manifest for future use
   await syncEmbeddingManifestAfterIndexing(
     vectorStoreDir,
     stats.totalChunks,
@@ -109,6 +124,7 @@ export async function runIndexingJob({
     indexFormat,
   );
 
+  // Used mainly for CLI with no plugin vectorstore init, close connection
   if (ownsVectorStore) {
     await vectorStore.close();
   }

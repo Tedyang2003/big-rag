@@ -71,21 +71,36 @@ export async function scanDirectory(
       for (const entry of entries) {
         const fullPath = path.join(dir, entry.name);
 
+
+        // if it is a directory walk a level down
         if (entry.isDirectory()) {
           await walk(fullPath);
         } else if (entry.isFile()) {
           scannedCount++;
-
+          
           const ext = path.extname(entry.name).toLowerCase();
 
+          // Check if extension is supported
           if (SUPPORTED_EXTENSIONS.has(ext)) {
             const relativePosix = toPosixRelativePath(root, fullPath);
+
+            // Check if extension is declared excluded by users
             const matchedPattern =
               excludePatterns.length > 0 ? matchExcludePattern(relativePosix, excludePatterns) : null;
 
             if (matchedPattern !== null) {
               onExcludedFile?.({ relativePath: relativePosix, pattern: matchedPattern });
             } else {
+
+              /* 
+                If not excluded return:
+                - path 
+                - name
+                - extension 
+                - bytes
+                - modified time
+                - mime type
+              */
               const stats = await fs.promises.stat(fullPath);
               const mimeType = mime.lookup(fullPath);
 
@@ -117,12 +132,4 @@ export async function scanDirectory(
   }
 
   return files;
-}
-
-/**
- * Check if a file type is supported
- */
-export function isSupportedFile(filePath: string): boolean {
-  const ext = path.extname(filePath).toLowerCase();
-  return SUPPORTED_EXTENSIONS.has(ext);
 }

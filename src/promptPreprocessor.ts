@@ -21,10 +21,10 @@ import {
   deleteEmbeddingIndexManifest,
   indexFormatStatusMessage,
 } from "./utils/embeddingIndexManifest";
-import { documentText, queryText } from "./utils/embeddingPrefix";
+import { queryText } from "./utils/embeddingPrefix";
 import * as path from "path";
 import { runIndexingJob } from "./ingestion/runIndexing";
-import { retrieve, type LaneCounts } from "./retrieval/retrieve";
+import { retrieve, type SignalCounts } from "./retrieval/retrieve";
 import { renderPassageForPrompt } from "./retrieval/renderPassage";
 import { getCatalog, resetCatalogCache } from "./retrieval/catalogManager";
 import { fitToContext } from "./utils/fitToContext";
@@ -196,18 +196,26 @@ export async function preprocess(
   userMessage: ChatMessage,
 ): Promise<ChatMessage | string> {
   const userPrompt = userMessage.getText();
+
+
+  // Resolve the settings as object attributes after checking for missing values, and combining with fixed config settings
   const settings = resolveSettings(
     asConfigReader(ctl.getGlobalPluginConfig(globalConfigSchematics)),
     asConfigReader(ctl.getPluginConfig(configSchematics)),
   );
 
+
+  // Check if missing required values.
   if (settings.missingRequired.length > 0) {
+    // Warn users with a message and just return the message for the model to respond by training knowledge
     const text = notConfiguredMessage(settings.missingRequired);
     console.warn(`[BigRAG] ${text}`);
     ctl.createStatus({ status: "canceled", text });
     return userMessage;
   }
 
+
+  // Expand these details for usage
   const {
     documentsDirectory: documentsDir,
     vectorStoreDirectory: vectorStoreDir,
@@ -221,26 +229,28 @@ export async function preprocess(
     parseDelayMs,
     enableOCR,
     structuredIndexing,
-    enableContextCompaction,
     reindexMode,
     retrievalDepth,
   } = settings;
 
   try {
-    // Sanity checks and vector store init are one-time setup (guarded below)
-    // - merged into a single status so a fresh session shows one "Using Big
-    // RAG" line instead of two separate ones, and steady-state turns (once
-    // both are already done) show nothing extra at all.
+    
+    // Check if sanity check is needed. Done everytime lm studio is reopened or a new chat is used
     const currentDirsKey = `${documentsDir}\n${vectorStoreDir}`;
     const needsSanityCheck = !sanityChecksPassed || lastSanityCheckedDirs !== currentDirsKey;
+    
+    // Check if vector store init is needed
     const needsVectorStoreInit = !vectorStore || lastIndexedDir !== vectorStoreDir;
 
+
+    // If we need a sanity check or a new vector store initialisation
     if (needsSanityCheck || needsVectorStoreInit) {
       const usingBigRagStatus = ctl.createStatus({
         status: "loading",
         text: "Using Big RAG...",
       });
 
+      // Run a sanity check
       if (needsSanityCheck) {
         // Check if the documents and vector store directories exist and are accessible, and check disk space and memory
         const sanityResult = await performSanityChecks(documentsDir, vectorStoreDir);
@@ -272,10 +282,13 @@ export async function preprocess(
 
       checkAbort(ctl.abortSignal);
 
+
+      // Create Vector Store if it does not exist yet, or open existing one
       if (needsVectorStoreInit) {
-        // Create Vector Store if it does not exist yet, or open existing one
         vectorStore = new VectorStore(vectorStoreDir);
         await vectorStore.initialize();
+
+        
         const statsAfterInit = await vectorStore.getStats();
         if (statsAfterInit.totalChunks === 0) {
           await deleteEmbeddingIndexManifest(vectorStoreDir);
@@ -301,6 +314,7 @@ export async function preprocess(
 
     checkAbort(ctl.abortSignal);
 
+    // Run reindex check and reindex if needed 
     await runRequestedReindex(ctl, settings, vectorStore);
 
     checkAbort(ctl.abortSignal);
@@ -309,6 +323,8 @@ export async function preprocess(
     const stats = await vectorStore.getStats();
     console.debug(`[BigRAG] Vector store stats before auto-index check: totalChunks=${stats.totalChunks}, uniqueFiles=${stats.uniqueFiles}`);
 
+
+    // If chunks in DB are 0, cause auto index anyways for first time runIndexingJon
     if (stats.totalChunks === 0) {
       if (!tryStartIndexing("auto-trigger")) {
         console.warn("[BigRAG] Indexing already running, skipping automatic indexing.");
@@ -330,7 +346,7 @@ export async function preprocess(
             maxConcurrent,
             enableOCR,
             structuredIndexing,
-            autoReindex: false,
+            skipUnchangedFiles: false,
             parseDelayMs,
             excludePatterns,
             vectorStore,
@@ -395,6 +411,8 @@ export async function preprocess(
         status: "canceled",
         text: "No documents indexed yet",
       });
+
+      // Failure message, Return prompt as is telling the model to tell the user that nothing has been indexed 
       const noteAboutEmptyIndex =
         `Important: The document index is empty (no chunks stored yet). ` +
         `In one short sentence, tell the user that nothing has been indexed. ` +
@@ -414,12 +432,15 @@ export async function preprocess(
 
     checkAbort(ctl.abortSignal);
 
+    // Check if the current embedding model is compatible with the indexed data
     const compatibility = await checkEmbeddingModelForRetrieval({
       vectorStoreDir,
       resolvedModelId: resolvedEmbeddingModelId,
       totalChunks: retrievalStats.totalChunks,
       embeddingModel,
     });
+
+    // Check if the model is compatible to the index
     if (!compatibility.ok) {
       retrievalStatus.setState({
         status: "error",
@@ -491,17 +512,17 @@ export async function preprocess(
     const queryPreview =
       userPrompt.length > 160 ? `${userPrompt.slice(0, 160)}...` : userPrompt;
     console.info(
-      `[BigRAG] Executing retrieval for "${queryPreview}" (limit=${retrievalLimit}, threshold=${retrievalThreshold}, compaction=${enableContextCompaction})`,
+      `[BigRAG] Executing retrieval for "${queryPreview}" (limit=${retrievalLimit}, threshold=${retrievalThreshold})`,
     );
-    const { passages: results, timings, laneCounts, passageLanes, dayRanges } = await retrieve(
+
+    // Call retrieve
+    const { passages: results, timings, signalCounts, passageLanes, dayRanges } = await retrieve(
       userPrompt,
       {
+        // Passed as such due to how these can changed depending on caller
         vectorStore,
         embedQuery: async (text) =>
           (await embeddingModel.embed(queryText(resolvedEmbeddingModelId, text))).embedding,
-        embedSentences: (sentences) =>
-          embeddingModel.embed(sentences.map((sentence) => documentText(resolvedEmbeddingModelId, sentence))),
-        countTokens: (text) => embeddingModel.countTokens(text),
         // Only reached at High. The draft is embedded and thrown away: its specifics are
         // invented, so it must never reach the prompt, a citation or a status line.
         hypothetical: async (question) =>
@@ -519,7 +540,6 @@ export async function preprocess(
         retrievalLimit,
         retrievalThreshold,
         chunkSize,
-        enableContextCompaction,
         depth: retrievalDepth,
         laneCandidates: settings.laneCandidates,
         neighbourChunks: settings.neighbourChunks,
@@ -541,7 +561,7 @@ export async function preprocess(
       `[BigRAG] Retrieval timings: ${timings.map((t) => `${t.stage}=${t.ms.toFixed(0)}ms`).join(" ")}`,
     );
     console.info(
-      `[BigRAG] Lanes: meaning=${laneCounts.vector} likely-wording=${laneCounts.hyde} dates=${laneCounts.date}` +
+      `[BigRAG] Lanes: meaning=${signalCounts.vector} likely-wording=${signalCounts.hyde} dates=${signalCounts.date}` +
         (dayRanges.length > 0 ? ` ranges=${dayRanges.map((r) => `${r.start}-${r.end}`).join(",")}` : " ranges=none"),
     );
     if (results.length > 0) {
@@ -582,7 +602,7 @@ export async function preprocess(
     const relevantLanes = relevant.map((passage) => passageLanes[results.indexOf(passage)] ?? []);
     // Counted over the passages that survived the cut, so the status describes what was kept
     // rather than what was nominated.
-    const keptCounts: LaneCounts = { vector: 0, hyde: 0, keyword: 0, date: 0 };
+    const keptCounts: SignalCounts = { vector: 0, hyde: 0, keyword: 0, date: 0 };
     for (const lanes of relevantLanes) {
       if (lanes.includes("vector")) keptCounts.vector++;
       if (lanes.includes("hyde")) keptCounts.hyde++;
@@ -619,7 +639,9 @@ export async function preprocess(
     // answers from whichever set is largest, which is how "what does shao yang like" came back
     // as a summary of a company discussed two questions earlier.
     const prefix =
-      `The passages below were retrieved for this question, and only this one: "${userPrompt}"\n\n`;
+      `The passages below were retrieved for this question, and only this one: "${userPrompt}"
+
+`;
     const promptTemplate = normalizePromptTemplate(settings.promptTemplate);
 
     /** The prompt carrying the highest-ranked `count` passages, in full or abbreviated form. */
@@ -747,9 +769,12 @@ async function runRequestedReindex(
   if (mode === "off") {
     return;
   }
+
+  // Embedding Model
   const embeddingModelId = settings.embeddingModelId;
   const label = REINDEX_MODE_LABELS[mode];
 
+  // Check for index lock. If locked cancel
   if (!tryStartIndexing("config-trigger")) {
     ctl.createStatus({
       status: "canceled",
@@ -763,6 +788,7 @@ async function runRequestedReindex(
     text: `Reindex requested (${label})… (embedding model: ${embeddingModelId})`,
   });
 
+  // Run an indexing job
   try {
     const { indexingResult } = await runIndexingJob({
       client: ctl.client,
@@ -775,11 +801,13 @@ async function runRequestedReindex(
       maxConcurrent: settings.maxConcurrentFiles,
       enableOCR: settings.enableOCR,
       structuredIndexing: settings.structuredIndexing,
-      autoReindex: mode === "changed",
+      skipUnchangedFiles: mode === "changed",
       parseDelayMs: settings.parseDelayMs,
       excludePatterns: settings.excludePatterns,
       forceReindex: mode === "rebuild",
       vectorStore: store,
+
+      // Call back Loader to call setState for status
       onProgress: (progress) => {
         if (progress.status === "scanning") {
           status.setState({

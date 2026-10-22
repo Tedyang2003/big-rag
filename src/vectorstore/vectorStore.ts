@@ -130,8 +130,11 @@ export class VectorStore {
   async initialize(): Promise<void> {
     await fs.mkdir(this.dbPath, { recursive: true });
     this.shardCache.clear();
+
+    // Find vector shards
     this.shardDirs = await this.discoverShardDirs();
 
+    // If there are no shards, then create the first one and create an index
     if (this.shardDirs.length === 0) {
       const firstDir = `${SHARD_DIR_PREFIX}000`;
       const fullPath = path.join(this.dbPath, firstDir);
@@ -142,6 +145,8 @@ export class VectorStore {
       this.activeShard = index;
       this.activeShardCount = 0;
     } else {
+
+      // If there are shards, then set the last dir as the active shard
       const lastDir = this.shardDirs[this.shardDirs.length - 1];
       this.activeShard = this.cachedShard(lastDir);
       const items = await this.activeShard.listItems();

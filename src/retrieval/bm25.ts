@@ -20,7 +20,7 @@ function trimSuffix(word: string): string {
 }
 
 /** Splits text into scoring terms: lowercase, stop words and 1-character tokens removed, suffixes trimmed. */
-export function tokenize(text: string): string[] {
+export function bm25Tokenize(text: string): string[] {
   const terms: string[] = [];
   for (const raw of text.toLowerCase().split(/[^a-z0-9]+/)) {
     if (raw.length < MIN_TERM_LENGTH || STOP_WORDS.has(raw)) continue;
@@ -51,7 +51,7 @@ export interface Bm25Candidate {
  * shortlist it collapses to zero and the terms that actually distinguish one candidate
  * from another take the weight.
  */
-export function rankTexts(terms: string[], candidates: Bm25Candidate[], options: Bm25Options): string[] {
+export function rankByBm25(terms: string[], candidates: Bm25Candidate[], options: Bm25Options): string[] {
   if (terms.length === 0 || candidates.length === 0) return [];
 
   const wanted = new Set(terms);
@@ -60,7 +60,7 @@ export function rankTexts(terms: string[], candidates: Bm25Candidate[], options:
   const documentFrequency = new Map<string, number>();
 
   for (const candidate of candidates) {
-    const candidateTerms = tokenize(candidate.text);
+    const candidateTerms = bm25Tokenize(candidate.text);
     lengths.push(candidateTerms.length);
     const frequencies = new Map<string, number>();
     for (const term of candidateTerms) {

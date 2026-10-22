@@ -2,9 +2,9 @@ import { LMStudioClient } from "@lmstudio/sdk";
 import * as path from "path";
 import { resolveEmbeddingModelId } from "./config";
 import { VectorStore } from "./vectorstore/vectorStore";
-import { retrieve, CONTEXT_COMPACTION_POOL_MULTIPLIER } from "./retrieval/retrieve";
+import { retrieve } from "./retrieval/retrieve";
 import { checkEmbeddingModelForRetrieval } from "./utils/embeddingIndexManifest";
-import { documentText, queryText } from "./utils/embeddingPrefix";
+import { queryText } from "./utils/embeddingPrefix";
 import { buildQuestionPrompt, generateQuestions, QUESTION_JSON_SCHEMA } from "./eval/generateQuestions";
 import { loadQuestionSet, toRelativeSourcePath, writeNewFile } from "./eval/questionSet";
 import { formatMetricsTable, runEval } from "./eval/runEval";
@@ -131,7 +131,7 @@ async function runRun(client: LMStudioClient, vectorStore: VectorStore, document
 
   const diagnosticPoolSize = Math.max(
     MIN_DIAGNOSTIC_POOL_SIZE,
-    settings.retrievalLimit * (settings.enableContextCompaction ? CONTEXT_COMPACTION_POOL_MULTIPLIER : 1),
+    settings.retrievalLimit,
   );
   const settingsSnapshot = await buildSettingsSnapshot({
     settings,
@@ -163,9 +163,6 @@ async function runRun(client: LMStudioClient, vectorStore: VectorStore, document
           {
             vectorStore,
             embedQuery: async (text) => (await embeddingModel.embed(queryText(embeddingModelId, text))).embedding,
-            embedSentences: (sentences) =>
-              embeddingModel.embed(sentences.map((sentence) => documentText(embeddingModelId, sentence))),
-            countTokens: (text) => embeddingModel.countTokens(text),
             catalog: catalogOutcome.catalog,
             hypothetical: hypotheticals
               ? (question) => hypotheticals!.forQuestion(questionId, question)

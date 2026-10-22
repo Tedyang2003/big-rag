@@ -17,6 +17,7 @@ import { documentText } from "../utils/embeddingPrefix";
 
 const EXCLUDE_PROGRESS_THROTTLE = 40;
 
+// Progress for Indexing Procedure
 export interface IndexingProgress {
   totalFiles: number;
   processedFiles: number;
@@ -28,6 +29,7 @@ export interface IndexingProgress {
   error?: string;
 }
 
+// Results of Indexing Procedure
 export interface IndexingResult {
   totalFiles: number;
   successfulFiles: number;
@@ -37,11 +39,13 @@ export interface IndexingResult {
   newFiles: number;
 }
 
+// Fixed Index Outcome
 type FileIndexOutcome =
   | { type: "skipped" }
   | { type: "indexed"; changeType: "new" | "updated" }
   | { type: "failed" };
 
+// Indexing Settings
 export interface IndexingOptions {
   documentsDir: string;
   vectorStore: VectorStore;
@@ -54,7 +58,8 @@ export interface IndexingOptions {
   chunkOverlap: number;
   maxConcurrent: number;
   enableOCR: boolean;
-  autoReindex: boolean;
+  /** Skip a file whose content hash is already in the store. False reprocesses every file. */
+  skipUnchangedFiles: boolean;
   parseDelayMs: number;
   /** Build structured chunks (Markdown sections, dates, context headers) instead of legacy chunks. */
   structuredIndexing: boolean;
@@ -67,8 +72,10 @@ export interface IndexingOptions {
   onProgress?: (progress: IndexingProgress) => void;
 }
 
+// Types of Failure
 type FailureReason = ParseFailureReason | "index.chunk-empty" | "index.vector-add-error";
 
+// Prepared Chunk Object
 interface PreparedChunk {
   text: string;
   embedText: string;
@@ -77,6 +84,7 @@ interface PreparedChunk {
   metadata: Record<string, string>;
 }
 
+// Index Manager main role is to convert files into chunks in a vector store
 export class IndexManager {
   private queue: PQueue;
   private options: IndexingOptions;
@@ -91,13 +99,12 @@ export class IndexManager {
     );
   }
 
-  /**
-   * Start the indexing process
-   */
+  // Indexing Process
   async index(): Promise<IndexingResult> {
     const { documentsDir, vectorStore, onProgress } = this.options;
 
     try {
+      // Get File Inventory (object of file path: hashes)
       const fileInventory = await vectorStore.getFileHashInventory();
 
       // Step 1: Scan directory
@@ -110,26 +117,41 @@ export class IndexManager {
         });
       }
 
+      // File Patterns that should be excluded
       const excludePatterns = this.options.excludePatterns ?? [];
+
+      // count
       let excludedByPattern = 0;
+      
+      // Last excluded item
       let lastExcludeProgressEmittedAt = 0;
       let lastExcludedRelative = "";
 
+      // Call back for status update every x files excluded. To prevent UI Thrashing
       const onExcludedFile: ((info: ExcludedFileInfo) => void) | undefined =
+        // If exculde patterns are declared
         excludePatterns.length > 0
           ? (info: ExcludedFileInfo) => {
-              excludedByPattern++;
-              lastExcludedRelative = info.relativePath;
+
+              excludedByPattern++; // Count this one
+              lastExcludedRelative = info.relativePath; // remeber it for the status check
+
               console.log(
                 `Excluded from indexing (exclude pattern): ${info.relativePath} (matched: ${info.pattern})`,
               );
+
+              // No UI listener No need to track this
               if (!onProgress) {
                 return;
               }
+
+              // If this is the first one and subsequently every 40th multiple item, return a status updated 
               if (
                 excludedByPattern === 1 ||
                 excludedByPattern - lastExcludeProgressEmittedAt >= EXCLUDE_PROGRESS_THROTTLE
               ) {
+
+                // Last excluded item
                 lastExcludeProgressEmittedAt = excludedByPattern;
                 onProgress({
                   totalFiles: 0,
@@ -141,6 +163,8 @@ export class IndexManager {
             }
           : undefined;
 
+
+      // Scan Directory Function, returns all files that can be indexed. 
       const files = await scanDirectory(
         documentsDir,
         (scanned, found) => {
@@ -159,6 +183,7 @@ export class IndexManager {
         },
       );
 
+      
       if (
         onProgress &&
         excludedByPattern > 0 &&
@@ -172,6 +197,7 @@ export class IndexManager {
         });
       }
 
+
       this.options.abortSignal?.throwIfAborted();
 
       console.log(
@@ -181,7 +207,7 @@ export class IndexManager {
             : ""),
       );
 
-      // Step 2: Index files
+      // Step 2: File Indexing process
       let processedCount = 0;
       let successCount = 0;
       let failCount = 0;
@@ -235,6 +261,7 @@ export class IndexManager {
             );
           }
 
+          // Counter manipulation based on indexFile outcome type to tally values
           processedCount++;
           switch (outcome.type) {
             case "skipped":
@@ -332,29 +359,38 @@ export class IndexManager {
     file: ScannedFile,
     fileInventory: Map<string, Set<string>> = new Map(),
   ): Promise<FileIndexOutcome> {
-    const { vectorStore, embeddingModel, client, enableOCR, autoReindex } = this.options;
+    const { vectorStore, embeddingModel, client, enableOCR, skipUnchangedFiles } = this.options;
 
     let fileHash: string | undefined;
     try {
       // Calculate file hash
       fileHash = await calculateFileHash(file.path);
+
+      // Check existence of hash for that file
       const existingHashes = fileInventory.get(file.path);
       const hasSeenBefore = existingHashes !== undefined && existingHashes.size > 0;
       const hasSameHash = existingHashes?.has(fileHash) ?? false;
-      const skipUnchanged = autoReindex && !this.options.rebuildExistingFiles;
 
-      // Check if file already indexed
+      // If indicated to skip unchanged files or rebuild existing files
+      const skipUnchanged = skipUnchangedFiles && !this.options.rebuildExistingFiles;
+
+      // If requested to skip file that is unchanged and the hash is the same log that and skip. 
       if (skipUnchanged && hasSameHash) {
         console.log(`File already indexed (skipped): ${file.name}`);
         return { type: "skipped" };
       }
 
+      //  If requested to skip file 
       if (skipUnchanged) {
         const previousFailure = await this.failedFileRegistry.getFailureReason(file.path, fileHash);
+        
+        // Check if the file failed previously and return skipped 
         if (previousFailure) {
           console.log(
             `File previously failed (skipped): ${file.name} (reason=${previousFailure})`,
           );
+
+
           return { type: "skipped" };
         }
       }
@@ -364,21 +400,30 @@ export class IndexManager {
         await new Promise(resolve => setTimeout(resolve, this.options.parseDelayMs));
       }
 
-      // Parse document
+      // If not requested to skip unchanged files. Parse 
       const parsedResult = await parseDocument(file.path, enableOCR, client);
+      
+      // If parsing is unsuccessful, recprd faolure
       if (!parsedResult.success) {
         this.recordFailure(parsedResult.reason, parsedResult.details, file);
         if (fileHash) {
           await this.failedFileRegistry.recordFailure(file.path, fileHash, parsedResult.reason);
         }
+
+        // Drop Stale chunks
         await this.dropStaleChunksForRebuild(existingHashes);
         return { type: "failed" };
       }
+
+      // Get parsed content
       const parsed = parsedResult.document;
 
+      // Prepare the chunks to be structured or legacy
       const chunks = this.options.structuredIndexing
         ? await this.prepareStructuredChunks(parsed.text, file)
         : await this.prepareLegacyChunks(parsed.text);
+
+      // If the there are no chunks record failure
       if (chunks.length === 0) {
         console.log(`No chunks created from ${file.name}`);
         this.recordFailure("index.chunk-empty", "chunking produced 0 chunks", file);
@@ -441,6 +486,8 @@ export class IndexManager {
         return { type: "failed" };
       }
 
+
+      // Drop old chunks and add new ones to file inventory hash to file mapping
       try {
         await this.dropStaleChunksForRebuild(existingHashes);
         await vectorStore.addChunks(documentChunks);

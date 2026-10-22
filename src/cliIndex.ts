@@ -1,8 +1,6 @@
 import { LMStudioClient } from "@lmstudio/sdk";
-import { VectorStore } from "./vectorstore/vectorStore";
-import { IndexManager } from "./ingestion/indexManager";
 import { resolveEmbeddingModelId } from "./config";
-import { planIndexFormat, syncEmbeddingManifestAfterIndexing } from "./utils/embeddingIndexManifest";
+import { runIndexingJob } from "./ingestion/runIndexing";
 import { parseExcludePatternsFromEnv } from "./utils/fileExcludePatterns";
 import { readCliIndexingSettings } from "./settings/cliSettings";
 
@@ -20,8 +18,7 @@ async function main() {
 
   const { chunkSize, chunkOverlap, maxConcurrent, enableOCR, parseDelayMs, structuredIndexing } =
     readCliIndexingSettings(process.env);
-  const autoReindex =
-    (process.env.BIG_RAG_FORCE_REINDEX ?? "false").toLowerCase() !== "true";
+  const forceReindex = (process.env.BIG_RAG_FORCE_REINDEX ?? "false").toLowerCase() === "true";
   const failureReportPath = process.env.BIG_RAG_FAILURE_REPORT_PATH;
   const excludePatterns = parseExcludePatternsFromEnv(process.env.BIG_RAG_EXCLUDE_PATTERNS);
 
@@ -38,87 +35,51 @@ async function main() {
 
   const client = new LMStudioClient();
 
-  console.log("[BigRAG CLI] Initializing vector store...");
-  const vectorStore = new VectorStore(vectorStoreDir);
-  await vectorStore.initialize();
-
-  console.log("[BigRAG CLI] Loading embedding model...");
-  const embeddingModel = await client.embedding.model(resolvedEmbeddingModelId);
-
-  const statsBefore = await vectorStore.getStats();
-  const { indexFormat, rebuildExistingFiles } = await planIndexFormat(
-    vectorStoreDir,
-    statsBefore.totalChunks,
-    structuredIndexing,
-    resolvedEmbeddingModelId,
-  );
-  if (rebuildExistingFiles) {
-    console.log(`[BigRAG CLI] Index format changes to ${indexFormat}; rebuilding every file.`);
-  }
-
-  const indexManager = new IndexManager({
-    documentsDir,
-    vectorStore,
-    vectorStoreDir,
-    embeddingModel,
-    embeddingModelId: resolvedEmbeddingModelId,
-    client,
-    chunkSize,
-    chunkOverlap,
-    maxConcurrent,
-    enableOCR,
-    autoReindex: rebuildExistingFiles ? false : autoReindex,
-    structuredIndexing,
-    rebuildExistingFiles,
-    parseDelayMs,
-    failureReportPath,
-    excludePatterns,
-    onProgress: (progress) => {
-      if (progress.status === "scanning") {
-        console.log(
-          `[BigRAG CLI] Scanning: ${progress.currentFile || "discovering files"}`,
-        );
-      } else if (progress.status === "indexing") {
-        const success = progress.successfulFiles ?? 0;
-        const failed = progress.failedFiles ?? 0;
-        const skipped = progress.skippedFiles ?? 0;
-        console.log(
-          `[BigRAG CLI] Indexing: ${progress.processedFiles}/${progress.totalFiles} files ` +
-            `(success=${success}, failed=${failed}, skipped=${skipped})`,
-        );
-      } else if (progress.status === "complete") {
-        console.log(
-          `[BigRAG CLI] Indexing complete: ${progress.processedFiles} files processed`,
-        );
-      } else if (progress.status === "error") {
-        console.error(`[BigRAG CLI] Indexing error: ${progress.error}`);
-      }
-    },
-  });
+  // runIndexingJob wants a signal so a chat can cancel a run. The CLI has nothing to cancel
+  // from, so it passes one that is never aborted.
+  const abortSignal = new AbortController().signal;
 
   try {
-    const result = await indexManager.index();
-    const stats = await vectorStore.getStats();
-    await syncEmbeddingManifestAfterIndexing(
+    const { summary } = await runIndexingJob({
+      client,
+      abortSignal,
+      documentsDir,
       vectorStoreDir,
-      stats.totalChunks,
-      resolvedEmbeddingModelId,
-      embeddingModel,
-      indexFormat,
-    );
+      embeddingModelId: resolvedEmbeddingModelId,
+      chunkSize,
+      chunkOverlap,
+      maxConcurrent,
+      enableOCR,
+      structuredIndexing,
+      skipUnchangedFiles: !forceReindex,
+      forceReindex,
+      parseDelayMs,
+      excludePatterns,
+      failureReportPath,
+      // No vectorStore is passed, so runIndexingJob builds, initialises and closes its own.
+      onProgress: (progress) => {
+        if (progress.status === "scanning") {
+          console.log(`[BigRAG CLI] Scanning: ${progress.currentFile || "discovering files"}`);
+        } else if (progress.status === "indexing") {
+          const success = progress.successfulFiles ?? 0;
+          const failed = progress.failedFiles ?? 0;
+          const skipped = progress.skippedFiles ?? 0;
+          console.log(
+            `[BigRAG CLI] Indexing: ${progress.processedFiles}/${progress.totalFiles} files ` +
+              `(success=${success}, failed=${failed}, skipped=${skipped})`,
+          );
+        } else if (progress.status === "complete") {
+          console.log(`[BigRAG CLI] Indexing complete: ${progress.processedFiles} files processed`);
+        } else if (progress.status === "error") {
+          console.error(`[BigRAG CLI] Indexing error: ${progress.error}`);
+        }
+      },
+    });
 
-    console.log(
-      "[BigRAG CLI] Indexing finished:\n" +
-        `  Files: ${result.successfulFiles}/${result.totalFiles} successfully indexed (${result.failedFiles} failed)\n` +
-        `  Chunks: ${stats.totalChunks}\n` +
-        `  Unique files: ${stats.uniqueFiles}`,
-    );
+    console.log(`[BigRAG CLI] ${summary}`);
   } catch (error) {
     console.error("[BigRAG CLI] Error during indexing:", error);
     process.exitCode = 1;
-  } finally {
-    await vectorStore.releaseShardCache();
-    await vectorStore.close();
   }
 }
 

@@ -8,7 +8,6 @@ test("readRetrievalSettings uses the plugin config defaults when env vars are un
     retrievalLimit: 5,
     retrievalThreshold: 0.5,
     chunkSize: 512,
-    enableContextCompaction: false,
     retrievalDepth: "medium",
     laneWeights: {
       vector: FIXED_DEFAULTS.laneWeightVector,
@@ -37,9 +36,8 @@ test("readRetrievalSettings reads overrides from env vars", () => {
       BIG_RAG_RETRIEVAL_LIMIT: "8",
       BIG_RAG_RETRIEVAL_THRESHOLD: "0.35",
       BIG_RAG_CHUNK_SIZE: "1024",
-      BIG_RAG_ENABLE_COMPACTION: "TRUE",
     }),
-    { retrievalLimit: 8, retrievalThreshold: 0.35, chunkSize: 1024, enableContextCompaction: true, retrievalDepth: "medium", laneWeights: { vector: FIXED_DEFAULTS.laneWeightVector, hyde: FIXED_DEFAULTS.laneWeightHyde, keyword: FIXED_DEFAULTS.laneWeightKeyword, date: FIXED_DEFAULTS.laneWeightDate }, laneCandidates: FIXED_DEFAULTS.laneCandidates, neighbourChunks: FIXED_DEFAULTS.neighbourChunks, rerankDepth: FIXED_DEFAULTS.rerankDepth, bm25K1: FIXED_DEFAULTS.bm25K1, bm25B: FIXED_DEFAULTS.bm25B },
+    { retrievalLimit: 8, retrievalThreshold: 0.35, chunkSize: 1024, retrievalDepth: "medium", laneWeights: { vector: FIXED_DEFAULTS.laneWeightVector, hyde: FIXED_DEFAULTS.laneWeightHyde, keyword: FIXED_DEFAULTS.laneWeightKeyword, date: FIXED_DEFAULTS.laneWeightDate }, laneCandidates: FIXED_DEFAULTS.laneCandidates, neighbourChunks: FIXED_DEFAULTS.neighbourChunks, rerankDepth: FIXED_DEFAULTS.rerankDepth, bm25K1: FIXED_DEFAULTS.bm25K1, bm25B: FIXED_DEFAULTS.bm25B },
   );
 });
 

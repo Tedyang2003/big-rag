@@ -14,7 +14,6 @@ test("FIXED_DEFAULTS holds the spec's fixed values", () => {
     parseDelayMs: 500,
     enableOCR: true,
     structuredIndexing: true,
-    enableContextCompaction: false,
     laneCandidates: 50,
     rrfConstant: 60,
     neighbourChunks: 1,
@@ -62,7 +61,6 @@ test("eval retrieval settings use the fixed defaults when env vars are unset", (
     retrievalLimit: FIXED_DEFAULTS.retrievalLimit,
     retrievalThreshold: FIXED_DEFAULTS.retrievalThreshold,
     chunkSize: FIXED_DEFAULTS.chunkSize,
-    enableContextCompaction: FIXED_DEFAULTS.enableContextCompaction,
     retrievalDepth: "medium",
     laneWeights: {
       vector: FIXED_DEFAULTS.laneWeightVector,

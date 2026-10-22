@@ -44,7 +44,7 @@ test("IndexManager stores structured chunks with headers and rebuilds legacy chu
       chunkOverlap: 0,
       maxConcurrent: 1,
       enableOCR: false,
-      autoReindex: true,
+      skipUnchangedFiles: true,
       parseDelayMs: 0,
     };
 
@@ -104,7 +104,7 @@ test("a Nomic embedding model gets its documents prefixed with search_document: 
       chunkOverlap: 0,
       maxConcurrent: 1,
       enableOCR: false,
-      autoReindex: true,
+      skipUnchangedFiles: true,
       parseDelayMs: 0,
       structuredIndexing: true,
       rebuildExistingFiles: false,
@@ -144,7 +144,7 @@ test("a failed format rebuild does not strand the file's old-format chunks", asy
       chunkOverlap: 0,
       maxConcurrent: 1,
       enableOCR: false,
-      autoReindex: true,
+      skipUnchangedFiles: true,
       parseDelayMs: 0,
     };
 
@@ -206,7 +206,7 @@ test("a failed format rebuild's dropped legacy chunks are not resurrected by a l
       chunkOverlap: 0,
       maxConcurrent: 1,
       enableOCR: false,
-      autoReindex: true,
+      skipUnchangedFiles: true,
       parseDelayMs: 0,
     };
     const countTokens = async (text: string) => text.split(/\s+/).filter(Boolean).length;

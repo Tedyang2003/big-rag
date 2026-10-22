@@ -54,11 +54,10 @@ test("resolveSettings treats unknown reindex values as off", () => {
 test("resolveSettings ignores old per-chat tuning values", () => {
   const settings = resolveSettings(
     reader({ documentsDirectory: "/d", vectorStoreDirectory: "/v", retrievalLimit: 12, chunkSize: 2048 }),
-    reader({ retrievalLimit: 12, enableContextCompaction: true }),
+    reader({ retrievalLimit: 12 }),
   );
   assert.equal(settings.retrievalLimit, FIXED_DEFAULTS.retrievalLimit);
   assert.equal(settings.chunkSize, FIXED_DEFAULTS.chunkSize);
-  assert.equal(settings.enableContextCompaction, false);
 });
 
 test("resolveSettings reads the retrieval depth from the chat config", () => {

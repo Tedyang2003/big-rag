@@ -40,7 +40,6 @@ export interface ResolvedSettings {
   parseDelayMs: number;
   enableOCR: boolean;
   structuredIndexing: boolean;
-  enableContextCompaction: boolean;
   /** Required global settings that are empty, by display name. */
   missingRequired: string[];
 }
@@ -56,6 +55,8 @@ function readString(config: ConfigReader, key: string): string {
   return typeof value === "string" ? value : "";
 }
 
+
+// Resolve the settings as object attributes after checking for missing values, and combining with fixed config settings
 export function resolveSettings(globalConfig: ConfigReader, chatConfig: ConfigReader): ResolvedSettings {
   const documentsDirectory = readString(globalConfig, "documentsDirectory").trim();
   const vectorStoreDirectory = readString(globalConfig, "vectorStoreDirectory").trim();
@@ -74,8 +75,8 @@ export function resolveSettings(globalConfig: ConfigReader, chatConfig: ConfigRe
     excludePatterns: parseExcludePatternsBlock(readString(globalConfig, "excludeFilenamePatterns")),
     promptTemplate: promptTemplate.trim() ? promptTemplate : DEFAULT_PROMPT_TEMPLATE,
     reindexMode: reindexMode === "changed" || reindexMode === "rebuild" ? reindexMode : "off",
-    // Every depth the settings UI offers must survive this, or a user can select one and get
-    // another: High was silently resolving to Medium, so no chat ever drafted a hypothetical.
+    
+    // If depth is low use low, if high use high else use medium
     retrievalDepth:
       retrievalDepth === "low" || retrievalDepth === "high" ? retrievalDepth : "medium",
     ...FIXED_DEFAULTS,
@@ -83,6 +84,8 @@ export function resolveSettings(globalConfig: ConfigReader, chatConfig: ConfigRe
   };
 }
 
+
+// Merge all missing values to a warning message
 export function notConfiguredMessage(missingRequired: string[]): string {
   return `Big RAG is not in use: set ${missingRequired.join(" and ")} in Big RAG's global settings.`;
 }

@@ -33,8 +33,6 @@ function makeDeps(results: SearchResult[], byVector?: SearchResult[][]) {
       },
     },
     embedQuery: async () => [1, 0],
-    embedSentences: async (sentences: string[]) => sentences.map(() => ({ embedding: [1, 0] })),
-    countTokens: async () => 10,
     now: () => {
       clock += 5;
       return clock;
@@ -43,7 +41,7 @@ function makeDeps(results: SearchResult[], byVector?: SearchResult[][]) {
   return { deps, searchCalls };
 }
 
-test("retrieve searches with retrievalLimit and threshold when compaction is off", async () => {
+test("retrieve searches with retrievalLimit and threshold at Low depth", async () => {
   const results = [
     makeResult({ text: "One.", chunkIndex: 0 }),
     makeResult({ text: "Two.", chunkIndex: 5 }),
@@ -54,7 +52,6 @@ test("retrieve searches with retrievalLimit and threshold when compaction is off
     retrievalLimit: 2,
     retrievalThreshold: 0.5,
     chunkSize: 512,
-    enableContextCompaction: false,
     depth: "low",
     laneCandidates: 30,
     neighbourChunks: 1,
@@ -86,7 +83,6 @@ test("retrieve trims overlapping adjacent chunks", async () => {
     retrievalLimit: 2,
     retrievalThreshold: 0.5,
     chunkSize: 512,
-    enableContextCompaction: false,
     depth: "low",
     laneCandidates: 30,
     neighbourChunks: 1,
@@ -100,38 +96,6 @@ test("retrieve trims overlapping adjacent chunks", async () => {
   assert.equal(output.passages[1].text, "six seven");
 });
 
-test("retrieve widens the pool and fills the token budget when compaction is on", async () => {
-  const results = [
-    makeResult({ text: "First fact.", chunkIndex: 0 }),
-    makeResult({ text: "Second fact.", chunkIndex: 10 }),
-    makeResult({ text: "Third fact.", chunkIndex: 20 }),
-  ];
-  const { deps, searchCalls } = makeDeps(results);
-
-  // Budget = retrievalLimit (1) * chunkSize (15) = 15 tokens; each passage costs 10.
-  const output = await retrieve("question", deps, {
-    retrievalLimit: 1,
-    retrievalThreshold: 0.5,
-    chunkSize: 15,
-    enableContextCompaction: true,
-    depth: "low",
-    laneCandidates: 30,
-    neighbourChunks: 1,
-    rerankDepth: 10,
-    bm25K1: 1.2,
-    bm25B: 0,
-    rrfConstant: 60,
-    laneWeights: { vector: 1, hyde: 1, keyword: 0, date: 1 },
-  });
-
-  assert.deepEqual(searchCalls, [{ limit: 3, threshold: 0.5, vectors: 1 }]);
-  assert.deepEqual(output.passages.map((p) => p.text), ["First fact."]);
-  assert.deepEqual(
-    output.timings.map((t) => t.stage),
-    ["embedQuery", "vectorSearch", "trimOverlap", "compaction"],
-  );
-});
-
 test("retrieve collects an unthresholded diagnostic pool when requested", async () => {
   const results = [makeResult({ text: "One.", chunkIndex: 0 })];
   const { deps, searchCalls } = makeDeps(results);
@@ -140,7 +104,6 @@ test("retrieve collects an unthresholded diagnostic pool when requested", async 
     retrievalLimit: 5,
     retrievalThreshold: 0.5,
     chunkSize: 512,
-    enableContextCompaction: false,
     diagnosticPoolSize: 50,
     depth: "low",
     laneCandidates: 30,
@@ -171,8 +134,7 @@ test("retrieve stops before searching when aborted after embedding the query", a
         retrievalLimit: 5,
         retrievalThreshold: 0.5,
         chunkSize: 512,
-        enableContextCompaction: false,
-        abortSignal: controller.signal,
+            abortSignal: controller.signal,
         depth: "low",
         laneCandidates: 30,
         neighbourChunks: 1,
@@ -191,7 +153,6 @@ const LOW_OPTIONS = {
   retrievalLimit: 2,
   retrievalThreshold: 0.5,
   chunkSize: 100,
-  enableContextCompaction: false,
   depth: "low" as const,
   laneCandidates: 30,
   neighbourChunks: 1,
@@ -240,7 +201,7 @@ test("medium lifts a dated passage above the vector lane's own order", async () 
 
   assert.deepEqual(result.passages.map((passage) => passage.text), [VECTOR_3, VECTOR_1, VECTOR_2]);
   assert.deepEqual(result.passageLanes, [["vector", "date"], ["vector"], ["vector"]]);
-  assert.deepEqual(result.laneCounts, { vector: 3, hyde: 0, keyword: 0, date: 1 });
+  assert.deepEqual(result.signalCounts, { vector: 3, hyde: 0, keyword: 0, date: 1 });
   assert.deepEqual(result.dayRanges, [{ start: 20260908, end: 20260908 }]);
   assert.ok(result.timings.some((timing) => timing.stage === "dateLane"));
   assert.ok(result.timings.some((timing) => timing.stage === "fuse"));
@@ -262,7 +223,7 @@ test("a date cannot introduce a passage the vector lane did not find", async () 
 
   assert.equal(result.passages.length, 3);
   assert.ok(!result.passages.some((passage) => passage.id === "chunk-9"));
-  assert.equal(result.laneCounts.date, 0);
+  assert.equal(result.signalCounts.date, 0);
 });
 
 test("low depth ignores the catalog entirely", async () => {
@@ -275,15 +236,43 @@ test("low depth ignores the catalog entirely", async () => {
   );
   assert.equal(catalogUsed, false);
   assert.equal(result.passages.length, 1);
-  assert.deepEqual(result.laneCounts, { vector: 1, hyde: 0, keyword: 0, date: 0 });
+  assert.deepEqual(result.signalCounts, { vector: 1, hyde: 0, keyword: 0, date: 0 });
   assert.deepEqual(searchCalls, [{ limit: 2, threshold: 0.5, vectors: 1 }]);
 });
 
-test("medium without a catalog falls back to the vector lane", async () => {
+test("medium without a catalog still returns the vector lane's results", async () => {
   const { deps } = makeDeps([makeResult({ text: "vector hit", id: "chunk-1" })]);
   const result = await retrieve("collision", { ...deps, catalog: null }, { ...LOW_OPTIONS, depth: "medium" });
   assert.deepEqual(result.passages.map((passage) => passage.text), ["vector hit"]);
-  assert.deepEqual(result.laneCounts, { vector: 1, hyde: 0, keyword: 0, date: 0 });
+  assert.deepEqual(result.signalCounts, { vector: 1, hyde: 0, keyword: 0, date: 0 });
+});
+
+test("keyword reranking survives a catalog failure, since it does not use the catalog", async () => {
+  const { deps } = makeDeps(vectorResults());
+
+  // The vector lane ranks chunk-3 last, and it is the only candidate holding "collision".
+  // Nothing here needs the catalog: only the date lane reads it. A catalog that failed to
+  // build must not take BM25 and neighbour expansion down with it - on QASPER that pair is
+  // worth 77 of 228 hits.
+  const result = await retrieve(
+    "collision",
+    { ...deps, catalog: null },
+    {
+      ...LOW_OPTIONS,
+      depth: "medium",
+      retrievalLimit: 3,
+      // LOW_OPTIONS still defaults keyword to 0, from before the lane was restored.
+      laneWeights: { ...LOW_OPTIONS.laneWeights, keyword: 1 },
+    },
+  );
+
+  assert.equal(
+    result.passages[0].text,
+    VECTOR_3,
+    "BM25 should have lifted the only candidate matching the query, with or without a catalog",
+  );
+  assert.equal(result.signalCounts.keyword, 1, "the keyword boost should have been applied");
+  assert.equal(result.signalCounts.date, 0, "no catalog means no date boost, which is correct");
 });
 
 test("a lane that throws does not fail the query", async () => {
@@ -302,21 +291,7 @@ test("a lane that throws does not fail the query", async () => {
     { ...LOW_OPTIONS, depth: "medium", retrievalLimit: 3 },
   );
   assert.deepEqual(result.passages.map((passage) => passage.text), [VECTOR_1, VECTOR_2, VECTOR_3]);
-  assert.equal(result.laneCounts.date, 0);
-});
-
-test("medium with compaction keeps the vector lane at laneCandidates and widens the fused pool", async () => {
-  const results = Array.from({ length: 12 }, (_, i) => makeResult({ text: `vector ${i}`, id: `chunk-${i}` }));
-  const { deps, searchCalls } = makeDeps(results);
-  const result = await retrieve(
-    "collision",
-    { ...deps, catalog: fakeCatalog() },
-    { ...LOW_OPTIONS, depth: "medium", retrievalLimit: 2, enableContextCompaction: true },
-  );
-  assert.deepEqual(searchCalls, [{ limit: 30, threshold: 0.5, vectors: 1 }]);
-  assert.ok(result.passages.length > 2, `expected a widened pool, got ${result.passages.length}`);
-  // laneCounts is counted over the passages that survived compaction, not every fused winner.
-  assert.equal(result.laneCounts.vector, result.passages.length);
+  assert.equal(result.signalCounts.date, 0);
 });
 
 test("medium reports the lanes that ranked each returned passage", async () => {
@@ -401,7 +376,7 @@ test("a date match lifts a chunk the other lanes found, and never introduces one
     "a chunk no lane retrieved is not pulled in by its date alone",
   );
   assert.deepEqual(result.passageLanes[0], ["vector", "date"]);
-  assert.equal(result.laneCounts.date, 1);
+  assert.equal(result.signalCounts.date, 1);
 });
 
 test("a question with no date leaves the ranking untouched", async () => {
@@ -417,7 +392,7 @@ test("a question with no date leaves the ranking untouched", async () => {
   );
 
   assert.deepEqual(result.passages.map((passage) => passage.text), ["first", "second"]);
-  assert.equal(result.laneCounts.date, 0);
+  assert.equal(result.signalCounts.date, 0);
 });
 
 
@@ -441,7 +416,7 @@ test("high searches the question and its hypothetical in one call, and fuses bot
     result.passages.some((passage) => passage.text === "only the draft found this"),
     "a passage only the hypothetical found should reach the results",
   );
-  assert.equal(result.laneCounts.hyde, 1);
+  assert.equal(result.signalCounts.hyde, 1);
   assert.deepEqual(result.passageLanes[result.passages.findIndex((p) => p.id === "chunk-9")], ["hyde"]);
   assert.ok(result.timings.some((timing) => timing.stage === "hypothetical"));
 });
@@ -464,7 +439,7 @@ test("high with no hypothetical produces exactly what medium produces", async ()
 
   assert.deepEqual(high.passages.map((p) => p.text), medium.passages.map((p) => p.text));
   assert.deepEqual(high.passageLanes, medium.passageLanes);
-  assert.deepEqual(high.laneCounts, medium.laneCounts);
+  assert.deepEqual(high.signalCounts, medium.signalCounts);
 });
 
 test("a hyde weight of zero reproduces medium even when a hypothetical was drafted", async () => {
@@ -494,7 +469,7 @@ test("a hyde weight of zero reproduces medium even when a hypothetical was draft
 
   assert.deepEqual(zeroed.passages.map((p) => p.text), medium.passages.map((p) => p.text));
   assert.deepEqual(zeroed.passageLanes, medium.passageLanes);
-  assert.deepEqual(zeroed.laneCounts, medium.laneCounts);
+  assert.deepEqual(zeroed.signalCounts, medium.signalCounts);
   // The pool too: a nomination that only shows up there still moves the pool metrics.
   assert.deepEqual(
     zeroed.diagnosticPool.map((p) => p.id),
@@ -656,7 +631,7 @@ test("the keyword rerank actually reorders the candidates it is given", async ()
   );
 
   assert.equal(result.passages[0].text, VECTOR_3, "the keyword match is lifted to the front");
-  assert.ok(result.passages[0] && result.laneCounts.keyword >= 1, "and is attributed to the keyword signal");
+  assert.ok(result.passages[0] && result.signalCounts.keyword >= 1, "and is attributed to the keyword signal");
 });
 
 test("a keyword weight of zero leaves no trace at all", async () => {
@@ -670,6 +645,6 @@ test("a keyword weight of zero leaves no trace at all", async () => {
   );
 
   assert.deepEqual(off.passages.map((p) => p.text), [VECTOR_1, VECTOR_2, VECTOR_3], "the vector order stands");
-  assert.equal(off.laneCounts.keyword, 0, "and nothing is attributed to a signal that was off");
+  assert.equal(off.signalCounts.keyword, 0, "and nothing is attributed to a signal that was off");
   assert.ok(!off.timings.some((t) => t.stage === "keywordRerank"), "the stage does not even run");
 });

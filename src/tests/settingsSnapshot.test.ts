@@ -15,7 +15,7 @@ const questionSet = {
 
 function args(vectorStoreDir: string) {
   return {
-    settings: { retrievalLimit: 5, retrievalThreshold: 0.5, chunkSize: 512, enableContextCompaction: false, retrievalDepth: "medium" as const, laneWeights: { vector: 1, hyde: 1, keyword: 0, date: 1 }, laneCandidates: 50, neighbourChunks: 1, rerankDepth: 10, bm25K1: 1.2, bm25B: 0 },
+    settings: { retrievalLimit: 5, retrievalThreshold: 0.5, chunkSize: 512, retrievalDepth: "medium" as const, laneWeights: { vector: 1, hyde: 1, keyword: 0, date: 1 }, laneCandidates: 50, neighbourChunks: 1, rerankDepth: 10, bm25K1: 1.2, bm25B: 0 },
     diagnosticPoolSize: 50,
     embeddingModelId: "embed-model",
     vectorStoreDir,
@@ -31,11 +31,11 @@ test("the eval settings snapshot records the manifest's index format", async () 
     await writeEmbeddingIndexManifest(dir, {
       embeddingModelId: "embed-model",
       dimensions: 3,
-      indexFormat: "structured-v1",
+      indexFormat: "structured-v3",
       embeddingPrefixes: "none",
     });
     const snapshot = await buildSettingsSnapshot(args(dir));
-    assert.equal(snapshot.indexFormat, "structured-v1");
+    assert.equal(snapshot.indexFormat, "structured-v3");
     assert.equal(snapshot.retrievalLimit, 5);
     assert.equal(snapshot.retrievalDepth, "medium");
     assert.equal(snapshot.diagnosticPoolSize, 50);
@@ -43,7 +43,7 @@ test("the eval settings snapshot records the manifest's index format", async () 
     assert.deepEqual(snapshot.indexManifest, {
       embeddingModelId: "embed-model",
       dimensions: 3,
-      indexFormat: "structured-v1",
+      indexFormat: "structured-v3",
       embeddingPrefixes: "none",
     });
     assert.equal(snapshot.totalChunks, 7);
