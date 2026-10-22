@@ -6,11 +6,12 @@ import { prefixConventionFor, type EmbeddingPrefixes } from "./embeddingPrefix";
 
 export const EMBEDDING_INDEX_MANIFEST_FILENAME = ".big-rag-embedding.json";
 
-export type IndexFormat = "legacy" | "structured-v1" | "structured-v2" | "structured-v3";
+export type IndexFormat = "legacy" | "structured-v3";
 
 /** The format new structured indexes are built with. v3 gives PDF tables rows and columns. */
 export const STRUCTURED_INDEX_FORMAT = "structured-v3";
 
+// Embedding manifest object interface
 export interface EmbeddingIndexManifest {
   embeddingModelId: string;
   dimensions: number;
@@ -19,10 +20,14 @@ export interface EmbeddingIndexManifest {
   embeddingPrefixes: EmbeddingPrefixes;
 }
 
+// Resolve Index Manifest Path
 export function getEmbeddingManifestPath(vectorStoreDir: string): string {
   return path.join(path.resolve(vectorStoreDir), EMBEDDING_INDEX_MANIFEST_FILENAME);
 }
 
+
+// Check the Index Manifest File
+// Tells us the previous embedding model
 export async function readEmbeddingIndexManifest(
   vectorStoreDir: string,
 ): Promise<EmbeddingIndexManifest | null> {
@@ -40,22 +45,23 @@ export async function readEmbeddingIndexManifest(
       return {
         embeddingModelId: data.embeddingModelId,
         dimensions: data.dimensions,
-        indexFormat:
-          data.indexFormat === "structured-v1" ||
-          data.indexFormat === "structured-v2" ||
-          data.indexFormat === "structured-v3"
-            ? data.indexFormat
-            : "legacy",
+        // Anything that is not the current structured format reads as legacy, which forces a
+        // rebuild. That covers a store from a future version as well as the retired
+        // structured-v1 and v2, neither of which was ever released.
+        indexFormat: data.indexFormat === "structured-v3" ? "structured-v3" : "legacy",
         embeddingPrefixes: data.embeddingPrefixes === "nomic" ? "nomic" : "none",
       };
     }
     return null;
+
   } catch (e: any) {
+
     if (e?.code === "ENOENT") {
       return null;
     }
     console.warn("[BigRAG] Could not read embedding index manifest:", e);
     return null;
+
   }
 }
 
@@ -211,16 +217,26 @@ export async function planIndexFormat(
   resolvedModelId: string,
 ): Promise<{ indexFormat: IndexFormat; rebuildExistingFiles: boolean }> {
   const indexFormat = desiredIndexFormat(structuredIndexing);
+  
+  // If there are no indexed chunks, then there is nothing to rebuild
   if (totalChunks === 0) {
     return { indexFormat, rebuildExistingFiles: false };
   }
+
+  // Read Old already indexed manifest for existing data stored in manifest JSON file
   const manifest = await readEmbeddingIndexManifest(vectorStoreDir);
-  // The stored vectors must match both the chunk format and the embedding prefix
-  // convention: a run that skipped every file would otherwise rewrite the manifest
-  // and leave prefixed queries scoring against unprefixed vectors.
+
+  // If format changed or embedding prefix changed, then require a rebuild of old files
   const formatChanged = (manifest?.indexFormat ?? "legacy") !== indexFormat;
   const prefixesChanged = (manifest?.embeddingPrefixes ?? "none") !== prefixConventionFor(resolvedModelId);
-  return { indexFormat, rebuildExistingFiles: formatChanged || prefixesChanged };
+  // A different model produces different vectors even when the format and the prefix convention
+  // are unchanged, and two models can share a convention - every nomic-embed build maps to
+  // "nomic". Without this, switching between them skips every file as unchanged, rewrites the
+  // manifest with the new id, and leaves the new model's queries scoring against the old
+  // model's vectors with nothing left to detect it. A missing manifest is handled as legacy
+  // elsewhere, so it must not count as a change here.
+  const modelChanged = (manifest?.embeddingModelId ?? resolvedModelId) !== resolvedModelId;
+  return { indexFormat, rebuildExistingFiles: formatChanged || prefixesChanged || modelChanged };
 }
 
 /**
@@ -246,8 +262,7 @@ export async function indexFormatStatusMessage(
 
 export function indexFormatMismatchMessage(indexed: IndexFormat, desired: IndexFormat): string | null {
   if (indexed === desired) return null;
-  if (desired === "legacy") return "Reindex required to switch back to standard indexing.";
-  return indexed === "legacy"
-    ? "Reindex required to apply structured indexing."
-    : "Reindex required to apply improved structured indexing.";
+  return desired === "legacy"
+    ? "Reindex required to switch back to standard indexing."
+    : "Reindex required to apply structured indexing.";
 }

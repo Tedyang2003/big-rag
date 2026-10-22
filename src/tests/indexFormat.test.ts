@@ -6,6 +6,7 @@ import * as path from "path";
 import {
   checkEmbeddingModelForRetrieval,
   desiredIndexFormat,
+  EMBEDDING_INDEX_MANIFEST_FILENAME,
   getEmbeddingManifestPath,
   indexFormatMismatchMessage,
   indexFormatStatusMessage,
@@ -38,7 +39,7 @@ test("planIndexFormat asks for a rebuild only when an existing index uses the ot
     await writeEmbeddingIndexManifest(dir, {
       embeddingModelId: "m",
       dimensions: 3,
-      indexFormat: "structured-v1",
+      indexFormat: "legacy",
       embeddingPrefixes: "none",
     });
     assert.deepEqual(await planIndexFormat(dir, 10, true, "m"), { indexFormat: "structured-v3", rebuildExistingFiles: true });
@@ -69,9 +70,15 @@ test("a prefix-convention change forces every file to be rebuilt", async () => {
       indexFormat: "structured-v3",
       rebuildExistingFiles: true,
     });
-    assert.deepEqual(await planIndexFormat(dir, 10, true, "some-other-model"), {
+    // The control isolates the prefix axis by keeping the model id the same: a different id
+    // rebuilds on its own account, whatever its prefix convention.
+    assert.deepEqual(await planIndexFormat(dir, 10, true, "m"), {
       indexFormat: "structured-v3",
       rebuildExistingFiles: false,
+    });
+    assert.deepEqual(await planIndexFormat(dir, 10, true, "some-other-model"), {
+      indexFormat: "structured-v3",
+      rebuildExistingFiles: true,
     });
   } finally {
     await fs.rm(dir, { recursive: true, force: true });
@@ -85,26 +92,9 @@ test("indexFormatMismatchMessage describes the needed reindex", () => {
   assert.equal(indexFormatMismatchMessage("structured-v3", "structured-v3"), null);
   assert.equal(indexFormatMismatchMessage("legacy", "structured-v3"), "Reindex required to apply structured indexing.");
   assert.equal(
-    indexFormatMismatchMessage("structured-v1", "structured-v3"),
-    "Reindex required to apply improved structured indexing.",
-  );
-  assert.equal(
-    indexFormatMismatchMessage("structured-v1", "legacy"),
-    "Reindex required to switch back to standard indexing.",
-  );
-  assert.equal(
     indexFormatMismatchMessage("structured-v3", "legacy"),
     "Reindex required to switch back to standard indexing.",
   );
-});
-
-test("a structured-v2 index asks for the improved reindex", () => {
-  assert.equal(desiredIndexFormat(true), "structured-v3");
-  assert.equal(
-    indexFormatMismatchMessage("structured-v2", "structured-v3"),
-    "Reindex required to apply improved structured indexing.",
-  );
-  assert.equal(indexFormatMismatchMessage("structured-v3", "structured-v3"), null);
 });
 
 test("indexFormatStatusMessage treats a store without a manifest as legacy", async () => {
@@ -142,19 +132,52 @@ test("indexFormatStatusMessage treats a store without a manifest as legacy", asy
   }
 });
 
-test("a structured-v1 manifest is read back as structured-v1", async () => {
+test("changing the embedding model forces a rebuild even when the prefix convention matches", async () => {
   const dir = await tempDir();
   try {
+    // Indexed with one Nomic model...
     await writeEmbeddingIndexManifest(dir, {
-      embeddingModelId: "m",
-      dimensions: 3,
-      indexFormat: "structured-v1",
-      embeddingPrefixes: "none",
+      embeddingModelId: "nomic-ai/nomic-embed-text-v1.5-GGUF",
+      dimensions: 768,
+      indexFormat: "structured-v3",
+      embeddingPrefixes: "nomic",
     });
-    assert.equal((await readEmbeddingIndexManifest(dir))?.indexFormat, "structured-v1");
+
+    // ...then the user switches to a different Nomic model. The format is unchanged and both
+    // models use "nomic" prefixes, so neither of planIndexFormat's checks notices - but every
+    // stored vector was produced by the old model and must be rebuilt.
+    const plan = await planIndexFormat(dir, 10, true, "nomic-ai/nomic-embed-text-v1-GGUF");
+    assert.equal(
+      plan.rebuildExistingFiles,
+      true,
+      "a model change must rebuild: otherwise the run skips every file, the manifest is " +
+        "rewritten with the new model id, and the compatibility check then passes while the " +
+        "new model's queries score against the old model's vectors",
+    );
+  } finally {
+    await fs.rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("an unrecognised index format reads as legacy and asks for a reindex", async () => {
+  const dir = await tempDir();
+  try {
+    // Written by hand: this is a format no version of the code produces - a retired
+    // structured-v1, or one from a future build - and the reader must not trust it.
+    await fs.writeFile(
+      path.join(dir, EMBEDDING_INDEX_MANIFEST_FILENAME),
+      JSON.stringify({
+        embeddingModelId: "m",
+        dimensions: 3,
+        indexFormat: "structured-v9",
+        embeddingPrefixes: "none",
+      }),
+      "utf-8",
+    );
+    assert.equal((await readEmbeddingIndexManifest(dir))?.indexFormat, "legacy");
     assert.equal(
       await indexFormatStatusMessage(dir, true, async () => 10),
-      "Reindex required to apply improved structured indexing.",
+      "Reindex required to apply structured indexing.",
     );
   } finally {
     await fs.rm(dir, { recursive: true, force: true });
