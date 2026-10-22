@@ -52,10 +52,12 @@ are willing to delete. Most interesting behaviour only happens against an empty
 or stale index, so being able to clear it and start again is the single most
 useful thing to have.
 
-A worked example lives outside this repository at
-`test_bed/test 2`, with `document_folder/`, a `to_be_added/` folder for
-supersession tests, an empty `vdb/`, and `QUESTIONS.md` listing 29 questions
-with their expected answers. Build your own on the same shape:
+The script for the one in use is
+[eval/user_testing/USER_TEST.md](eval/user_testing/USER_TEST.md) — eighteen
+steps in the order they have to run, with the questions and their expected
+answers inline. Its documents live outside the repository, at
+`test_bed/test 2`, as `document_folder/`, a `to_be_added/` folder for the
+supersession tests, and an empty `vdb/`. Build your own on the same shape:
 
 - five or six documents on **unrelated** subjects, so a question about one
   retrieves four obviously-wrong passages and distraction becomes visible

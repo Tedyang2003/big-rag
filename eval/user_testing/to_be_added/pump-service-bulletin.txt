@@ -1,0 +1,26 @@
+THORNLEY SERVICE BULLETIN SB-2026-07
+Issued 3 August 2026
+Applies to: TPX-4420 circulation pump, all serial numbers
+
+REVISED TORQUE SETTING
+
+The volute casing bolt torque is revised from 42 Nm to 48 Nm with immediate
+effect. Revision D of the service manual states 42 Nm; that value is withdrawn.
+
+The change follows 31 reports of casing weep at the lower gasket face between
+January and June 2026. Investigation found the original figure was derived for
+the discontinued paper gasket. The current nitrile gasket requires the higher
+figure to seat correctly.
+
+The impeller retaining nut torque is unchanged at 65 Nm.
+
+REVISED SERVICE INTERVAL
+
+For units operating above 35 degrees Celsius ambient, the full service interval
+is reduced from 1,800 to 1,200 running hours. Units in cooler installations
+retain the 1,800 hour interval.
+
+ACTION REQUIRED
+
+Re-torque the casing bolts on any unit serviced after 1 January 2026 at the
+next scheduled inspection. No parts replacement is required.

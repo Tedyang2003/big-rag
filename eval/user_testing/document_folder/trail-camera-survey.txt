@@ -1,0 +1,35 @@
+BANDED CIVET TRAIL CAMERA SURVEY
+Thornwood Ridge Conservation Area
+Survey window: 2 April 2025 to 28 September 2025
+
+METHOD
+
+Twelve passive infrared trail cameras were mounted at 1.4 metres on trees
+along three transects. Cameras were set to a 15 second quiet period between
+triggers and were checked every 21 days. All timestamps are local time.
+
+RESULTS
+
+Total triggers: 4,812
+Triggers containing an identifiable animal: 1,106
+Confirmed banded civet sightings: 47
+
+Sightings by transect:
+  North transect (cameras 1-4):   22
+  Ridge transect (cameras 5-8):   19
+  South transect (cameras 9-12):   6
+
+Peak activity fell between 21:00 and 02:00. No civet was recorded in daylight
+at any point in the survey.
+
+EQUIPMENT NOTES
+
+Camera 7 failed on 11 June 2025 after a battery seal leaked, and was not
+replaced until 2 July 2025, leaving a 21 day gap on the ridge transect. Camera
+3 was knocked out of alignment by cattle on 19 August 2025 but kept recording.
+
+OTHER SPECIES RECORDED
+
+Sambar deer (311 sightings), wild boar (204), leopard cat (88), pangolin (6),
+and one sighting of a clouded leopard on 4 August 2025 — the first recorded in
+this reserve since 2009.
