@@ -14,22 +14,3 @@ export async function calculateFileHash(filePath: string): Promise<string> {
     stream.on("error", reject);
   });
 }
-
-/**
- * Get file metadata including size and modification time
- */
-export async function getFileMetadata(filePath: string): Promise<{
-  size: number;
-  mtime: Date;
-  hash: string;
-}> {
-  const stats = await fs.promises.stat(filePath);
-  const hash = await calculateFileHash(filePath);
-  
-  return {
-    size: stats.size,
-    mtime: stats.mtime,
-    hash,
-  };
-}
-

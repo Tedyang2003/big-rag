@@ -22,11 +22,3 @@ export function finishIndexing(): void {
   indexingInProgress = false;
   console.debug("[BigRAG] finishIndexing: lock released");
 }
-
-/**
- * Indicates whether an indexing job is currently running.
- */
-export function isIndexing(): boolean {
-  return indexingInProgress;
-}
-
