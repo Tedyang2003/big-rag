@@ -132,7 +132,7 @@ Only compare runs that used the same question set, and for generated sets, the s
 | `BIG_RAG_EVAL_LEAK_LIMIT` | `0.7` | Rejects a generated question when more than this share of its words are copied from the source; `1` disables the check |
 | `BIG_RAG_EVAL_LLM` | model loaded in LM Studio | Model used to generate questions |
 | `BIG_RAG_EMBEDDING_MODEL` | plugin default | Must match the index's embedding model |
-| `BIG_RAG_RETRIEVAL_LIMIT`, `BIG_RAG_RETRIEVAL_THRESHOLD`, `BIG_RAG_CHUNK_SIZE`, `BIG_RAG_ENABLE_COMPACTION` | maintainer defaults | Evaluate values other than the plugin's fixed ones |
+| `BIG_RAG_RETRIEVAL_LIMIT`, `BIG_RAG_RETRIEVAL_THRESHOLD`, `BIG_RAG_CHUNK_SIZE` | maintainer defaults | Evaluate values other than the plugin's fixed ones |
 
 `BIG_RAG_DOCS_DIR` must match the Documents Directory the index was built from exactly; otherwise the source paths recorded for each question won't match the index and nothing can be scored.
 
@@ -150,7 +150,6 @@ These values are fixed in the plugin (`src/settings/defaults.ts`) and have no se
 | Parser delay (ms) | 500 | `BIG_RAG_PARSE_DELAY_MS` |
 | OCR | on | `BIG_RAG_ENABLE_OCR` |
 | Structured indexing | on | `BIG_RAG_STRUCTURED_INDEXING` |
-| Context compaction | off | `BIG_RAG_ENABLE_COMPACTION` (evaluation) |
 | Candidates the vector lane puts up at Medium | 50 | `BIG_RAG_LANE_CANDIDATES` (evaluation) |
 | Chunks either side of a passage returned with it | 1 | `BIG_RAG_NEIGHBOUR_CHUNKS` (evaluation) |
 | Rank fusion constant | 60 | none |

@@ -105,7 +105,7 @@ Three helpers live here rather than in `utils/` because they are about this turn
 
 ### The search — `retrieval/retrieve.ts`
 
-397 lines, and the heart of the system. `retrieve` runs up to four lanes and fuses them:
+The heart of the system. Four signals contribute, and **two of them are not lanes**: only `vector` and `hyde` nominate passages and reach `fuseLanes`, while `keyword` and `date` are score additions applied after fusion and can only reorder what a nominator already found.
 
 ```
                      ┌── vector    vectorStore.searchMany()        nominates
@@ -119,7 +119,6 @@ draft ──embed──┘     └── keyword   bm25.ts over the candidates  
                               │
                      trimOverlappingChunks()
                               │
-                     compactResultsToBudget()    only if compaction is on
 ```
 
 The distinction that explains most of the evaluation results: **only `vector` and `hyde` can put a passage in the pool.** `date` and `keyword` reorder what those two found and can never add to it, which is why the pool figure is identical with keyword reranking on or off.
@@ -128,7 +127,7 @@ Supporting files: `bm25.ts` (`tokenize`, `rankTexts` — local idf, no length pe
 
 ### What reaches the model — `utils/`
 
-`relevanceCut.ts` drops passages scoring below `passageRelevanceCut` of the best match, and reorders so the strongest sits nearest the question. `fitToContext.ts` finds the largest number of passages fitting a token budget. `trimOverlappingChunks.ts` removes duplicated text where chunks overlap. `renderPassage.ts` picks the grid form of a table for display over the linearised form used for embedding. `compactPassages.ts` shortens passages by dropping sentences far from the query — wired up, off by default, never measured.
+`relevanceCut.ts` drops passages scoring below `passageRelevanceCut` of the best match, and reorders so the strongest sits nearest the question. `fitToContext.ts` finds the largest number of passages fitting a token budget. `trimOverlappingChunks.ts` removes duplicated text where chunks overlap. `renderPassage.ts` picks the grid form of a table for display over the linearised form used for embedding. 
 
 ---
 
@@ -170,7 +169,7 @@ So a new tuning knob means: add it to `FIXED_DEFAULTS`, surface it in `eval/sett
 | To change | Go to |
 |---|---|
 | How a question is searched | `retrieval/retrieve.ts` |
-| A new ranking signal | a new lane in `retrieve.ts`, plus a weight in `defaults.ts` and `eval/settings.ts` |
+| A new ranking signal | a lane in `retrieve.ts` if it should nominate passages, or a post-fusion boost if it should only reorder them, plus a weight in `defaults.ts` and `eval/settings.ts` |
 | What the model is told | `promptPreprocessor.ts` (`buildPrompt`, the prefix) and `config.ts` (`DEFAULT_PROMPT_TEMPLATE`) |
 | Which passages are sent | `utils/relevanceCut.ts`, `utils/fitToContext.ts` |
 | How documents are split | `chunking/structuredChunker.ts`, `chunking/sections.ts` |
