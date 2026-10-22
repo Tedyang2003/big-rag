@@ -52,12 +52,14 @@ are willing to delete. Most interesting behaviour only happens against an empty
 or stale index, so being able to clear it and start again is the single most
 useful thing to have.
 
-The script for the one in use is
-[eval/user_testing/USER_TEST.md](eval/user_testing/USER_TEST.md) — eighteen
-steps in the order they have to run, with the questions and their expected
-answers inline. Its documents live outside the repository, at
-`test_bed/test 2`, as `document_folder/`, a `to_be_added/` folder for the
-supersession tests, and an empty `vdb/`. Build your own on the same shape:
+One is committed at [eval/user_testing/](eval/user_testing/):
+`USER_TEST.md` holds eighteen steps in the order they have to run, with the
+questions and their expected answers inline, beside the `document_folder/` they
+query and a `to_be_added/` folder of contradicting documents for the
+supersession step. Point the vector store at `eval/user_testing_vdbs`, which
+`.gitignore` already excludes.
+
+That set is built on a shape worth copying:
 
 - five or six documents on **unrelated** subjects, so a question about one
   retrieves four obviously-wrong passages and distraction becomes visible

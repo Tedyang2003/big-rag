@@ -7,9 +7,8 @@ returns.
 
 ## The corpus
 
-The documents live outside this repository, so that indexing a test corpus
-never touches the evaluation sets beside this file. Corpus root is
-`test_bed\test 2`:
+The documents sit beside this file, so the test bed travels with the repository
+and anyone can run this pass without assembling one:
 
 - `document_folder\` — five documents on deliberately unrelated subjects: a
   library handbook (headings, a table, dates), a wildlife survey (dates,
@@ -18,7 +17,6 @@ never touches the evaluation sets beside this file. Corpus root is
   numbers, fault codes)
 - `to_be_added\` — two documents that **contradict** the indexed ones, held
   back for the supersession step
-- `vdb\` — empty, the vector store target
 
 The lack of subject overlap is the point: no question can be answered by more
 than one document, so a question with one correct answer returns that answer
@@ -26,8 +24,12 @@ plus four passages of padding, which is what makes the relevance cut visible.
 
 ## Settings
 
-- Documents Directory: `...\test_bed\test 2\document_folder`
-- Vector Store Directory: `...\test_bed\test 2\vdb`
+- Documents Directory: `<repo>\eval\user_testing\document_folder`
+- Vector Store Directory: `<repo>\eval\user_testing_vdbs`
+
+The vector store goes **outside** this folder, under a name `.gitignore`
+already excludes (`/eval/*_vdbs`). An index is build output, and committing one
+would commit the documents' text a second time as vectors.
 
 ## Ordering constraints
 
@@ -63,7 +65,7 @@ scanned. No parse failures.
 
 ### 3. Index artifacts on disk
 
-Look in `vdb\`.
+Look in the vector store directory.
 
 **Expect:** `.big-rag-embedding.json` naming the embedding model,
 `.big-rag-catalog.json`, and an index folder. The catalog should hold the dates
