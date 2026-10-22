@@ -11,7 +11,8 @@
   "scripts": {
     "dev": "lms dev",
     "push": "lms push",
-    "install-plugin": "lms dev --install -y && node scripts/fix-install-assets.js",
+    "install-plugin": "lms dev --install -y && node scripts/prepare-install.js",
+    "install-plugin:dry": "node scripts/prepare-install.js --dry-run",
     "bundle:dev": "esbuild .lmstudio/entry.ts --bundle --platform=node --format=cjs --packages=external --outfile=.lmstudio/dev.js",
     "build": "tsc && npm run bundle:dev",
     "test": "npm run build && node --test dist/tests/*.test.js",
