@@ -2,6 +2,12 @@ import { DEFAULT_PROMPT_TEMPLATE, resolveEmbeddingModelId } from "../config";
 import { parseExcludePatternsBlock } from "../utils/fileExcludePatterns";
 import { type RetrievalDepth } from "../retrieval/retrieve";
 import { FIXED_DEFAULTS } from "./defaults";
+import {
+  ADVANCED_RETRIEVAL_FIELDS,
+  readAdvancedNumber,
+  SHOW_ADVANCED_KEY,
+  type AdvancedRetrievalKey,
+} from "./advancedRetrieval";
 
 export type ReindexMode = "off" | "changed" | "rebuild";
 
@@ -55,6 +61,26 @@ function readString(config: ConfigReader, key: string): string {
   return typeof value === "string" ? value : "";
 }
 
+/**
+ * The advanced retrieval fields, each either as the chat configured it or at its shipped default.
+ *
+ * Driven by the same table the settings panel is built from, so a key offered to the user is
+ * necessarily a key read here.
+ */
+function readAdvancedRetrieval(globalConfig: ConfigReader): Record<AdvancedRetrievalKey, number> {
+  const resolved = {} as Record<AdvancedRetrievalKey, number>;
+  // The toggle decides whether these apply at all, not merely whether they are shown. Unticking
+  // it is the way back to shipped behaviour, which matters most for the settings whose effect is
+  // hardest to attribute - a hidden value still in force would be the worst case.
+  const enabled = globalConfig.get(SHOW_ADVANCED_KEY) === true;
+  for (const field of ADVANCED_RETRIEVAL_FIELDS) {
+    resolved[field.key] = enabled
+      ? readAdvancedNumber(globalConfig.get(field.key), field)
+      : FIXED_DEFAULTS[field.key];
+  }
+  return resolved;
+}
+
 
 // Resolve the settings as object attributes after checking for missing values, and combining with fixed config settings
 export function resolveSettings(globalConfig: ConfigReader, chatConfig: ConfigReader): ResolvedSettings {
@@ -80,6 +106,10 @@ export function resolveSettings(globalConfig: ConfigReader, chatConfig: ConfigRe
     retrievalDepth:
       retrievalDepth === "low" || retrievalDepth === "high" ? retrievalDepth : "medium",
     ...FIXED_DEFAULTS,
+    // After the spread, not before: FIXED_DEFAULTS supplies the fallback for every advanced
+    // field, so spreading it last would overwrite whatever the chat configured and the settings
+    // would appear to do nothing.
+    ...readAdvancedRetrieval(globalConfig),
     missingRequired,
   };
 }

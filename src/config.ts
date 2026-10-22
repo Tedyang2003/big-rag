@@ -1,4 +1,6 @@
-import { createConfigSchematics } from "@lmstudio/sdk";
+import { createConfigSchematics, type ConfigSchematicsBuilder } from "@lmstudio/sdk";
+import { FIXED_DEFAULTS } from "./settings/defaults";
+import { ADVANCED_RETRIEVAL_FIELDS, SHOW_ADVANCED_KEY } from "./settings/advancedRetrieval";
 
 /** Default embedding model id (must match CLI default when env is unset). */
 export const DEFAULT_EMBEDDING_MODEL_ID = "nomic-ai/nomic-embed-text-v1.5-GGUF";
@@ -19,7 +21,7 @@ User Query:
 
 
 /** Set once for the plugin in LM Studio's plugin settings; not shown per chat. */
-export const globalConfigSchematics = createConfigSchematics()
+const globalConfigBase = createConfigSchematics()
   .field(
     "documentsDirectory",
     "string",
@@ -77,8 +79,7 @@ export const globalConfigSchematics = createConfigSchematics()
       isParagraph: true,
     },
     DEFAULT_PROMPT_TEMPLATE,
-  )
-  .build();
+  );
 
 /** Shown in each chat's sidebar. */
 export const configSchematics = createConfigSchematics()
@@ -119,4 +120,50 @@ export const configSchematics = createConfigSchematics()
     "medium",
   )
   .build();
+
+/**
+ * Retrieval tuning, last on the global settings page and hidden behind one toggle.
+ *
+ * Global rather than per chat, so there is one place to set a value and one place to check which
+ * value is in force. The cost is that there is no way to compare two settings side by side.
+ *
+ * The fields are added from one table rather than written out, so a key cannot be renamed here
+ * without `resolveSettings` failing to compile. The builder's types describe each field it is
+ * given, which a loop cannot express, so the chain is typed loosely from here on; nothing reads
+ * this config through those types - `asConfigReader` takes string keys.
+ */
+const withAdvancedFields = ADVANCED_RETRIEVAL_FIELDS.reduce(
+  (builder, field) =>
+    builder.field(
+      field.key,
+      "numeric",
+      {
+        displayName: field.displayName,
+        subtitle: field.subtitle,
+        min: field.min,
+        max: field.max,
+        step: field.step,
+        int: field.int,
+        warning: field.warning,
+        // Hidden until the toggle above is on, which is what keeps fifteen numbers out of the
+        // way of someone who only came to set two directories.
+        dependencies: [{ key: SHOW_ADVANCED_KEY, condition: { type: "equals", value: true } }],
+      },
+      FIXED_DEFAULTS[field.key],
+    ),
+  globalConfigBase
+    .field(
+      SHOW_ADVANCED_KEY,
+      "boolean",
+      {
+        displayName: "Show advanced retrieval settings",
+        subtitle:
+          "How retrieval is tuned. These apply only while this is on, so turning it off restores "
+          + "every default. Nothing here touches the stored index.",
+      },
+      false,
+    ) as unknown as ConfigSchematicsBuilder<Record<string, never>>,
+);
+
+export const globalConfigSchematics = withAdvancedFields.build();
 

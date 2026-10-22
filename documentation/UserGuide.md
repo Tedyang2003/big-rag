@@ -30,6 +30,16 @@ Optional. One glob pattern per line to skip files, matched against each file's p
 
 How the retrieved passages and your question are combined into the prompt sent to the model. It must contain `{{rag_context}}` and `{{user_query}}`; if either is missing, the plugin adds it and logs a warning.
 
+#### Show Advanced Retrieval Settings
+
+Off by default. Turning it on reveals fifteen numbers that decide how retrieval behaves: how many passages are returned, how the searches are weighted against each other, how deep keyword reranking goes, and so on. Each one takes effect on your next message and none of them touches the stored index, so nothing here can require a reindex.
+
+**They apply only while this is on.** Turning it off restores every default, which makes it the quickest way back to shipped behaviour if answers get strange — you do not have to remember what you changed.
+
+Two are worth singling out. **Passages returned** is the simplest lever on answer quality: more passages means more chance the answer is among them, and more chance the model follows the wrong one. **Relevance cut** keeps a passage only if it scores that share of the best match; it ships at 0, meaning every passage is kept, and it has never been measured — raising it drops noise and correct passages alike.
+
+The evaluation harness does not read these. It takes its values from `BIG_RAG_*` environment variables, so a value set here changes your chats and not a measured run. See [Command-Line Tools](CLI.md).
+
 If Documents Directory or Vector Store Directory is empty, each message shows *"Big RAG is not in use: set … in Big RAG's global settings."* and is sent to the model unchanged.
 
 ## Chat Settings
@@ -111,7 +121,7 @@ Indexes are also embedded the way the Nomic models expect, which improves how cl
 
 ## Upgrading from 1.3
 
-Settings moved out of the chat sidebar in 1.4. After upgrading, enter **Documents Directory** and **Vector Store Directory**, plus any custom embedding model, exclude patterns or prompt template, once in Big RAG's global settings. Pointing Vector Store Directory at your existing folder keeps your existing index. Old per-chat values for retrieval limit, threshold, chunk size, overlap, concurrency, parser delay, OCR, structured indexing and compaction are no longer used.
+Settings moved out of the chat sidebar in 1.4. After upgrading, enter **Documents Directory** and **Vector Store Directory**, plus any custom embedding model, exclude patterns or prompt template, once in Big RAG's global settings. Pointing Vector Store Directory at your existing folder keeps your existing index. Old per-chat values for retrieval limit, threshold, chunk size, overlap, concurrency, parser delay, OCR, structured indexing and compaction are no longer read from the chat sidebar. As of 1.8, retrieval limit and threshold are configurable again under **Show Advanced Retrieval Settings** in the global settings; the ones that decide the shape of the index are not, because changing them makes an existing index unusable.
 
 ## Performance Tips
 
