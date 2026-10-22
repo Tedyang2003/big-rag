@@ -1,220 +1,115 @@
 # Quick Start Guide
 
-Get up and running with the Big RAG Plugin in 5 minutes.
+From a clone to an answer with citations. For what each setting does in depth,
+see [the User Guide](documentation/UserGuide.md).
 
 ## Prerequisites
 
-- LM Studio installed
-- Node.js 18+ and npm
-- An embedding model downloaded in LM Studio (e.g., `nomic-ai/nomic-embed-text-v1.5-GGUF`)
-- An LLM model for chat
+- LM Studio, with its `lms` command-line tool available
+- Node.js and npm
+- An embedding model downloaded in LM Studio — the default is
+  `nomic-ai/nomic-embed-text-v1.5-GGUF`
+- A chat model loaded
 
-## Installation
+## Install
 
-### Step 1: Install Dependencies
-
-```bash
-cd big-rag-plugin
+```powershell
 npm install
-```
-
-### Step 2: Build the Plugin
-
-```bash
 npm run build
 ```
 
-### Step 3: Run in Development Mode
+Then pick one of two ways to run it:
 
-```bash
-npm run dev
+```powershell
+npm run dev              # development mode: logs go to this terminal
+npm run install-plugin   # installs it as a real plugin and prunes the install
 ```
 
-This will start the plugin and register it with LM Studio.
+Use `npm run dev` while working on the plugin — the `[BigRAG]` log lines appear
+in your terminal, which is where the retrieval timings and signal counts show
+up. Use `npm run install-plugin` to test what a user actually gets: that path
+runs the bundled `.lmstudio/production.js` rather than your `src/`, and it is
+the only way to catch problems specific to the installed copy.
 
-## Configuration
+## Configure
 
-### Step 4: Configure in LM Studio
+Open Big RAG's plugin settings in LM Studio. There are seven settings and no
+hidden ones — chunk size, retrieval limit, concurrency and the similarity
+threshold are fixed defaults, not knobs.
 
-1. Open LM Studio
-2. Go to Settings → Plugins
-3. Find "Big RAG" plugin
-4. Configure the following:
+### Global settings — set once
 
-**Required Settings:**
-- **Documents Directory**: Path to your documents (e.g., `/Users/yourname/Documents/MyLibrary`)
-- **Vector Store Directory**: Where to store the index (e.g., `/Users/yourname/.lmstudio/big-rag-db`)
+| Setting | Required | Notes |
+|---|---|---|
+| **Documents Directory** | yes | Root folder to index. Every subdirectory is scanned. |
+| **Vector Store Directory** | yes | Where the index is written. |
+| **Embedding Model** | no | Defaults to `nomic-ai/nomic-embed-text-v1.5-GGUF`. Changing it forces a full reindex, because the old vectors are not comparable with the new model's. |
+| **Exclude filename patterns** | no | One glob per line. |
+| **Prompt Template** | no | How passages and your question are presented to the model. |
 
-**Optional Settings (use defaults for now):**
-- **Embedding Model**: Either form can work (e.g. `mixedbread-ai/mxbai-embed-large-v1` or `text-embedding-mxbai-embed-large-v1` for the same mxbai embedder). Pick **one** string and keep it so it matches `.big-rag-embedding.json` after indexing. Default: `nomic-ai/nomic-embed-text-v1.5-GGUF`. Change only if you intend to reindex.
-- Manual Reindex Trigger: OFF (leave it off unless you actively want to rerun indexing on every chat; turning it ON exposes the Skip option below and causes the plugin to rebuild the index each time you send a message)
-- Retrieval Limit: 5
-- Affinity Threshold: 0.5
-- Chunk Size: 512
-- Chunk Overlap: 100
-- Max Concurrent Files: 1
-- Enable OCR: true
-- Skip Previously Indexed Files: true (shows up only when Manual Reindex Trigger is ON; when checked the forced reindex only touches new/changed files, otherwise each chat performs a full rebuild)
-
-### Step 5: Prepare Test Documents
-
-Create a test directory with some documents:
-
-```bash
-mkdir -p ~/test-docs
-echo "Artificial intelligence is transforming technology." > ~/test-docs/ai.txt
-echo "Machine learning is a subset of AI." > ~/test-docs/ml.txt
-```
-
-Set Documents Directory to `~/test-docs` in the plugin settings.
-
-## First Query
-
-### Step 6: Start a Chat
-
-1. Open a new chat in LM Studio
-2. Make sure your LLM model is loaded
-3. Send a message: **"What is artificial intelligence?"**
-
-### What Happens:
-
-1. **First Run**: The plugin will automatically:
-   - Perform sanity checks
-   - Initialize the vector store
-   - Scan your documents directory
-   - Index all files (this may take a few minutes)
-   - Search for relevant content
-   - Inject results into the context
-
-2. **Subsequent Runs**: The plugin will:
-   - Use the existing index
-   - Only index new/modified files
-   - Search and retrieve instantly
-
-> **Need to force a rebuild?** Flip **Manual Reindex Trigger** ON in the plugin settings. Every chat will then kick off indexing again—full rebuilds if *Skip Previously Indexed Files* is OFF, or incremental updates when it’s ON. Remember to switch the toggle back OFF when you’re finished so normal incremental behavior resumes.
-
-### Expected Output:
-
-The LLM will respond using information from your indexed documents, with citations like:
+The plugin does nothing until both directories are set. Until then it says so
+and passes your message through untouched:
 
 ```
-Based on the provided documents:
-
-Citation 1 mentions that "Artificial intelligence is transforming technology."
-Citation 2 explains that "Machine learning is a subset of AI."
-
-[Model's response incorporating this information...]
+Big RAG is not in use: set Documents Directory and Vector Store Directory in
+Big RAG's global settings.
 ```
 
-## Next Steps
+### Per-chat settings
 
-### Index Your Real Documents
+| Setting | Default | Notes |
+|---|---|---|
+| **Retrieval Depth** | Medium | `Low` searches by meaning only. `Medium` adds date matching and keyword reranking, with no extra model calls. `High` also asks the model to draft a likely answer and searches for that too — one extra model call per message. |
+| **Reindex** | No reindex | `Always index new & changed files` re-scans every message and processes only what changed. `Always rebuild everything` rebuilds from scratch every message — leave it off unless you mean it. |
 
-1. Point Documents Directory to your actual document collection
-2. Clear the vector store if you want to start fresh:
-   ```bash
-   rm -rf ~/.lmstudio/big-rag-db/*
-   ```
-3. Send a query to trigger indexing
+## First query
 
-### Optimize Settings
+Send any message. On a fresh vector store the plugin indexes before answering,
+so the first message takes as long as indexing takes.
 
-Based on your dataset:
+You should see, in order:
 
-**Small Dataset (<100 files, <100MB):**
-- Use default settings
-- Expected indexing time: 5-15 minutes
+1. `Using Big RAG` while it checks the directories and opens the vector store
+2. Indexing progress, file by file
+3. `Searching by meaning and dates...` (at Medium)
+4. `Retrieved 5 relevant passages (meaning 4, dates 1)`
+5. An answer with citations you can click
 
-**Medium Dataset (100-1000 files, 100MB-1GB):**
-- Increase Max Concurrent Files to 5
-- Consider increasing Chunk Size to 768
-- Expected indexing time: 30-60 minutes
+In the terminal, the useful lines are:
 
-**Large Dataset (1000+ files, 1GB+):**
-- Adjust Max Concurrent Files based on RAM (2-3 for <8GB RAM, 5+ for 16GB+ RAM)
-- Increase Chunk Size to 1024
-- Disable OCR unless needed
-- Expected indexing time: 2+ hours
+```
+[BigRAG] Lanes: meaning=50 likely-wording=0 dates=3 ranges=none
+[BigRAG] Retrieval timings: embedQuery=7ms vectorSearch=412ms dateLane=2ms keywordRerank=6ms fuse=1ms
+```
 
-### Monitor Progress
-
-Watch the LM Studio interface for:
-- Sanity check results
-- Indexing progress (X/Y files)
-- Retrieval status
-- Any warnings or errors
+The timings line tells you which signals actually ran, which is the quickest
+way to confirm the plugin is doing what the depth setting claims.
 
 ## Troubleshooting
 
-### "No relevant content found"
+**`No relevant content found in indexed documents`** — retrieval ran and found
+nothing above the floor. Check that indexing finished (the terminal reports a
+file count), and that the question shares vocabulary with the documents. Try
+`High` depth, which searches for a drafted answer as well and finds passages
+worded unlike the question.
 
-**Solution**: Lower the Affinity Threshold to 0.3-0.4
+**`Reindex required`** — the index was built with a different embedding model or
+chunk format. Set **Reindex** to `Always rebuild everything`, send one message,
+then set it back to `No reindex`.
 
-### "Documents directory not configured"
+**Indexing is slow** — the parsers are the cost, not the embedding. Scanned PDFs
+are the worst case, since they fall through to OCR. Exclude what you do not
+need with **Exclude filename patterns** rather than waiting.
 
-**Solution**: Set the Documents Directory in plugin settings
+**Answers cite the wrong thing** — check how many passages came back. If one
+question has exactly one good answer and you still receive five passages, four
+of them are padding, and a small model may follow the wrong one. That is the
+`passageRelevanceCut` default, which currently ships at `0`; see
+[Development](documentation/Development.md).
 
-### Indexing is slow
+## Next
 
-**Solution**: 
-- Reduce Max Concurrent Files to 1-2
-- Disable OCR
-- Check disk speed (use SSD if possible)
-
-### Out of memory
-
-**Solution**:
-- Set Max Concurrent Files to 1
-- Close other applications
-- Process documents in smaller batches
-
-## Tips
-
-1. **Start Small**: Test with a small subset before indexing everything
-2. **Use SSD**: Store vector database on SSD for better performance
-3. **Monitor Resources**: Watch CPU and memory usage during indexing
-4. **Backup**: Keep backups of your vector store directory
-5. **Experiment**: Try different threshold and chunk size settings
-
-## Common Use Cases
-
-### Personal Knowledge Base
-```
-Documents: ~/Documents/Notes
-Vector Store: ~/.lmstudio/notes-db
-Settings: Defaults work well
-```
-
-### Technical Documentation
-```
-Documents: ~/Code/project/docs
-Vector Store: ~/.lmstudio/project-docs-db
-Chunk Size: 1024 (larger for technical content)
-```
-
-### Research Papers
-```
-Documents: ~/Research/papers
-Vector Store: ~/.lmstudio/research-db
-Retrieval Limit: 10 (more results)
-Affinity Threshold: 0.6 (higher precision)
-```
-
-## Getting Help
-
-- Check the [README.md](README.md) for detailed documentation
-- See [EXAMPLES.md](EXAMPLES.md) for usage examples
-- Read [TESTING.md](TESTING.md) for testing scenarios
-- Join the [LM Studio Discord](https://discord.gg/6Q7Xn6MRVS)
-
-## What's Next?
-
-Now that you have the plugin running:
-
-1. Index your document collection
-2. Experiment with different queries
-3. Tune settings for optimal results
-4. Explore advanced features in the full documentation
-
-Happy querying! 🚀
-
+- [User Guide](documentation/UserGuide.md) — every setting, reindexing, troubleshooting
+- [Command-Line Tools](documentation/CLI.md) — indexing without the LM Studio interface
+- [Testing Guide](TESTING.md) — how to exercise the plugin by hand
+- [Evaluation](documentation/Evaluation.md) — what has actually been measured

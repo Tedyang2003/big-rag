@@ -1,5 +1,10 @@
 # Usage Examples
 
+Six collections, and what differs between them. Note how little that is: chunk size,
+retrieval limit, concurrency and the similarity floor are fixed defaults rather than
+settings, so a collection is characterised by its **Retrieval Depth**, its exclude
+patterns and its prompt template. The queries are the interesting part.
+
 This document provides practical examples of using the Big RAG Plugin with different types of document collections.
 
 ## Example 1: Technical Documentation Library
@@ -28,12 +33,7 @@ You have a large collection of technical documentation, API references, and tuto
 
 - **Documents Directory**: `~/Documents/tech-library`
 - **Vector Store Directory**: `~/.lmstudio/tech-library-db`
-- **Chunk Size**: 1024 (larger chunks for technical content)
-- **Chunk Overlap**: 200
-- **Retrieval Limit**: 7
-- **Affinity Threshold**: 0.6
-- **Max Concurrent Files**: 5
-- **OCR**: Disabled
+- **Retrieval Depth**: High — reference prose is worded unlike the questions asked of it
 
 ### Example Queries
 
@@ -80,12 +80,7 @@ You're a researcher with hundreds of PDF papers that you want to search and refe
 
 - **Documents Directory**: `~/Research/papers`
 - **Vector Store Directory**: `~/.lmstudio/research-db`
-- **Chunk Size**: 768 (balanced for academic writing)
-- **Chunk Overlap**: 150
-- **Retrieval Limit**: 10 (more results for research)
-- **Affinity Threshold**: 0.55
-- **Max Concurrent Files**: 3 (PDFs are slower to parse)
-- **OCR**: Disabled (assuming text-based PDFs)
+- **Retrieval Depth**: High — a question in English sits far from a results table
 
 ### Example Queries
 
@@ -134,12 +129,7 @@ A law firm with thousands of legal documents, contracts, and case files.
 
 - **Documents Directory**: `~/Legal/documents`
 - **Vector Store Directory**: `~/.lmstudio/legal-db`
-- **Chunk Size**: 512 (standard for legal text)
-- **Chunk Overlap**: 100
-- **Retrieval Limit**: 5
-- **Affinity Threshold**: 0.7 (higher precision for legal)
-- **Max Concurrent Files**: 2 (careful processing)
-- **OCR**: Enabled (for scanned documents)
+- **Retrieval Depth**: Medium — clause wording usually appears in the question
 
 ### Example Queries
 
@@ -190,12 +180,7 @@ Personal collection of notes, articles, ebooks, and saved web pages.
 
 - **Documents Directory**: `~/Knowledge`
 - **Vector Store Directory**: `~/.lmstudio/knowledge-db`
-- **Chunk Size**: 512
-- **Chunk Overlap**: 100
-- **Retrieval Limit**: 5
-- **Affinity Threshold**: 0.5
-- **Max Concurrent Files**: 4
-- **OCR**: Enabled (for recipe images, etc.)
+- **Retrieval Depth**: Medium
 
 ### Example Queries
 
@@ -244,12 +229,7 @@ Large codebase with documentation, README files, and code comments.
 
 - **Documents Directory**: `~/Projects/myapp`
 - **Vector Store Directory**: `~/.lmstudio/myapp-docs-db`
-- **Chunk Size**: 768
-- **Chunk Overlap**: 150
-- **Retrieval Limit**: 6
-- **Affinity Threshold**: 0.55
-- **Max Concurrent Files**: 5
-- **OCR**: Disabled
+- **Retrieval Depth**: Medium; add `*.min.js` and `node_modules/**` to **Exclude filename patterns**
 
 ### Example Queries
 
@@ -293,12 +273,7 @@ Healthcare provider with anonymized patient records, research notes, and medical
 
 - **Documents Directory**: `~/Medical/data`
 - **Vector Store Directory**: `~/.lmstudio/medical-db`
-- **Chunk Size**: 512
-- **Chunk Overlap**: 100
-- **Retrieval Limit**: 8
-- **Affinity Threshold**: 0.65 (higher precision for medical)
-- **Max Concurrent Files**: 3
-- **OCR**: Enabled (for scanned records)
+- **Retrieval Depth**: Medium — Low if the records are highly formulaic
 
 ### Example Queries
 
@@ -316,71 +291,54 @@ Healthcare provider with anonymized patient records, research notes, and medical
 - Identifies similar presentations
 - Helps with differential diagnosis
 
-## Performance Tips by Use Case
+## Notes by Collection Type
 
-### Large Text Collections (>10GB)
-- Use higher concurrency (5-8)
-- Disable OCR unless needed
-- Consider processing in batches
-- Use SSD for vector store
+**Large collections.** The vector store shards every 10,000 chunks, and a search
+parses each shard it touches, so search time grows with the index rather than
+with the query. Parsing, not embedding, dominates the initial run.
 
-### PDF-Heavy Collections
-- Lower concurrency (2-3)
-- Increase chunk size (1024+)
-- Allow more time for initial indexing
-- Monitor memory usage
+**PDF-heavy collections.** A text-bearing PDF is read directly; a scanned one
+falls through to OCR, which is far slower. If a collection is mostly scans,
+expect indexing to take hours and plan to leave it running.
 
-### Mixed Media Collections
-- Enable OCR selectively
-- Use moderate concurrency (3-4)
-- Adjust threshold based on quality
-- Test with small subset first
+**Code repositories.** Exclude build output and vendored dependencies with
+**Exclude filename patterns** — `node_modules/**`, `dist/**`, `*.min.js`. The
+scanner walks everything under the documents directory, including those.
 
-### Frequently Updated Collections
-- Enable auto-reindex
-- Use file watching (future feature)
-- Keep vector store on fast storage
-- Regular maintenance
+**Frequently updated collections.** Set **Reindex** to `Always index new &
+changed files`. Each message re-scans and processes only files whose hash
+changed, which is cheap once the first run is done. `Always rebuild everything`
+rebuilds on every message and is almost never what you want.
 
-## Troubleshooting Examples
+## Troubleshooting
 
-### Example: No Results for Known Content
+**Content you know exists is not found.** Confirm the file was indexed at all —
+the terminal reports a count and names what failed. Then try **High** depth,
+which drafts a likely answer and searches for that too; it is the only setting
+that helps when a question is worded unlike the document. Rephrasing the
+question towards the document's own vocabulary also works, because keyword
+reranking matches literal terms.
 
-**Problem**: Querying for content you know exists returns no results.
+**Irrelevant passages come back alongside the right one.** Expected at present.
+`passageRelevanceCut` ships at `0`, so results are padded to five rather than
+trimmed to what is comparably relevant. A question with one good answer returns
+that answer plus four weaker passages. Nothing in the settings changes this; see
+[Development](documentation/Development.md).
 
-**Solutions**:
-1. Lower affinity threshold (try 0.3-0.4)
-2. Rephrase query to match document language
-3. Check that file was actually indexed
-4. Verify file format is supported
+**Answers cite an outdated document.** Retrieval has no notion of supersession.
+A revised document does not displace the original, and both may be returned.
+Removing the stale file from the collection is the only reliable fix.
 
-### Example: Too Many Irrelevant Results
-
-**Problem**: Getting too many low-quality matches.
-
-**Solutions**:
-1. Increase affinity threshold (try 0.7-0.8)
-2. Reduce retrieval limit
-3. Use more specific queries
-4. Adjust chunk size for content type
-
-### Example: Slow Indexing
-
-**Problem**: Initial indexing taking too long.
-
-**Solutions**:
-1. Reduce max concurrent files
-2. Disable OCR if not needed
-3. Process subdirectories separately
-4. Check disk I/O performance
+**A follow-up question retrieves nothing useful.** There is no query rewriting,
+so `why?` is searched literally. Ask follow-ups as complete questions.
 
 ## Best Practices
 
-1. **Start Small**: Test with a subset before indexing everything
-2. **Tune Settings**: Adjust based on your specific content
-3. **Monitor Performance**: Watch memory and disk usage
-4. **Regular Maintenance**: Periodically rebuild index for optimization
-5. **Backup**: Keep backups of your vector store
-6. **Document**: Note what settings work best for your use case
-7. **Iterate**: Refine queries and settings based on results
-
+1. **Start with a subset.** Index a handful of files and check the answers before
+   committing to a run of hours.
+2. **Keep the embedding model fixed.** Changing it invalidates every vector and
+   forces a full rebuild.
+3. **Exclude aggressively.** Anything the scanner skips is time you keep.
+4. **Read the status line.** `Retrieved N relevant passages (meaning X, dates Y)`
+   tells you which signals found what.
+5. **Ask self-contained questions.** The plugin searches what you typed.

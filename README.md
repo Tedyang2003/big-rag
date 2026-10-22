@@ -88,6 +88,9 @@ Documents can be indexed without opening a chat, and retrieval quality can be me
 
 ## Documentation
 
+- [Quick Start](QUICKSTART.md): install, the seven settings, and a first query
+- [Testing Guide](TESTING.md): the automated suite, a manual pass, and a measured run
+- [Usage Examples](EXAMPLES.md): six collection types and the queries that suit them
 - [Architecture](documentation/Architecture.md): what each file does, the order things happen in, and where to change what
 - [User Guide](documentation/UserGuide.md): settings, retrieval depth, reindexing and troubleshooting inside LM Studio
 - [Command-Line Tools](documentation/CLI.md): indexing without LM Studio's interface, environment variables and maintainer defaults

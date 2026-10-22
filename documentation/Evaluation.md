@@ -102,7 +102,7 @@ Attributing a signal takes two runs against one index: at Medium, `_DATE=0` shou
 
 The cache is named after its question set and sits beside it — `eval\questions-qasper.json` gives `eval\hypotheticals-qasper.json` — so two datasets can never share one, and a draft written for one question set can never be served to another.
 
-Held constant: `nomic-embed-text-v1.5` embeddings, 512-token chunks (100 overlap, legacy only), 5 passages returned, 0.5 threshold, compaction off, a 50-passage diagnostic pool, RRF constant
+Held constant: `nomic-embed-text-v1.5` embeddings, 512-token chunks (100 overlap, legacy only), 5 passages returned, 0.5 threshold, context compaction off (the feature was removed in 1.7), a 50-passage diagnostic pool, RRF constant
 60. Full list in [CLI.md](CLI.md).
 
 ## How a Question Is Scored

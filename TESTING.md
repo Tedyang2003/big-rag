@@ -1,365 +1,128 @@
-# Testing Guide for Big RAG Plugin
+# Testing Guide
 
-This guide provides instructions for testing the Big RAG plugin with various scenarios and dataset sizes.
+Three kinds of testing, in increasing cost: the automated suite, a manual pass
+in LM Studio, and a measured evaluation run.
 
-## Prerequisites
+## Automated suite
 
-1. LM Studio installed and running
-2. At least one embedding model loaded (e.g., `nomic-ai/nomic-embed-text-v1.5-GGUF`)
-3. At least one LLM loaded for chat
-4. Node.js and npm installed
-
-## Setup for Testing
-
-### 0. Run Parser Smoke Tests
-
-Before larger end-to-end runs, ensure the core parsers succeed:
-
-```bash
-npm run test
+```powershell
+npm test
 ```
 
-This builds the project and executes the per-format parser regression tests in `src/tests/` (one file per format: `htmlParser.test.ts`, `textParser.test.ts`, `pptxParser.test.ts`, `docxParser.test.ts`, `epubParser.test.ts`, `pdfParser.test.ts`, `imageParser.test.ts`, plus `documentParser.test.ts` for format-agnostic dispatch behavior).
+Builds, then runs every test in `dist/tests` with Node's built-in runner —
+394 tests, no LM Studio required. Parsers run against the samples in
+`test-fixtures/`; retrieval, indexing and evaluation run against fake
+embedding models and stores.
 
-### 1. Install Dependencies
+Per-format parser tests are one file each: `htmlParser.test.ts`,
+`textParser.test.ts`, `pdfParser.test.ts`, `docxParser.test.ts`,
+`pptxParser.test.ts`, `epubParser.test.ts`, `imageParser.test.ts`, plus
+`documentParser.test.ts` for format-agnostic dispatch.
 
-```bash
-cd big-rag-plugin
-npm install
+```powershell
+npx tsc --noEmit    # types only, no build
 ```
 
-### 2. Create Test Data
+### What the suite does not cover
 
-Create a test directory structure:
+- The assembled retrieval pipeline. Units are tested; the composition is not.
+- `cliIndex.ts`, which has no test at all.
+- Anything in `promptPreprocessor.ts` that needs a real `ProcessingController` —
+  status lines, citations, history.
+- The installed plugin. Tests run against `src/`, never against the bundled
+  `.lmstudio/production.js` that a user actually runs.
 
-```bash
-mkdir -p ~/test-documents/subfolder1
-mkdir -p ~/test-documents/subfolder2/deep
+Those four gaps are why the manual pass below exists.
+
+## Manual pass in LM Studio
+
+### Mode matters
+
+`npm run dev` runs from `src/` and logs to your terminal. `npm run install-plugin`
+runs the bundled `production.js` from the installed folder. **Test both before
+releasing.** The install path copies the project folder minus git-ignored
+paths, so a runtime file that no module imports — the OCR language pack is the
+one that exists today — can be missing from the install while dev mode works
+perfectly.
+
+### A test bed
+
+Use a small, deliberately varied document set with a scratch vector store you
+are willing to delete. Most interesting behaviour only happens against an empty
+or stale index, so being able to clear it and start again is the single most
+useful thing to have.
+
+A worked example lives outside this repository at
+`test_bed/test 2`, with `document_folder/`, a `to_be_added/` folder for
+supersession tests, an empty `vdb/`, and `QUESTIONS.md` listing 29 questions
+with their expected answers. Build your own on the same shape:
+
+- five or six documents on **unrelated** subjects, so a question about one
+  retrieves four obviously-wrong passages and distraction becomes visible
+- one document long enough to split across chunks (roughly 900 words at the
+  512-token default), with a fact and its explanation in different chunks
+- rare tokens somewhere — part numbers, fault codes — for keyword reranking
+- explicit dates, for the date signal
+- a subfolder, and at least three file formats
+- two documents held back that **contradict** the indexed ones, for testing
+  what happens when a newer document supersedes an older one
+
+### What to exercise
+
+| Area | Do this | Look for |
+|---|---|---|
+| Not configured | Clear both directories, ask anything | `Big RAG is not in use: set ...`, no crash, model answers unaided |
+| First run | Empty vector store, ask a question | Indexing runs before the answer; citations appear |
+| Depths | Same question at Low, Medium, High | Status wording changes; High adds `likely wording` and a second model call |
+| Date signal | Ask about a month or year in the corpus | Non-zero `dates` count and a range in the status |
+| Keyword reranking | Ask using a rare token | `keywordRerank` non-zero in the timings line |
+| Chunk boundaries | Ask something whose answer spans two chunks | Contiguous text, not a fragment |
+| Nothing to find | Ask about something absent | `No relevant content found in indexed documents`, no invented citation |
+| Follow-ups | Ask a question, then `why?` | Degrades gracefully. There is no query rewriting, so a follow-up carrying no searchable words retrieves poorly by design |
+| Supersession | Add a document contradicting an indexed one, reindex with `Always index new & changed files` | The new document is found at all, and ideally both are returned — retrieval has no notion of which supersedes which |
+| Embedding model change | Change the model, ask a question | Demands a reindex rather than searching silently |
+| OCR | Index a scanned PDF | Text extracted, and no network stall on first use |
+| Cancellation | Stop generation mid-answer | No stuck indexing lock; the next question still works |
+| Long chat | Six or more turns | When passages start pushing earlier turns out of the context window |
+
+### Reading the output
+
+| Signal | Where |
+|---|---|
+| `[BigRAG] Retrieval timings: ...` | terminal (dev mode) |
+| `[BigRAG] Lanes: meaning=... likely-wording=... dates=...` | terminal |
+| `Retrieved N relevant passages (meaning X, dates Y)` | LM Studio status row |
+| Citations | the chat response |
+
+The timings line is the most informative single thing: it says which signals
+ran, so it confirms or refutes what the depth setting claims to be doing.
+
+## Measured evaluation
+
+The only way to know retrieval has not regressed. See
+[Evaluation](documentation/Evaluation.md) for recorded results and
+[CLI](documentation/CLI.md) for every option.
+
+```powershell
+$env:BIG_RAG_DOCS_DIR="...\eval\documents\qasper"
+$env:BIG_RAG_DB_DIR="...\eval\qasper_vdbs\structured"
+$env:BIG_RAG_EVAL_FILE="...\eval\questions-qasper.json"
+$env:BIG_RAG_RETRIEVAL_DEPTH="high"
+npm run eval:run
 ```
 
-Add some test files:
-
-```bash
-# Create a simple text file
-echo "This is a test document about artificial intelligence and machine learning." > ~/test-documents/test1.txt
-
-# Create an HTML file
-cat > ~/test-documents/test2.html << 'EOF'
-<!DOCTYPE html>
-<html>
-<head><title>Test Document</title></head>
-<body>
-<h1>Machine Learning Basics</h1>
-<p>Machine learning is a subset of artificial intelligence that focuses on algorithms that can learn from data.</p>
-</body>
-</html>
-EOF
-
-# Create a markdown file in subfolder
-echo "# Deep Learning\n\nDeep learning uses neural networks with multiple layers." > ~/test-documents/subfolder1/test3.md
-```
-
-### 3. Create Vector Store Directory
-
-```bash
-mkdir -p ~/.lmstudio/big-rag-test-db
-```
-
-## Test Scenarios
-
-### Test 1: Basic Functionality
-
-**Objective**: Verify the plugin can index and retrieve from a small dataset.
-
-**Steps**:
-1. Start the plugin in dev mode:
-   ```bash
-   npm run dev
-   ```
-
-2. Configure in LM Studio:
-   - Documents Directory: `~/test-documents`
-   - Vector Store Directory: `~/.lmstudio/big-rag-test-db`
-   - Keep other settings at defaults
-
-3. Send a test query:
-   ```
-   What is machine learning?
-   ```
-
-4. **Expected Result**: The plugin should:
-   - Scan and index the 3 test files
-   - Retrieve relevant passages
-   - Include citations in the response
-
-**Success Criteria**:
-- ✅ Indexing completes without errors
-- ✅ Retrieval finds relevant content
-- ✅ Response includes citations from test files
-
-### Test 2: Large Directory Handling
-
-**Objective**: Test with a larger dataset (100+ files).
-
-**Steps**:
-1. Generate test files:
-   ```bash
-   for i in {1..100}; do
-     echo "Document $i: This document discusses topic $((i % 10)) in detail." > ~/test-documents/doc_$i.txt
-   done
-   ```
-
-2. Clear the vector store:
-   ```bash
-   rm -rf ~/.lmstudio/big-rag-test-db/*
-   ```
-
-3. Restart the plugin and send a query
-
-4. **Expected Result**: 
-   - Indexing should process all 103 files
-   - Progress should be visible in LM Studio
-   - Retrieval should work after indexing
-
-**Success Criteria**:
-- ✅ All files are processed
-- ✅ No memory issues
-- ✅ Indexing completes in reasonable time
-- ✅ Retrieval returns relevant results
-
-### Test 3: Multiple File Types
-
-**Objective**: Verify all supported file types are processed correctly.
-
-**Steps**:
-1. Add different file types to test directory:
-   - Copy a sample PDF
-   - Copy a sample EPUB
-   - Copy a sample image (if OCR enabled)
-
-2. Clear vector store and reindex
-
-3. Query for content that should be in each file type
-
-**Success Criteria**:
-- ✅ PDF files are parsed correctly
-- ✅ EPUB files are parsed correctly
-- ✅ HTML files are parsed correctly
-- ✅ Text files are parsed correctly
-- ✅ Images are processed (if OCR enabled)
-
-### Test 4: Incremental Indexing
-
-**Objective**: Verify that already-indexed files are skipped.
-
-**Steps**:
-1. Index the test directory (first time)
-2. Note the indexing time
-3. Restart the plugin
-4. Send another query (triggers reindex check)
-5. Note the indexing time
-
-**Expected Result**: Second indexing should be much faster as files are already indexed.
-
-**Success Criteria**:
-- ✅ Already-indexed files are skipped
-- ✅ Only new/modified files are processed
-- ✅ Retrieval still works correctly
-
-### Test 5: Concurrent Processing
-
-**Objective**: Test different concurrency settings.
-
-**Steps**:
-1. Set `maxConcurrentFiles` to 1
-2. Index 50 files and note the time
-3. Clear vector store
-4. Set `maxConcurrentFiles` to 5
-5. Index the same 50 files and note the time
-
-**Expected Result**: Higher concurrency should be faster (but use more memory).
-
-**Success Criteria**:
-- ✅ Both settings work correctly
-- ✅ Higher concurrency is faster
-- ✅ No race conditions or errors
-
-### Test 6: Retrieval Threshold Tuning
-
-**Objective**: Test different threshold settings.
-
-**Steps**:
-1. Index test documents
-2. Set `retrievalAffinityThreshold` to 0.9 (very strict)
-3. Send a query
-4. Set `retrievalAffinityThreshold` to 0.3 (very loose)
-5. Send the same query
-
-**Expected Result**: 
-- High threshold: Fewer, more relevant results
-- Low threshold: More results, some less relevant
-
-**Success Criteria**:
-- ✅ Threshold affects number of results
-- ✅ Results are properly filtered
-- ✅ No errors with extreme values
-
-### Test 7: OCR Testing (Optional)
-
-**Objective**: Verify OCR works for image files.
-
-**Steps**:
-1. Enable OCR in settings
-2. Add an image with text to test directory
-3. Clear vector store and reindex
-4. Query for content that's in the image
-
-**Expected Result**: Text from image should be extracted and searchable.
-
-**Success Criteria**:
-- ✅ Image is processed
-- ✅ Text is extracted correctly
-- ✅ Content is retrievable
-
-### Test 8: Error Handling
-
-**Objective**: Verify graceful handling of errors.
-
-**Test Cases**:
-
-1. **Invalid Directory**:
-   - Set documents directory to non-existent path
-   - Send a query
-   - Expected: Warning message, no crash
-
-2. **Corrupted File**:
-   - Add a corrupted PDF to test directory
-   - Reindex
-   - Expected: File is skipped with error log, indexing continues
-
-3. **No Write Permission**:
-   - Set vector store directory to read-only location
-   - Try to index
-   - Expected: Clear error message
-
-4. **Disk Full** (simulated):
-   - Not easily testable, but should fail gracefully
-
-**Success Criteria**:
-- ✅ Plugin doesn't crash
-- ✅ Clear error messages
-- ✅ Other files continue to process
-
-## Performance Benchmarks
-
-### Small Dataset (10 files, ~1MB total)
-- **Expected Indexing Time**: 10-30 seconds
-- **Expected Query Time**: < 1 second
-- **Memory Usage**: < 200MB
-
-### Medium Dataset (100 files, ~10MB total)
-- **Expected Indexing Time**: 1-3 minutes
-- **Expected Query Time**: < 2 seconds
-- **Memory Usage**: < 500MB
-
-### Large Dataset (1000 files, ~100MB total)
-- **Expected Indexing Time**: 10-30 minutes
-- **Expected Query Time**: < 3 seconds
-- **Memory Usage**: < 1GB
-
-### Very Large Dataset (10000+ files, 1GB+ total)
-- **Expected Indexing Time**: 2-6 hours
-- **Expected Query Time**: < 5 seconds
-- **Memory Usage**: 1-3GB
-
-*Note: Times vary based on hardware, file types, and OCR usage.*
-
-## Debugging
-
-### Enable Debug Logging
-
-The plugin uses LM Studio's logging system. To see debug output:
-
-1. Check LM Studio's developer console
-2. Look for messages prefixed with plugin name
-3. Use `ctl.debug()` calls in code for detailed logging
-
-### Common Issues
-
-1. **"No relevant content found"**
-   - Check that indexing completed
-   - Lower the retrieval threshold
-   - Verify query matches document content
-
-2. **"Vector store not initialized"**
-   - Check vector store directory permissions
-   - Ensure directory path is valid
-   - Check LM Studio logs for initialization errors
-
-3. **Slow indexing**
-   - Reduce concurrent files
-   - Disable OCR if not needed
-   - Check disk I/O performance
-
-4. **High memory usage**
-   - Reduce concurrent files to 1-2
-   - Process documents in smaller batches
-   - Check for memory leaks in parsers
-
-## Cleanup
-
-After testing, clean up test data:
-
-```bash
-# Remove test documents
-rm -rf ~/test-documents
-
-# Remove test vector store
-rm -rf ~/.lmstudio/big-rag-test-db
-```
-
-## Automated Testing (Future)
-
-For automated testing, consider:
-
-1. Unit tests for parsers
-2. Integration tests for indexing pipeline
-3. Performance benchmarks
-4. Regression tests for bug fixes
-
-Example test structure:
-
-```typescript
-describe('DocumentParser', () => {
-  it('should parse HTML correctly', async () => {
-    const result = await parseHTML('test.html');
-    expect(result).toContain('expected text');
-  });
-});
-```
-
-## Reporting Issues
-
-When reporting issues, include:
-
-1. Plugin version
-2. LM Studio version
-3. Operating system
-4. Dataset size and composition
-5. Configuration settings
-6. Error messages and logs
-7. Steps to reproduce
-
-## Performance Tuning Checklist
-
-- [ ] Tested with small dataset
-- [ ] Tested with large dataset
-- [ ] Optimized chunk size for use case
-- [ ] Tuned retrieval threshold
-- [ ] Adjusted concurrency for hardware
-- [ ] Tested OCR performance (if needed)
-- [ ] Verified incremental indexing works
-- [ ] Checked memory usage under load
-- [ ] Tested error handling
-- [ ] Documented optimal settings
-
+Compare against the recorded columns in `documentation/Evaluation.md`. Only
+compare runs that used the same question set.
+
+Note what the harness **cannot** see: it calls `retrieve` directly and never
+reaches `promptPreprocessor`, so anything implemented there — the relevance
+cut, context fitting, citation rendering — is invisible to it. Those must be
+checked by hand.
+
+## Known limitations, so you do not report them as bugs
+
+- **No query rewriting.** A follow-up like `why?` is searched literally.
+- **`passageRelevanceCut` ships at `0`**, so results are padded to the quota
+  rather than trimmed to what is comparably relevant.
+- **No supersession logic.** A revised document does not displace the original.
+- **The eval harness cannot measure the preprocessor**, as above.
