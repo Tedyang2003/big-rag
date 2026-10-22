@@ -37,7 +37,14 @@ export const FIXED_DEFAULTS = {
   // the conversation and the reply, which the host trims to fit. Budgeting against what the
   // conversation leaves instead would starve retrieval as a chat grows.
   ragContextShare: 0.6,
-  // Passages scoring below this share of the best match are dropped rather than padding the
-  // result out to the quota. One strong match returns one passage; several return several.
-  passageRelevanceCut: 0.9,
+  // The share of the best match's similarity a passage must reach to be kept, rather than
+  // padding the result out to the quota. 0 keeps every passage retrieval returned.
+  //
+  // It ships at 0 because it has never been measured: the evaluation harness calls retrieve
+  // directly and never reaches the preprocessor, so no recorded run includes the cut. On
+  // QASPER the median hit sits at rank 5, and a cut trimming past rank 2 would cost more than
+  // keyword reranking and neighbour expansion gained together. An unmeasured filter that can
+  // silently drop correct passages is worse than none, so it stays off until the harness can
+  // see it. The code path is live and takes effect the moment this is raised.
+  passageRelevanceCut: 0,
 } as const;
