@@ -262,7 +262,7 @@ Its ceiling was 4, not the 7 first estimated: three of those seven had evidence 
 
 **The ceiling either way is what is in the pool.** 32 answers are reachable and 56 are not, and two thirds of misses have nothing from the evidence's neighbourhood returned. No filter, limit or expansion touches those. Recall is the whole remaining problem.
 
-### Rewriting the Question: HyDE
+### Drafting an Answer: HyDE
 
 Drafting a passage that would answer the question, and searching for that too, was measured offline first — embedding each draft and checking where the known evidence chunk lands, with no change to the retrieval path. Vector-only over the 50-candidate pool, so not comparable with the Medium runs above:
 
@@ -403,7 +403,7 @@ Reading years halved wrong-document failures but doubled wrong-company ones, bec
 
 ## Open Questions
 
-- **Why is so little reachable?** At best 32 of 88 on FinanceBench and 332 of 892 on QASPER have their evidence in the top 50. Everything measured so far reorders candidates or rewrites the query; none of it reaches an answer the vector search never returned. Recall is where the headroom is.
+- **Why is so little reachable?** At best 32 of 88 on FinanceBench and 332 of 892 on QASPER have their evidence in the top 50. Everything measured so far reorders candidates or searches a drafted answer alongside the question; none of it reaches an answer the vector search never returned. Recall is where the headroom is.
 - **Can a boost rescue without displacing?** Fusion is flat: a boost big enough to lift rank 28 is big enough to push one off rank 1. Weighting the vector lane by its similarity score rather than its rank would let a confident top answer defend itself.
 - **Why is the evidence chunk outranked by its own neighbour?** In every FinanceBench found-but-unreturned answer inside the top five, the chunk beside the evidence came back and the evidence did not. Chunk boundaries are not the cause — the evidence fits one chunk in 56 of 88.
 - **Should a compound question be decomposed?** "Compare X and Y across FY21 and FY22" is four lookups in one, and retrieval serves it only by luck. It would belong above HyDE, at an Extra High depth.
