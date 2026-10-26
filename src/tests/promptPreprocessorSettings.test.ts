@@ -4,16 +4,21 @@ import { type ChatMessage, type PromptPreprocessorController } from "@lmstudio/s
 import { preprocess, reindexChangedStore } from "../promptPreprocessor";
 
 test("reindexChangedStore is false when a run touched nothing (all files skipped as unchanged)", () => {
-  assert.equal(reindexChangedStore({ updatedFiles: 0, newFiles: 0 }), false);
+  assert.equal(reindexChangedStore({ updatedFiles: 0, newFiles: 0, deletedFiles: [] }), false);
 });
 
 test("reindexChangedStore is true when a run updated an existing file", () => {
-  assert.equal(reindexChangedStore({ updatedFiles: 1, newFiles: 0 }), true);
+  assert.equal(reindexChangedStore({ updatedFiles: 1, newFiles: 0, deletedFiles: [] }), true);
 });
 
 test("reindexChangedStore is true when a run added a new file", () => {
-  assert.equal(reindexChangedStore({ updatedFiles: 0, newFiles: 1 }), true);
+  assert.equal(reindexChangedStore({ updatedFiles: 0, newFiles: 1, deletedFiles: [] }), true);
 });
+
+test("reindexChangedStore is true when a run deleted a new file", () => {
+  assert.equal(reindexChangedStore({ updatedFiles: 0, newFiles: 0, deletedFiles: ['a.txt'] }), true);
+});
+
 
 test("preprocess returns the message unchanged and says what to set when directories are missing", async () => {
   const statuses: string[] = [];

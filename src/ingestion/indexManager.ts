@@ -54,6 +54,7 @@ export interface IndexingResult {
   skippedFiles: number;
   updatedFiles: number;
   newFiles: number;
+  deletedFiles: string[]
 }
 
 // Fixed Index Outcome
@@ -200,7 +201,22 @@ export class IndexManager {
         },
       );
 
+      const filePathsSet = new Set(files.map(file => file.path));
+
+      const inventoryItemsMissingFromFiles = Array.from(fileInventory.keys()).filter(
+        path => !filePathsSet.has(path)
+      );      
+
+      for (const missingFile of inventoryItemsMissingFromFiles) {
+        console.log(`${missingFile} is not found, hence deleting from index`)
+        const hashes = fileInventory.get(missingFile) ?? []
+        for (const hash of hashes) {
+          await vectorStore.deleteByFileHash(hash)
+        }
+      }
       
+      
+
       if (
         onProgress &&
         excludedByPattern > 0 &&
@@ -340,6 +356,7 @@ export class IndexManager {
         skippedFiles: skippedCount,
         updatedFiles: updatedCount,
         newFiles: newCount,
+        deletedFiles: inventoryItemsMissingFromFiles
       });
 
       console.log(
@@ -354,6 +371,7 @@ export class IndexManager {
         skippedFiles: skippedCount,
         updatedFiles: updatedCount,
         newFiles: newCount,
+        deletedFiles: inventoryItemsMissingFromFiles
       };
     } catch (error) {
       console.error("Error during indexing:", error);
@@ -368,6 +386,7 @@ export class IndexManager {
       }
       throw error;
     }
+
   }
 
   /**

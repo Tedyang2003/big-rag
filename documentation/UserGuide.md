@@ -24,7 +24,7 @@ The model used to embed documents and questions. Defaults to `nomic-ai/nomic-emb
 
 #### Exclude Filename Patterns
 
-Optional. One glob pattern per line to skip files, matched against each file's path relative to the Documents Directory, for example `*.png` or `archive/**`. Lines starting with `#` are comments. Images are always read with OCR, so exclude them here if they don't contain useful text. Files that are already indexed stay in the index until you rebuild it.
+Optional. One glob pattern per line to skip files, matched against each file's path relative to the Documents Directory, for example `*.png` or `archive/**`. Lines starting with `#` are comments. Images are always read with OCR, so exclude them here if they don't contain useful text. Files already indexed are removed from the index on the next indexing run, since an excluded file is no longer found by the scan.
 
 #### Prompt Template
 

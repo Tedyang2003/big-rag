@@ -33,6 +33,7 @@ export interface RunIndexingResult {
     uniqueFiles: number;
   };
   indexingResult: IndexingResult;
+  deleted_string: string
 }
 
 /**
@@ -137,11 +138,24 @@ export async function runIndexingJob({
     `• New files added: ${indexingResult.newFiles}\n` +
     `• Chunks in store: ${stats.totalChunks}\n` +
     `• Unique files in store: ${stats.uniqueFiles}`;
+  
+  let deleted_string = ''
+  const string_cap = 5
+
+  const deletedFiles = indexingResult.deletedFiles
+
+  if (deletedFiles.length > 0){
+    deleted_string = 'The following files could not be detected from your document directory\n\n' + deletedFiles.join('\n\n') + '\n\nHence we have deleted them from you vector DB as well. You will not be able to query for them.'
+    if (deletedFiles.length > string_cap) {
+      deleted_string = 'The following files could not be detected from your document directory\n\n' + deletedFiles.slice(0,string_cap).join('\n\n') + `\nand ${deletedFiles.length-string_cap} more...` + '\n\nHence we have deleted them from you vector DB as well. You will not be able to query for them.'
+    } 
+  } 
 
   return {
     summary,
     stats,
     indexingResult,
+    deleted_string
   };
 }
 

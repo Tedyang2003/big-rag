@@ -1,7 +1,7 @@
 # Tuning in the Open
 
 Date: 2026-10-22
-Status: Draft
+Status: Completed Implementation
 version: `v1.8.0`
 
 ---

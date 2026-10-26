@@ -327,3 +327,55 @@ test("cancelling a run does not blacklist the file it interrupted", async () => 
     await fs.rm(dbDir, { recursive: true, force: true });
   }
 });
+
+
+test("file delete, results in removal from index", async () => {
+    const docsDir = await fs.mkdtemp(path.join(os.tmpdir(), "big-rag-delete-docs-"));
+    const dbDir = await fs.mkdtemp(path.join(os.tmpdir(), "big-rag-delete-db-"));
+  try {
+
+  
+      await fs.writeFile(path.join(docsDir, 'incident_roundup.txt'), ROUNDUP_TEXT)
+      const store = new VectorStore(dbDir)
+      await store.initialize()
+      
+      const embedded: string[] = [];
+      const embeddingModel = {
+        embed: async (text: string) => {
+          embedded.push(text);
+          return {embedding: [1,0,0]}
+        },
+        countTokens: async (text: string) => text.split(/\s+/).filter(Boolean).length
+      } as unknown as EmbeddingDynamicHandle
+      
+      const base = {
+        documentsDir: docsDir,
+        vectorStore: store,
+        vectorStoreDir: dbDir,
+        embeddingModel,
+        embeddingModelId: "test-model",
+        client: {} as LMStudioClient,
+        chunkSize: 200,
+        chunkOverlap: 0,
+        maxConcurrent: 1,
+        enableOCR: false,
+        skipUnchangedFiles: true,
+        parseDelayMs: 0,
+      };
+      await new IndexManager({ ...base, structuredIndexing: true, rebuildExistingFiles: false}).index();
+      const before_delete = await store.listChunks();
+      let hasFile = before_delete.some(chunk => chunk.fileName === 'incident_roundup.txt')
+
+      assert.ok(hasFile)
+
+      await fs.unlink(path.join(docsDir, 'incident_roundup.txt'));
+
+      await new IndexManager({...base, structuredIndexing: true, rebuildExistingFiles: false}).index()    
+      const after_delete = await store.listChunks();
+      hasFile = after_delete.some(chunk => chunk.fileName === 'incident_roundup.txt')
+      assert.ok(!hasFile)
+  } finally {
+      await fs.rm(docsDir, {recursive: true, force: true})
+      await fs.rm(dbDir, {recursive: true, force: true})      
+  }
+});

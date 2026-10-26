@@ -335,7 +335,7 @@ export async function preprocess(
         });
 
         try {
-          const { indexingResult } = await runIndexingJob({
+          const { indexingResult, deleted_string } = await runIndexingJob({
             client: ctl.client,
             abortSignal: ctl.abortSignal,
             documentsDir,
@@ -388,6 +388,18 @@ export async function preprocess(
           });
 
           console.log(`[BigRAG] Indexing complete: ${indexingResult.successfulFiles}/${indexingResult.totalFiles} files successfully indexed (${indexingResult.failedFiles} failed)`);
+          try {
+            if (deleted_string) {
+              await ctl.client.system.notify({
+                title: "Files removed from index.",
+                description: deleted_string
+              });
+            }
+          } catch(error) {
+            console.warn("[BigRAG] Unable to send reindex notification:", error);
+          }
+
+
         } catch (error) {
           indexStatus.setState({
             status: "canceled",
@@ -755,8 +767,8 @@ const REINDEX_MODE_LABELS: Record<Exclude<ReindexMode, "off">, string> = {
  * should not evict the cache — getCatalog's own chunk-count staleness check
  * still covers anything this misses.
  */
-export function reindexChangedStore(result: { updatedFiles: number; newFiles: number }): boolean {
-  return result.updatedFiles + result.newFiles > 0;
+export function reindexChangedStore(result: { updatedFiles: number; newFiles: number, deletedFiles: string[] }): boolean {
+  return result.updatedFiles + result.deletedFiles.length + result.newFiles > 0;
 }
 
 /** Runs the reindex the chat's Reindex setting asks for, on every message while a mode is selected. */
@@ -790,7 +802,7 @@ async function runRequestedReindex(
 
   // Run an indexing job
   try {
-    const { indexingResult } = await runIndexingJob({
+    const { indexingResult, deleted_string } = await runIndexingJob({
       client: ctl.client,
       abortSignal: ctl.abortSignal,
       documentsDir: settings.documentsDirectory,
@@ -838,6 +850,17 @@ async function runRequestedReindex(
         }
       },
     });
+
+    try {
+      if (deleted_string) {
+        await ctl.client.system.notify({
+          title: "Files removed from index.",
+          description: deleted_string
+        });
+      }
+    } catch(error) {
+      console.warn("[BigRAG] Unable to send reindex notification:", error);
+    }
 
     if (ctl.abortSignal.aborted) {
       status.setState({

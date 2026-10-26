@@ -1,7 +1,7 @@
 # Signals and Defaults
 
 Date: 2026-10-22
-Status: Draft
+Status: Completed Implementation
 version: `v1.7.0`
 
 ---
